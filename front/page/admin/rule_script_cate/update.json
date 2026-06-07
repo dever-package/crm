@@ -1,0 +1,94 @@
+{
+  "page": {
+    "name": "脚本分类编辑",
+    "parent": "crm/rule_script/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/rule_script_cate/create",
+        "name": "脚本分类新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/rule_script_cate/update",
+        "name": "脚本分类编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "placeholder": "例如：流转判断",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "分类名称不能为空。"
+          },
+          {
+            "type": "model",
+            "except": "$form.id",
+            "message": "分类名称已存在。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-radio",
+        "value": "form.status",
+        "mode": "form",
+        "option": "option.status",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-number",
+        "value": "form.sort",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "id": "",
+      "name": "",
+      "status": 1,
+      "sort": 100
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form"
+    }
+  }
+}

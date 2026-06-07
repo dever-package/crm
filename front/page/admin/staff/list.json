@@ -1,0 +1,193 @@
+{
+  "page": {
+    "name": "人员管理",
+    "icon": "users",
+    "parent": "crm-org",
+    "sort": 1
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+          }
+        }
+      },
+      "page-main": {
+        "type": "main",
+        "children": {
+          "table-row": {
+            "type": "container",
+            "className": "overflow-hidden rounded-md border bg-background"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "header-actions": [
+      {
+        "type": "show-button",
+        "name": "新增人员",
+        "meta": {
+          "variant": "default",
+          "size": "sm"
+        },
+        "className": "shrink-0",
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.create",
+            "value": true
+          }
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "savePath": "crm/staff/update",
+          "rowKey": "id",
+          "columns": [
+            {
+              "value": "id",
+              "type": "show-base",
+              "name": "ID"
+            },
+            {
+              "value": "name",
+              "type": "show-base"
+            },
+            {
+              "value": "account.name",
+              "type": "show-base",
+              "name": "账号"
+            },
+            {
+              "value": "department.name",
+              "type": "show-base",
+              "name": "部门"
+            },
+            {
+              "value": "phone",
+              "type": "show-base"
+            },
+            {
+              "value": "status",
+              "type": "form-switch",
+              "meta": {
+                "trueValue": 1,
+                "falseValue": 2
+              }
+            },
+            {
+              "value": "created_at",
+              "type": "show-date"
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "编辑人员",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.editStaffId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.edit",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ],
+    "page-main": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/staff/update",
+          "title": "编辑人员",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.editStaffId"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.create",
+          "pageRoute": "/crm/staff/update",
+          "title": "新增人员",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      }
+    ]
+  },
+  "data": {
+    "table": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 0,
+      "searchFields": [
+        "name",
+        "phone"
+      ]
+    },
+    "actionTarget": {
+      "editStaffId": ""
+    }
+  },
+  "state": {
+    "dialog": {
+      "edit": false,
+      "create": false
+    }
+  },
+  "action": {}
+}

@@ -1,0 +1,132 @@
+{
+  "page": {
+    "name": "资产编辑",
+    "parent": "crm/customer_resource/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/customer_resource/create",
+        "name": "资产新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/customer_resource/update",
+        "name": "资产编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "value": "form.asset_name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "资产名称不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "value": "form.customer_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewCustomerModel&labelField=name&searchFields=code,name,phone&order=id desc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "所属客户不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "searchPlaceholder": "搜索客户编号、姓名、手机号..."
+        }
+      },
+      {
+        "type": "form-select",
+        "value": "form.asset_cate_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewAssetCateModel&filterField=status&filterValue=1&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "资产分类不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "value": "form.asset_status",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewAssetStatusModel&valueField=code&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "资产状态不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-textarea",
+        "value": "form.remark",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "rows": 4
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "id": "",
+      "asset_name": "",
+      "customer_id": "",
+      "asset_cate_id": 1,
+      "asset_status": "default",
+      "remark": ""
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSaveCustomerResource"
+      }
+    }
+  }
+}

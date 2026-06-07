@@ -1,0 +1,89 @@
+{
+  "page": {
+    "name": "等级编辑",
+    "parent": "crm/customer_level/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/customer_level/create",
+        "name": "等级新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/customer_level/update",
+        "name": "等级编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "value": "form.code",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "等级标识不能为空。"
+          },
+          {
+            "type": "model",
+            "except": "$form.id",
+            "message": "等级标识已存在。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-input",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "等级名称不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "id": "",
+      "code": "",
+      "name": ""
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form"
+    }
+  }
+}

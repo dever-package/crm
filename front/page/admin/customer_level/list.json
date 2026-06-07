@@ -1,0 +1,131 @@
+{
+  "page": {
+    "parent": "crm/customer/list",
+    "type": 2,
+    "sort": 4
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "category-shell": {
+        "type": "container",
+        "className": "min-w-0"
+      },
+      "feedback-shell": {
+        "type": "container"
+      }
+    }
+  },
+  "nodes": {
+    "category-shell": [
+      {
+        "type": "show-category-list",
+        "id": "crm-customer-level-category",
+        "value": "search.level",
+        "meta": {
+          "title": "客户等级",
+          "description": "左侧维护客户等级",
+          "remote": false,
+          "defaultFirst": false,
+          "selectable": false,
+          "sortable": true,
+          "sortField": "sort",
+          "sortChangeAction": {
+            "type": "save",
+            "path": "crm/customer_level/update",
+            "params": {
+              "_partial": true,
+              "id": "$row.id",
+              "sort": "$value"
+            }
+          },
+          "createButton": {
+            "name": "新增等级",
+            "icon": "plus",
+            "variant": "outline",
+            "size": "sm",
+            "action": {
+              "click": {
+                "type": "modal",
+                "key": "dialog.create",
+                "value": true
+              }
+            }
+          },
+          "buttons": [
+            {
+              "icon": "square-pen",
+              "variant": "ghost",
+              "size": "sm",
+              "description": "编辑当前等级",
+              "action": {
+                "click": [
+                  {
+                    "type": "data",
+                    "key": "actionTarget.id",
+                    "value": "$row.id"
+                  },
+                  {
+                    "type": "modal",
+                    "key": "dialog.edit",
+                    "value": true
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.create",
+          "pageRoute": "/crm/customer_level/update",
+          "description": "新增后可在客户信息中选择。",
+          "assistant": false,
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/customer_level/update",
+          "description": "修改等级名称后，客户列表和客户编辑表单会同步显示新名称。",
+          "assistant": false,
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.id"
+          },
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      }
+    ]
+  },
+  "data": {
+    "search": {
+      "level": ""
+    },
+    "actionTarget": {
+      "id": ""
+    }
+  },
+  "state": {
+    "dialog": {
+      "create": false,
+      "edit": false
+    }
+  },
+  "action": {}
+}

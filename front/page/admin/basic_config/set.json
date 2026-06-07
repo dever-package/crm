@@ -1,0 +1,73 @@
+{
+  "page": {
+    "name": "基本配置",
+    "parent": "crm/customer/list",
+    "type": 2,
+    "sort": 5,
+    "auth": [
+      {
+        "key": "crm/basic_config/set",
+        "name": "基本配置",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "name": "客户编号前缀",
+        "value": "form.customer_code_prefix",
+        "mode": "form",
+        "placeholder": "例如：GJJ-",
+        "info": "客户编号保存为年月日加 6 位随机数，列表展示时会自动拼接此前缀。",
+        "validate": [
+          {
+            "type": "required",
+            "message": "客户编号前缀不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "controlClassName": "max-w-[220px]"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_model": "crm.NewBasicConfigModel",
+      "id": 1,
+      "customer_code_prefix": "GJJ-"
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "use": "crm.NewBasicConfigModel",
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSaveBasicConfig"
+      }
+    }
+  }
+}

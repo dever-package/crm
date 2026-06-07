@@ -1,0 +1,268 @@
+{
+  "page": {
+    "name": "数据模板",
+    "icon": "database",
+    "parent": "crm-flow",
+    "sort": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header",
+        "className": "gap-4",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+          }
+        }
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5 sm:gap-6",
+        "children": {
+          "tabs-row": {
+            "type": "container",
+            "className": "flex items-center"
+          },
+          "content-shell": {
+            "type": "container",
+            "className": "flex min-w-0 flex-col gap-4",
+            "children": {
+              "toolbar-row": {
+                "type": "row",
+                "className": "flex-wrap items-center gap-3"
+              },
+              "table-row": {
+                "type": "container",
+                "className": "overflow-hidden rounded-md border bg-background"
+              }
+            }
+          },
+          "feedback-shell": {
+            "type": "container"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page",
+        "className": "min-w-0 flex-1"
+      }
+    ],
+    "header-actions": [
+      {
+        "type": "show-button",
+        "name": "新增模板",
+        "className": "shrink-0",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "icon": "plus"
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.create",
+            "value": true
+          }
+        }
+      }
+    ],
+    "tabs-row": [
+      {
+        "type": "nav-tab",
+        "value": "search.cate_id",
+        "meta": {
+          "target": "data.search.cate_id",
+          "variant": "pill",
+          "remoteSearch": true,
+          "queryKey": "cate_id",
+          "searchLayoutId": "toolbar-row",
+          "tabs": [
+            {
+              "label": "客户信息",
+              "value": 1
+            },
+            {
+              "label": "客户资产",
+              "value": 2
+            }
+          ]
+        }
+      }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-input",
+        "placeholder": "搜索模板名称...",
+        "value": "search.keyword",
+        "mode": "search"
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "searchSubmit": true
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "savePath": "crm/data_template/update",
+          "rowKey": "id",
+          "columns": [
+            {
+              "name": "模板ID",
+              "value": "id",
+              "type": "show-base"
+            },
+            {
+              "name": "模板名称",
+              "value": "name",
+              "type": "show-base"
+            },
+            {
+              "value": "cate.name",
+              "name": "分类",
+              "type": "show-base"
+            },
+            {
+              "name": "字段数量",
+              "value": "fields",
+              "type": "show-base",
+              "meta": {
+                "format": "count",
+                "countUnit": "个字段"
+              }
+            },
+            {
+              "name": "排序",
+              "value": "sort",
+              "type": "show-base",
+              "editor": "form-number",
+              "trigger": "doubleClick"
+            },
+            {
+              "name": "创建时间",
+              "value": "created_at",
+              "type": "show-date"
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "编辑",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.editDataTemplateId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.edit",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/data_template/update",
+          "title": "编辑数据模板",
+          "size": "3xl",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.editDataTemplateId"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.create",
+          "pageRoute": "/crm/data_template/update",
+          "title": "新增数据模板",
+          "size": "3xl",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "cate_id": "data.search.cate_id"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      }
+    ]
+  },
+  "data": {
+    "search": {
+      "cate_id": 1
+    },
+    "table": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 0,
+      "defaultFilters": {
+        "cate_id": 1
+      },
+      "searchFields": [
+        "name"
+      ],
+      "filterFields": [
+        "cate_id"
+      ]
+    },
+    "actionTarget": {
+      "editDataTemplateId": ""
+    }
+  },
+  "state": {
+    "dialog": {
+      "edit": false,
+      "create": false
+    }
+  },
+  "action": {}
+}

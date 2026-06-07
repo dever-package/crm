@@ -1,0 +1,61 @@
+{
+  "page": {
+    "name": "统计看板",
+    "icon": "chart-column",
+    "parent": "crm-customer",
+    "sort": 91,
+    "type": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header"
+      },
+      "page-main": {
+        "type": "main",
+        "className": "grid gap-4 md:grid-cols-3",
+        "children": {
+          "summary": {
+            "type": "container",
+            "className": "md:col-span-3 grid gap-4 md:grid-cols-3"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "summary": [
+      {
+        "type": "show-base",
+        "name": "客户资产总数",
+        "value": "summary.resource_total"
+      },
+      {
+        "type": "show-base",
+        "name": "待处理任务",
+        "value": "summary.task_pending"
+      },
+      {
+        "type": "show-base",
+        "name": "超时任务",
+        "value": "summary.task_overdue"
+      }
+    ]
+  },
+  "data": {
+    "summary": {
+      "resource_total": 0,
+      "task_pending": 0,
+      "task_overdue": 0
+    }
+  },
+  "state": {},
+  "action": {}
+}

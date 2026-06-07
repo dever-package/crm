@@ -1,0 +1,137 @@
+{
+  "page": {
+    "name": "任务结果编辑",
+    "parent": "crm/task_result/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/task_result/create",
+        "name": "任务结果新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/task_result/update",
+        "name": "任务结果编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-select",
+        "value": "form.task_template_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewTaskTemplateModel&labelField=name&searchFields=task_key,name&pageSize=200&order=sort asc,id asc",
+        "validate": [
+          {
+            "type": "required",
+            "message": "任务模板不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-input",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "结果名称不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-input",
+        "value": "form.result_value",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "结果值不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-switch",
+        "value": "form.is_success",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-switch",
+        "value": "form.requires_comment",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-radio",
+        "value": "form.status",
+        "mode": "form",
+        "option": "option.status",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-number",
+        "value": "form.sort",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "id": "",
+      "task_template_id": "",
+      "name": "",
+      "result_value": "",
+      "is_success": true,
+      "requires_comment": false,
+      "status": 1,
+      "sort": 100
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form"
+    }
+  }
+}

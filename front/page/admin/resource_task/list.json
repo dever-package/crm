@@ -1,0 +1,191 @@
+{
+  "page": {
+    "name": "任务中心",
+    "icon": "list-checks",
+    "parent": "crm-customer",
+    "sort": 90,
+    "type": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header"
+      },
+      "page-main": {
+        "type": "main",
+        "children": {
+          "table-row": {
+            "type": "container",
+            "className": "overflow-hidden rounded-md border bg-background"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "savePath": "crm/resource_task/update",
+          "rowKey": "id",
+          "columns": [
+            {
+              "value": "id",
+              "type": "show-base",
+              "name": "ID"
+            },
+            {
+              "value": "task_name",
+              "type": "show-base"
+            },
+            {
+              "value": "resource.asset_name",
+              "type": "show-base",
+              "name": "客户资产"
+            },
+            {
+              "value": "flow_template.name",
+              "type": "show-base",
+              "name": "流程模板"
+            },
+            {
+              "value": "flow_release.version",
+              "type": "show-base",
+              "name": "发布版本"
+            },
+            {
+              "value": "stage.name",
+              "type": "show-base",
+              "name": "阶段"
+            },
+            {
+              "value": "task_template.name",
+              "type": "show-base",
+              "name": "任务模板"
+            },
+            {
+              "value": "status",
+              "type": "show-tag"
+            },
+            {
+              "value": "executor_mode",
+              "type": "show-tag"
+            },
+            {
+              "value": "assignee_department.name",
+              "type": "show-base",
+              "name": "处理部门"
+            },
+            {
+              "value": "assignee_staff.name",
+              "type": "show-base",
+              "name": "处理人"
+            },
+            {
+              "value": "result_value",
+              "type": "show-base"
+            },
+            {
+              "value": "deadline_at",
+              "type": "show-date"
+            },
+            {
+              "value": "finished_at",
+              "type": "show-date"
+            },
+            {
+              "value": "created_at",
+              "type": "show-date"
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "处理任务",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.editResourceTaskId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.edit",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ],
+    "page-main": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/resource_task/update",
+          "title": "处理任务",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.editResourceTaskId"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      }
+    ]
+  },
+  "data": {
+    "table": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 0,
+      "searchFields": [
+        "task_name",
+        "task_key",
+        "result_value",
+        "result_text"
+      ]
+    },
+    "actionTarget": {
+      "editResourceTaskId": ""
+    }
+  },
+  "state": {
+    "dialog": {
+      "edit": false
+    }
+  },
+  "action": {}
+}

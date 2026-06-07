@@ -1,0 +1,344 @@
+{
+  "page": {
+    "name": "客户信息",
+    "icon": "contact-round",
+    "parent": "crm-customer",
+    "sort": 1
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+          }
+        }
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5",
+        "children": {
+          "toolbar-row": {
+            "type": "row",
+            "className": "flex-wrap items-center gap-2.5"
+          },
+          "table-row": {
+            "type": "container",
+            "className": "overflow-hidden rounded-md border bg-background"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "header-actions": [
+      {
+        "type": "show-button",
+        "name": "基本配置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "settings"
+        },
+        "className": "shrink-0",
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.basicConfig",
+            "value": true
+          }
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "来源设置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "tags"
+        },
+        "className": "shrink-0",
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.customerSource",
+            "value": true
+          }
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "等级设置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "badge"
+        },
+        "className": "shrink-0",
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.customerLevel",
+            "value": true
+          }
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "新增客户",
+        "meta": {
+          "variant": "default",
+          "size": "sm"
+        },
+        "className": "shrink-0",
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.create",
+            "value": true
+          }
+        }
+      }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-input",
+        "placeholder": "搜索客户编号、姓名、手机号、微信...",
+        "value": "search.keyword",
+        "mode": "search"
+      },
+      {
+        "type": "form-select",
+        "placeholder": "来源",
+        "value": "search.source",
+        "mode": "search",
+        "option": "/front/route/option?type=model&use=crm.NewCustomerSourceModel&valueField=code&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "searchPlaceholder": "输入来源名称搜索..."
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "searchSubmit": true
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "重置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "to": "/crm/customer/list"
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "savePath": "crm/customer/update",
+          "rowKey": "id",
+          "columns": [
+            {
+              "value": "code_display",
+              "type": "show-base",
+              "name": "客户编号"
+            },
+            {
+              "value": "name",
+              "type": "show-base"
+            },
+            {
+              "value": "phone",
+              "type": "show-base"
+            },
+            {
+              "value": "wechat",
+              "type": "show-base"
+            },
+            {
+              "value": "gender",
+              "type": "show-tag"
+            },
+            {
+              "value": "source_name",
+              "type": "show-base",
+              "name": "来源"
+            },
+            {
+              "value": "level_name",
+              "type": "show-base",
+              "name": "客户等级"
+            },
+            {
+              "value": "tags",
+              "type": "show-base"
+            },
+            {
+              "value": "created_at",
+              "type": "show-date"
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "编辑客户",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.editCustomerId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.edit",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ],
+    "page-main": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.basicConfig",
+          "pageRoute": "/crm/basic_config/set",
+          "title": "基本配置",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": 1
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/customer/update",
+          "title": "编辑客户",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.editCustomerId"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.create",
+          "pageRoute": "/crm/customer/update",
+          "title": "新增客户",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.customerSource",
+          "pageRoute": "/crm/customer_source/list",
+          "title": "客户来源",
+          "description": "维护客户来源配置，保存后客户列表和客户编辑表单会同步显示新名称。",
+          "assistant": false,
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.customerLevel",
+          "pageRoute": "/crm/customer_level/list",
+          "title": "客户等级",
+          "description": "维护客户等级配置，保存后客户列表和客户编辑表单会同步显示新名称。",
+          "assistant": false,
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      }
+    ]
+  },
+  "data": {
+    "search": {
+      "keyword": "",
+      "source": ""
+    },
+    "table": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 0,
+      "service": "crm.setting.CrmHook.BuildCustomerRows",
+      "searchFields": [
+        "code",
+        "name",
+        "phone",
+        "wechat",
+        "id_card",
+        "tags"
+      ],
+      "filterFields": [
+        "source"
+      ]
+    },
+    "actionTarget": {
+      "editCustomerId": ""
+    }
+  },
+  "state": {
+    "dialog": {
+      "basicConfig": false,
+      "edit": false,
+      "create": false,
+      "customerSource": false,
+      "customerLevel": false
+    }
+  },
+  "action": {}
+}

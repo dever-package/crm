@@ -1,0 +1,93 @@
+{
+  "page": {
+    "name": "部门编辑",
+    "parent": "crm/department/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/department/create",
+        "name": "部门新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/department/update",
+        "name": "部门编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "value": "form.code",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "部门标识不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-input",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "部门名称不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "value": "form.leader_staff_id",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "id": "",
+      "code": "",
+      "name": "",
+      "leader_staff_id": ""
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form"
+    }
+  }
+}

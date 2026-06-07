@@ -1,0 +1,48 @@
+package model
+
+import (
+	"time"
+
+	"github.com/shemic/dever/orm"
+)
+
+type DataField struct {
+	ID             uint64    `dorm:"primaryKey;autoIncrement;comment:数据字段ID"`
+	DataTemplateID uint64    `dorm:"type:bigint;not null;comment:数据模板"`
+	Name           string    `dorm:"type:varchar(128);not null;comment:字段名称"`
+	FieldType      string    `dorm:"type:varchar(32);not null;default:'text';comment:字段类型"`
+	DefaultValue   string    `dorm:"type:text;not null;default:'';comment:默认值"`
+	Sort           int       `dorm:"type:int;not null;default:100;comment:排序"`
+	Status         int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
+	CreatedAt      time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
+	UpdatedAt      time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
+}
+
+type DataFieldIndex struct {
+	TemplateName   struct{} `unique:"data_template_id,name"`
+	TemplateStatus struct{} `index:"data_template_id,status,sort,id"`
+	TypeStatus     struct{} `index:"field_type,status,id"`
+}
+
+var dataFieldOptionRelation = orm.Relation{
+	Field:      "options",
+	Through:    "crm.NewDataFieldOptionModel",
+	OwnerField: "data_field_id",
+	Order:      "sort asc,id asc",
+}
+
+func NewDataFieldModel() *orm.Model[DataField] {
+	return orm.LoadModel[DataField]("业务数据字段", "crm_data_field", orm.ModelConfig{
+		Index:    DataFieldIndex{},
+		Order:    "sort asc,id asc",
+		Database: "default",
+		Options: map[string]any{
+			"field_type": fieldTypeOptions,
+			"status":     statusOptions,
+		},
+		Relations: []orm.Relation{
+			dataTemplateRelation,
+			dataFieldOptionRelation,
+		},
+	})
+}
