@@ -2,7 +2,7 @@
   "page": {
     "name": "客户信息",
     "icon": "contact-round",
-    "parent": "crm-customer",
+    "parent": "crm-customer-manage",
     "sort": 1
   },
   "layout": {
@@ -77,6 +77,23 @@
       },
       {
         "type": "show-button",
+        "name": "渠道设置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "route"
+        },
+        "className": "shrink-0",
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.customerChannel",
+            "value": true
+          }
+        }
+      },
+      {
+        "type": "show-button",
         "name": "等级设置",
         "meta": {
           "variant": "outline",
@@ -119,11 +136,21 @@
       {
         "type": "form-select",
         "placeholder": "来源",
-        "value": "search.source",
+        "value": "search.source_id",
         "mode": "search",
-        "option": "/front/route/option?type=model&use=crm.NewCustomerSourceModel&valueField=code&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": "/front/route/option?type=model&use=crm.NewCustomerSourceModel&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
         "meta": {
           "searchPlaceholder": "输入来源名称搜索..."
+        }
+      },
+      {
+        "type": "form-select",
+        "placeholder": "渠道",
+        "value": "search.channel_id",
+        "mode": "search",
+        "option": "/front/route/option?type=model&use=crm.NewCustomerChannelModel&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "searchPlaceholder": "输入渠道名称搜索..."
         }
       },
       {
@@ -185,6 +212,11 @@
               "name": "来源"
             },
             {
+              "value": "channel_name",
+              "type": "show-base",
+              "name": "渠道"
+            },
+            {
               "value": "level_name",
               "type": "show-base",
               "name": "客户等级"
@@ -244,9 +276,6 @@
             "confirm": true,
             "confirmText": "保存"
           },
-          "pageRouteQuery": {
-            "id": 1
-          },
           "bodyClassName": "px-6 py-2"
         }
       },
@@ -294,6 +323,18 @@
       {
         "type": "feedback-modal",
         "meta": {
+          "stateKey": "dialog.customerChannel",
+          "pageRoute": "/crm/customer_channel/list",
+          "title": "客户渠道",
+          "description": "维护客户渠道配置，保存后客户列表和客户编辑表单会同步显示新名称。",
+          "assistant": false,
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
           "stateKey": "dialog.customerLevel",
           "pageRoute": "/crm/customer_level/list",
           "title": "客户等级",
@@ -308,7 +349,8 @@
   "data": {
     "search": {
       "keyword": "",
-      "source": ""
+      "source_id": "",
+      "channel_id": ""
     },
     "table": {
       "page": 1,
@@ -324,7 +366,8 @@
         "tags"
       ],
       "filterFields": [
-        "source"
+        "source_id",
+        "channel_id"
       ]
     },
     "actionTarget": {
@@ -337,6 +380,7 @@
       "edit": false,
       "create": false,
       "customerSource": false,
+      "customerChannel": false,
       "customerLevel": false
     }
   },

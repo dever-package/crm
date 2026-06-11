@@ -1,0 +1,203 @@
+{
+  "page": {
+    "name": "客户成员",
+    "icon": "users-round",
+    "parent": "crm/customer/list",
+    "type": 2,
+    "sort": 4
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+          }
+        }
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5",
+        "children": {
+          "table-row": {
+            "type": "container",
+            "className": "overflow-hidden rounded-md border bg-background"
+          },
+          "feedback-shell": {
+            "type": "container"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "header-actions": [
+      {
+        "type": "show-button",
+        "name": "新增成员",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "icon": "plus"
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.create",
+            "value": true
+          }
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "savePath": "crm/customer_member/update",
+          "rowKey": "id",
+          "columns": [
+            {
+              "name": "客户",
+              "value": "customer.name",
+              "type": "show-base"
+            },
+            {
+              "name": "资产",
+              "value": "asset.asset_name",
+              "type": "show-base"
+            },
+            {
+              "name": "部门",
+              "value": "department.name",
+              "type": "show-base"
+            },
+            {
+              "name": "人员",
+              "value": "staff.name",
+              "type": "show-base"
+            },
+            {
+              "name": "关系",
+              "value": "relation_type",
+              "type": "show-tag"
+            },
+            {
+              "name": "可见",
+              "value": "can_view",
+              "type": "form-switch",
+              "meta": {
+                "trueValue": true,
+                "falseValue": false
+              }
+            },
+            {
+              "name": "状态",
+              "value": "status",
+              "type": "form-switch",
+              "meta": {
+                "trueValue": 1,
+                "falseValue": 2
+              }
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "编辑",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.editMemberId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.edit",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/customer_member/update",
+          "title": "编辑客户成员",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.editMemberId"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.create",
+          "pageRoute": "/crm/customer_member/update",
+          "title": "新增客户成员",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      }
+    ]
+  },
+  "data": {
+    "table": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 0,
+      "searchFields": []
+    },
+    "actionTarget": {
+      "editMemberId": ""
+    }
+  },
+  "state": {
+    "dialog": {
+      "edit": false,
+      "create": false
+    }
+  },
+  "action": {}
+}

@@ -2,7 +2,7 @@
   "page": {
     "name": "人员管理",
     "icon": "users",
-    "parent": "crm-org",
+    "parent": "crm-org-manage",
     "sort": 1
   },
   "layout": {
@@ -19,10 +19,30 @@
       },
       "page-main": {
         "type": "main",
+        "className": "flex flex-1 flex-col gap-5 sm:gap-6",
         "children": {
-          "table-row": {
+          "content-shell": {
             "type": "container",
-            "className": "overflow-hidden rounded-md border bg-background"
+            "className": "front-two-pane-layout",
+            "children": {
+              "department-column": {
+                "type": "container",
+                "className": "min-w-0"
+              },
+              "staff-column": {
+                "type": "container",
+                "className": "flex min-w-0 flex-col gap-4",
+                "children": {
+                  "table-row": {
+                    "type": "container",
+                    "className": "overflow-hidden rounded-md border bg-background"
+                  }
+                }
+              }
+            }
+          },
+          "feedback-shell": {
+            "type": "container"
           }
         }
       }
@@ -53,6 +73,56 @@
         }
       }
     ],
+    "department-column": [
+      {
+        "type": "show-category-list",
+        "id": "crm-department-list",
+        "value": "search.department_id",
+        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&extraFields=status,sort",
+        "meta": {
+          "title": "部门管理",
+          "description": "左侧选择部门，右侧维护该部门人员。",
+          "remote": true,
+          "defaultFirst": true,
+          "queryKey": "department_id",
+          "createButton": {
+            "name": "新增部门",
+            "icon": "plus",
+            "variant": "outline",
+            "size": "sm",
+            "action": {
+              "click": {
+                "type": "modal",
+                "key": "dialog.createDepartment",
+                "value": true
+              }
+            }
+          },
+          "buttons": [
+            {
+              "icon": "square-pen",
+              "variant": "ghost",
+              "size": "sm",
+              "description": "编辑当前部门",
+              "action": {
+                "click": [
+                  {
+                    "type": "data",
+                    "key": "actionTarget.editDepartmentId",
+                    "value": "$row.id"
+                  },
+                  {
+                    "type": "modal",
+                    "key": "dialog.editDepartment",
+                    "value": true
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
     "table-row": [
       {
         "type": "show-table",
@@ -73,24 +143,22 @@
             },
             {
               "value": "name",
-              "type": "show-base"
-            },
-            {
-              "value": "account.name",
               "type": "show-base",
-              "name": "账号"
-            },
-            {
-              "value": "department.name",
-              "type": "show-base",
-              "name": "部门"
+              "name": "姓名"
             },
             {
               "value": "phone",
-              "type": "show-base"
+              "type": "show-base",
+              "name": "手机号"
+            },
+            {
+              "value": "staff_type_name",
+              "type": "show-tag",
+              "name": "类型"
             },
             {
               "value": "status",
+              "name": "状态",
               "type": "form-switch",
               "meta": {
                 "trueValue": 1,
@@ -137,7 +205,7 @@
         "type": "show-page"
       }
     ],
-    "page-main": [
+    "feedback-shell": [
       {
         "type": "feedback-modal",
         "meta": {
@@ -164,29 +232,71 @@
             "confirm": true,
             "confirmText": "保存"
           },
+          "pageRouteQuery": {
+            "department_id": "data.search.department_id"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.editDepartment",
+          "pageRoute": "/crm/department/update",
+          "title": "编辑部门",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.editDepartmentId"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.createDepartment",
+          "pageRoute": "/crm/department/update",
+          "title": "新增部门",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
           "bodyClassName": "px-6 py-2"
         }
       }
     ]
   },
   "data": {
+    "search": {
+      "department_id": 1
+    },
     "table": {
       "page": 1,
       "pageSize": 20,
       "total": 0,
+      "service": "crm.setting.CrmHook.BuildStaffRows",
       "searchFields": [
         "name",
         "phone"
+      ],
+      "filterFields": [
+        "department_id"
       ]
     },
     "actionTarget": {
-      "editStaffId": ""
+      "editStaffId": "",
+      "editDepartmentId": ""
     }
   },
   "state": {
     "dialog": {
       "edit": false,
-      "create": false
+      "create": false,
+      "editDepartment": false,
+      "createDepartment": false
     }
   },
   "action": {}

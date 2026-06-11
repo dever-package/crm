@@ -1,0 +1,79 @@
+{
+  "page": {
+    "name": "资源分类编辑",
+    "parent": "crm/public_resource/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/public_resource_cate/create",
+        "name": "资源分类新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/public_resource_cate/update",
+        "name": "资源分类编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "name": "分类名称",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "分类名称不能为空。"
+          },
+          {
+            "type": "model",
+            "except": "$form.id",
+            "message": "分类名称已存在。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "id": "",
+      "name": ""
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSavePublicResourceCate"
+      }
+    }
+  }
+}

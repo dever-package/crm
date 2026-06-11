@@ -83,7 +83,11 @@
   "action": {
     "submit": {
       "type": "save",
-      "params": "form"
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSaveCustomerSource"
+      }
     }
   }
 }

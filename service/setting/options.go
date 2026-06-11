@@ -17,16 +17,16 @@ type OptionService struct{}
 
 var ensureBaseDataTemplateCatesOnce sync.Once
 
-func (OptionService) ProviderLoadAssetCates(c *server.Context, _ []any) any {
+func (OptionService) ProviderLoadStageOptions(c *server.Context, _ []any) any {
 	ctx := context.Background()
 	if c != nil {
 		ctx = c.Context()
 	}
-	ensureDefaultAssetCate(ctx)
-	rows := crmmodel.NewAssetCateModel().SelectMap(ctx, map[string]any{
+	ensureDefaultStage(ctx)
+	rows := crmmodel.NewStageModel().SelectMap(ctx, map[string]any{
 		"status": crmmodel.StatusEnabled,
-	}, assetCateSelectOptions())
-	return loadCrmCateOptions(rows)
+	}, stageSelectOptions())
+	return loadStageOptions(rows)
 }
 
 func (OptionService) ProviderLoadDataTemplateCates(c *server.Context, _ []any) any {
@@ -41,7 +41,7 @@ func (OptionService) ProviderLoadDataTemplateCates(c *server.Context, _ []any) a
 	return loadCrmCateOptions(rows)
 }
 
-func (OptionService) ProviderLoadTaskCollectCascaderOptions(c *server.Context, params []any) any {
+func (OptionService) ProviderLoadFormFieldCascaderOptions(c *server.Context, params []any) any {
 	ctx := context.Background()
 	if c != nil {
 		ctx = c.Context()
@@ -50,11 +50,11 @@ func (OptionService) ProviderLoadTaskCollectCascaderOptions(c *server.Context, p
 	parentID := optionString(c, params, "parent_id", "parentId", "rootValue")
 	switch {
 	case parentID == "" || parentID == "0":
-		return taskCollectCateOptions(ctx)
+		return formFieldCateOptions(ctx)
 	case strings.HasPrefix(parentID, "cate:"):
-		return taskCollectTemplateLevelOptions(ctx, util.ToUint64(strings.TrimPrefix(parentID, "cate:")))
+		return formFieldTemplateLevelOptions(ctx, util.ToUint64(strings.TrimPrefix(parentID, "cate:")))
 	case isCollectMainTemplateSource(parentID):
-		return taskCollectMainFieldOptions(collectMainTemplateCateID(parentID))
+		return formFieldMainFieldOptions(collectMainTemplateCateID(parentID))
 	case strings.HasPrefix(parentID, collectTemplateSourceDataPrefix):
 		cateID, templateID := parseCollectTemplateSource(ctx, parentID)
 		if templateID == 0 {
@@ -68,13 +68,13 @@ func (OptionService) ProviderLoadTaskCollectCascaderOptions(c *server.Context, p
 		if template == nil {
 			return []map[string]any{}
 		}
-		return taskCollectDataFieldOptions(ctx, cateID, templateID, template.Name)
+		return formFieldDataFieldOptions(ctx, cateID, templateID, template.Name)
 	default:
 		return []map[string]any{}
 	}
 }
 
-func (OptionService) ProviderLoadTaskCollectTemplateOptions(c *server.Context, params []any) any {
+func (OptionService) ProviderLoadFormFieldTemplateOptions(c *server.Context, params []any) any {
 	ctx := context.Background()
 	if c != nil {
 		ctx = c.Context()
@@ -85,12 +85,15 @@ func (OptionService) ProviderLoadTaskCollectTemplateOptions(c *server.Context, p
 		cateID = optionUint64(c, params, "form_data_template_cate_id", "formDataTemplateCateId")
 	}
 	if cateID == 0 {
-		cateID = crmmodel.CustomerDataTemplateCateID
+		cateID = optionUint64(c, params, "parent_id", "parentId", "rootValue")
 	}
 	if selected := firstSelectedOptionValue(c, params); selected != "" {
-		if option := taskCollectSelectedTemplateOption(ctx, cateID, selected); option != nil {
+		if option := formFieldSelectedTemplateOption(ctx, cateID, selected); option != nil {
 			return []map[string]any{option}
 		}
+	}
+	if cateID == 0 {
+		return []map[string]any{}
 	}
 	cates := crmmodel.NewDataTemplateCateModel().SelectMap(ctx, map[string]any{
 		"id":     cateID,
@@ -101,7 +104,7 @@ func (OptionService) ProviderLoadTaskCollectTemplateOptions(c *server.Context, p
 		cateID := util.ToUint64(cate["id"])
 		cateName := util.ToStringTrimmed(cate["name"])
 		options = append(options, map[string]any{
-			"id":                    taskCollectMainTemplateOptionID(cateID),
+			"id":                    formFieldMainTemplateOptionID(cateID),
 			"value":                 "主表",
 			"name":                  "主表",
 			"cate_name":             cateName,
@@ -120,7 +123,7 @@ func (OptionService) ProviderLoadTaskCollectTemplateOptions(c *server.Context, p
 			templateID := util.ToUint64(template["id"])
 			templateName := util.ToStringTrimmed(template["name"])
 			options = append(options, map[string]any{
-				"id":                    taskCollectDataTemplateOptionID(templateID),
+				"id":                    formFieldDataTemplateOptionID(templateID),
 				"value":                 templateName,
 				"name":                  templateName,
 				"cate_name":             cateName,
@@ -134,7 +137,7 @@ func (OptionService) ProviderLoadTaskCollectTemplateOptions(c *server.Context, p
 	return options
 }
 
-func taskCollectCateOptions(ctx context.Context) []map[string]any {
+func formFieldCateOptions(ctx context.Context) []map[string]any {
 	allowedCateIDs := map[uint64]bool{
 		crmmodel.CustomerDataTemplateCateID:      true,
 		crmmodel.CustomerAssetDataTemplateCateID: true,
@@ -160,7 +163,7 @@ func taskCollectCateOptions(ctx context.Context) []map[string]any {
 	return options
 }
 
-func taskCollectTemplateLevelOptions(ctx context.Context, cateID uint64) []map[string]any {
+func formFieldTemplateLevelOptions(ctx context.Context, cateID uint64) []map[string]any {
 	if cateID == 0 {
 		return []map[string]any{}
 	}
@@ -194,7 +197,7 @@ func taskCollectTemplateLevelOptions(ctx context.Context, cateID uint64) []map[s
 	return options
 }
 
-func (OptionService) ProviderLoadTaskCollectFieldOptions(c *server.Context, params []any) any {
+func (OptionService) ProviderLoadFormFieldOptions(c *server.Context, params []any) any {
 	ctx := context.Background()
 	if c != nil {
 		ctx = c.Context()
@@ -202,6 +205,9 @@ func (OptionService) ProviderLoadTaskCollectFieldOptions(c *server.Context, para
 	templateSource := optionString(c, params, "data_template_id", "dataTemplateId", "template_id", "templateId")
 	if templateSource == "" {
 		templateSource = optionString(c, params, "form_data_template_id", "formDataTemplateId")
+	}
+	if templateSource == "" {
+		templateSource = optionString(c, params, "parent_id", "parentId", "rootValue")
 	}
 	if templateSource == "" {
 		return []map[string]any{}
@@ -218,16 +224,16 @@ func (OptionService) ProviderLoadTaskCollectFieldOptions(c *server.Context, para
 			cateID = template.CateID
 		}
 	}
-	if cateID == 0 {
-		cateID = crmmodel.CustomerDataTemplateCateID
-	}
 	if selected := firstSelectedOptionValue(c, params); selected != "" {
-		if option := taskCollectSelectedFieldOption(ctx, cateID, templateID, selected); option != nil {
+		if option := formFieldSelectedFieldOption(ctx, cateID, templateID, selected); option != nil {
 			return []map[string]any{option}
 		}
 	}
+	if cateID == 0 {
+		return []map[string]any{}
+	}
 	if templateID == 0 {
-		return taskCollectMainFieldOptions(cateID)
+		return formFieldMainFieldOptions(cateID)
 	}
 	template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{
 		"id":      templateID,
@@ -237,7 +243,7 @@ func (OptionService) ProviderLoadTaskCollectFieldOptions(c *server.Context, para
 	if template == nil {
 		return []map[string]any{}
 	}
-	return taskCollectDataFieldOptions(ctx, cateID, templateID, template.Name)
+	return formFieldDataFieldOptions(ctx, cateID, templateID, template.Name)
 }
 
 func firstSelectedOptionValue(c *server.Context, params []any) string {
@@ -257,26 +263,26 @@ func firstSelectedOptionValue(c *server.Context, params []any) string {
 	return raw
 }
 
-func taskCollectSelectedTemplateOption(ctx context.Context, cateID uint64, selected string) map[string]any {
+func formFieldSelectedTemplateOption(ctx context.Context, cateID uint64, selected string) map[string]any {
 	selected = strings.TrimSpace(selected)
 	if isCollectMainTemplateSource(selected) {
 		selectedCateID := collectMainTemplateCateID(selected)
 		if selectedCateID > 0 {
 			cateID = selectedCateID
 		}
-		return taskCollectMainTemplateOption(ctx, cateID)
+		return formFieldMainTemplateOption(ctx, cateID)
 	}
 	if strings.HasPrefix(selected, collectTemplateSourceDataPrefix) {
 		templateID := util.ToUint64(strings.TrimPrefix(selected, collectTemplateSourceDataPrefix))
-		return taskCollectTemplateOption(ctx, templateID)
+		return formFieldTemplateOption(ctx, templateID)
 	}
 	if templateID := util.ToUint64(selected); templateID > 0 {
-		return taskCollectTemplateOption(ctx, templateID)
+		return formFieldTemplateOption(ctx, templateID)
 	}
 	return nil
 }
 
-func taskCollectMainTemplateOption(ctx context.Context, cateID uint64) map[string]any {
+func formFieldMainTemplateOption(ctx context.Context, cateID uint64) map[string]any {
 	if cateID == 0 {
 		return nil
 	}
@@ -285,7 +291,7 @@ func taskCollectMainTemplateOption(ctx context.Context, cateID uint64) map[strin
 		cateName = cate.Name
 	}
 	return map[string]any{
-		"id":                    taskCollectMainTemplateOptionID(cateID),
+		"id":                    formFieldMainTemplateOptionID(cateID),
 		"value":                 "主表",
 		"name":                  "主表",
 		"cate_name":             cateName,
@@ -295,7 +301,7 @@ func taskCollectMainTemplateOption(ctx context.Context, cateID uint64) map[strin
 	}
 }
 
-func taskCollectTemplateOption(ctx context.Context, templateID uint64) map[string]any {
+func formFieldTemplateOption(ctx context.Context, templateID uint64) map[string]any {
 	if templateID == 0 {
 		return nil
 	}
@@ -309,7 +315,7 @@ func taskCollectTemplateOption(ctx context.Context, templateID uint64) map[strin
 		cateName = cate.Name
 	}
 	return map[string]any{
-		"id":                    taskCollectDataTemplateOptionID(template.ID),
+		"id":                    formFieldDataTemplateOptionID(template.ID),
 		"value":                 templateName,
 		"name":                  templateName,
 		"cate_name":             cateName,
@@ -320,7 +326,7 @@ func taskCollectTemplateOption(ctx context.Context, templateID uint64) map[strin
 	}
 }
 
-func taskCollectSelectedFieldOption(ctx context.Context, cateID uint64, templateID uint64, selected string) map[string]any {
+func formFieldSelectedFieldOption(ctx context.Context, cateID uint64, templateID uint64, selected string) map[string]any {
 	selected = strings.TrimSpace(selected)
 	if strings.HasPrefix(selected, collectFieldSourceMainPrefix) {
 		if templateID != 0 {
@@ -334,14 +340,14 @@ func taskCollectSelectedFieldOption(ctx context.Context, cateID uint64, template
 		if !ok {
 			return nil
 		}
-		return taskCollectMainFieldOption(cateID, 0, option)
+		return formFieldMainFieldOption(cateID, 0, option)
 	}
 	if strings.HasPrefix(selected, collectFieldSourceDataPrefix) {
 		if templateID == 0 {
 			return nil
 		}
 		fieldID := util.ToUint64(strings.TrimPrefix(selected, collectFieldSourceDataPrefix))
-		option := taskCollectDataFieldOption(ctx, fieldID)
+		option := formFieldDataFieldOption(ctx, fieldID)
 		if option == nil {
 			return nil
 		}
@@ -353,11 +359,11 @@ func taskCollectSelectedFieldOption(ctx context.Context, cateID uint64, template
 	return nil
 }
 
-func taskCollectMainTemplateOptionID(cateID uint64) string {
+func formFieldMainTemplateOptionID(cateID uint64) string {
 	return collectMainTemplateSource(cateID)
 }
 
-func taskCollectDataTemplateOptionID(templateID uint64) string {
+func formFieldDataTemplateOptionID(templateID uint64) string {
 	return collectDataTemplateSource(templateID)
 }
 
@@ -388,7 +394,7 @@ func parseCollectTemplateSource(ctx context.Context, source string) (uint64, uin
 	return template.CateID, templateID
 }
 
-func taskCollectDataFieldOptions(ctx context.Context, cateID uint64, templateID uint64, templateName string) []map[string]any {
+func formFieldDataFieldOptions(ctx context.Context, cateID uint64, templateID uint64, templateName string) []map[string]any {
 	rows := crmmodel.NewDataFieldModel().SelectMap(ctx, map[string]any{
 		"data_template_id": templateID,
 		"status":           crmmodel.StatusEnabled,
@@ -414,29 +420,16 @@ func taskCollectDataFieldOptions(ctx context.Context, cateID uint64, templateID 
 	return options
 }
 
-func ensureDefaultAssetCate(ctx context.Context) {
-	model := crmmodel.NewAssetCateModel()
-	if model.Find(ctx, map[string]any{"id": crmmodel.DefaultAssetCateID}) != nil {
-		return
-	}
-	model.Insert(ctx, map[string]any{
-		"id":     crmmodel.DefaultAssetCateID,
-		"name":   "默认资产分类",
-		"status": crmmodel.StatusEnabled,
-		"sort":   10,
-	})
-}
-
-func taskCollectMainFieldOptions(cateID uint64) []map[string]any {
+func formFieldMainFieldOptions(cateID uint64) []map[string]any {
 	fields := collectMainFields[cateID]
 	options := make([]map[string]any, 0, len(fields))
 	for index, field := range fields {
-		options = append(options, taskCollectMainFieldOption(cateID, index, field))
+		options = append(options, formFieldMainFieldOption(cateID, index, field))
 	}
 	return options
 }
 
-func taskCollectMainFieldOption(cateID uint64, index int, field collectFieldOption) map[string]any {
+func formFieldMainFieldOption(cateID uint64, index int, field collectFieldOption) map[string]any {
 	return map[string]any{
 		"id":                    collectMainFieldSource(cateID, field.Key),
 		"value":                 field.Name,
@@ -449,7 +442,7 @@ func taskCollectMainFieldOption(cateID uint64, index int, field collectFieldOpti
 	}
 }
 
-func taskCollectDataFieldOption(ctx context.Context, fieldID uint64) map[string]any {
+func formFieldDataFieldOption(ctx context.Context, fieldID uint64) map[string]any {
 	if fieldID == 0 {
 		return nil
 	}
@@ -535,6 +528,13 @@ func dataTemplateCateSelectOptions() map[string]any {
 	}
 }
 
+func stageSelectOptions() map[string]any {
+	return map[string]any{
+		"field": "main.id, main.name, main.code, main.owner_department_id, main.status, main.sort",
+		"order": "main.sort asc, main.id asc",
+	}
+}
+
 func loadCrmCateOptions(rows []map[string]any) []map[string]any {
 	options := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
@@ -548,6 +548,36 @@ func loadCrmCateOptions(rows []map[string]any) []map[string]any {
 		})
 	}
 	return options
+}
+
+func loadStageOptions(rows []map[string]any) []map[string]any {
+	options := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		name := util.ToStringTrimmed(row["name"])
+		code := util.ToStringTrimmed(row["code"])
+		options = append(options, map[string]any{
+			"id":                  util.ToUint64(row["id"]),
+			"value":               name,
+			"name":                name,
+			"code":                code,
+			"display_name":        stageDisplayName(code, name),
+			"owner_department_id": util.ToUint64(row["owner_department_id"]),
+			"status":              util.ToIntDefault(row["status"], 0),
+			"sort":                util.ToIntDefault(row["sort"], 0),
+		})
+	}
+	return options
+}
+
+func stageDisplayName(code string, name string) string {
+	switch {
+	case code == "":
+		return name
+	case name == "":
+		return code
+	default:
+		return name + " " + code
+	}
 }
 
 func ensureBaseDataTemplateCates(ctx context.Context) {

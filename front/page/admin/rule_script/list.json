@@ -2,8 +2,8 @@
   "page": {
     "name": "脚本规则",
     "icon": "code-2",
-    "parent": "crm-flow",
-    "sort": 3
+    "parent": "crm-business-config",
+    "sort": 99
   },
   "layout": {
     "type": "container",

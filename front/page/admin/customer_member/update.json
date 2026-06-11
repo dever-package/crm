@@ -1,0 +1,129 @@
+{
+  "page": {
+    "name": "客户成员编辑",
+    "parent": "crm/customer_member/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/customer_member/create",
+        "name": "客户成员新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/customer_member/update",
+        "name": "客户成员编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-select",
+        "value": "form.customer_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewCustomerModel&labelField=name&searchFields=name,phone,code&pageSize=200&order=id desc",
+        "validate": [
+          {
+            "type": "required",
+            "message": "客户不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "value": "form.asset_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewCustomerAssetModel&labelField=asset_name&searchFields=asset_name,asset_no&pageSize=200&order=id desc",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "value": "form.department_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "value": "form.staff_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewStaffModel&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id desc&pageSize=200",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-radio",
+        "value": "form.relation_type",
+        "mode": "form",
+        "option": "option.relation_type",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-switch",
+        "value": "form.can_view",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "trueValue": true,
+          "falseValue": false
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_fields": [
+        "customer_id",
+        "asset_id",
+        "department_id",
+        "staff_id",
+        "relation_type",
+        "can_view"
+      ],
+      "id": "",
+      "customer_id": "",
+      "asset_id": "",
+      "department_id": "",
+      "staff_id": "",
+      "relation_type": "viewer",
+      "can_view": true
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form"
+    }
+  }
+}

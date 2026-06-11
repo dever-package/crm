@@ -2,7 +2,8 @@
   "page": {
     "name": "部门管理",
     "icon": "building-2",
-    "parent": "crm-org",
+    "parent": "crm-org-manage",
+    "type": 2,
     "sort": 2
   },
   "layout": {
@@ -72,17 +73,9 @@
               "name": "ID"
             },
             {
-              "value": "code",
-              "type": "show-base"
-            },
-            {
               "value": "name",
-              "type": "show-base"
-            },
-            {
-              "value": "leader_staff.name",
               "type": "show-base",
-              "name": "部门负责人"
+              "name": "部门名称"
             },
             {
               "value": "status",
@@ -176,7 +169,6 @@
       "pageSize": 20,
       "total": 0,
       "searchFields": [
-        "code",
         "name"
       ]
     },

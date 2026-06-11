@@ -40,7 +40,14 @@ func firstUint64(body map[string]any, keys ...string) uint64 {
 	return 0
 }
 
-func defaultResourceNo() string {
+func firstOptionalUint64(values []uint64) uint64 {
+	if len(values) == 0 {
+		return 0
+	}
+	return values[0]
+}
+
+func defaultAssetNo() string {
 	return fmt.Sprintf("DP%s", time.Now().Format("20060102150405"))
 }
 
@@ -55,6 +62,73 @@ func mapFromAny(value any) map[string]any {
 		}
 	}
 	return map[string]any{}
+}
+
+func copyMap(row map[string]any) map[string]any {
+	result := make(map[string]any, len(row))
+	for key, value := range row {
+		result[key] = value
+	}
+	return result
+}
+
+func mapListFromAny(value any) []map[string]any {
+	switch rows := value.(type) {
+	case []map[string]any:
+		return rows
+	case []any:
+		result := make([]map[string]any, 0, len(rows))
+		for _, row := range rows {
+			if mapped := mapFromAny(row); len(mapped) > 0 {
+				result = append(result, mapped)
+			}
+		}
+		return result
+	case string:
+		var decoded []map[string]any
+		if err := json.Unmarshal([]byte(rows), &decoded); err == nil {
+			return decoded
+		}
+		var generic []any
+		if err := json.Unmarshal([]byte(rows), &generic); err == nil {
+			return mapListFromAny(generic)
+		}
+	}
+	return []map[string]any{}
+}
+
+func stringListFromJSON(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return typed
+	case []any:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text := inputText(item); text != "" {
+				result = append(result, text)
+			}
+		}
+		return result
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		var decoded []string
+		if err := json.Unmarshal([]byte(typed), &decoded); err == nil {
+			return decoded
+		}
+		var generic []any
+		if err := json.Unmarshal([]byte(typed), &generic); err == nil {
+			return stringListFromJSON(generic)
+		}
+	}
+	return nil
+}
+
+func containsFold(text string, keyword string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	return keyword == "" || strings.Contains(text, keyword)
 }
 
 func jsonText(value any) string {

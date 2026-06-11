@@ -1,0 +1,112 @@
+{
+  "page": {
+    "name": "资源编辑",
+    "parent": "crm/public_resource/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/public_resource/create",
+        "name": "资源新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/public_resource/update",
+        "name": "资源编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-select",
+        "name": "资源分类",
+        "value": "form.resource_cate_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewPublicResourceCateModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "资源分类不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "资源名称",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "资源名称不能为空。"
+          },
+          {
+            "type": "model",
+            "except": "$form.id",
+            "message": "同一分类下资源名称已存在。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "容量",
+        "value": "form.capacity",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "inputType": "number"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_fields": [
+        "resource_cate_id",
+        "name",
+        "capacity"
+      ],
+      "id": "",
+      "resource_cate_id": 1,
+      "name": "",
+      "capacity": 0
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSavePublicResource"
+      }
+    }
+  }
+}

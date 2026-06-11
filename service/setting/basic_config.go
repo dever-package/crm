@@ -18,9 +18,6 @@ func (CrmHook) ProviderBeforeSaveBasicConfig(_ *server.Context, params []any) an
 
 	record["id"] = crmmodel.DefaultBasicConfigID
 	prefix := strings.TrimSpace(util.ToStringTrimmed(record["customer_code_prefix"]))
-	if prefix == "" {
-		prefix = crmmodel.DefaultCustomerCodePrefix
-	}
 	record["customer_code_prefix"] = prefix
 	return record
 }
@@ -39,9 +36,5 @@ func currentBasicConfig(ctx context.Context) crmmodel.BasicConfig {
 }
 
 func customerCodePrefix(ctx context.Context) string {
-	prefix := strings.TrimSpace(currentBasicConfig(ctx).CustomerCodePrefix)
-	if prefix == "" {
-		return crmmodel.DefaultCustomerCodePrefix
-	}
-	return prefix
+	return strings.TrimSpace(currentBasicConfig(ctx).CustomerCodePrefix)
 }

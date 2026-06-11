@@ -1,0 +1,15 @@
+{
+  "page": {
+    "name": "阶段列表",
+    "parent": "crm/task/list",
+    "type": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {}
+  },
+  "nodes": {},
+  "data": {},
+  "state": {},
+  "action": {}
+}

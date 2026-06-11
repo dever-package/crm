@@ -2,7 +2,7 @@
   "page": {
     "name": "数据模板",
     "icon": "database",
-    "parent": "crm-flow",
+    "parent": "crm-business-config",
     "sort": 2
   },
   "layout": {

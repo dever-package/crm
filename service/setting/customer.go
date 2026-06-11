@@ -2,9 +2,7 @@ package setting
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
 
@@ -13,8 +11,6 @@ import (
 
 	crmmodel "my/package/crm/model"
 )
-
-const maxCustomerCodeAttempts = 30
 
 func (CrmHook) ProviderBeforeSaveCustomer(c *server.Context, params []any) any {
 	record := cloneCrmRecord(params)
@@ -27,10 +23,17 @@ func (CrmHook) ProviderBeforeSaveCustomer(c *server.Context, params []any) any {
 	trimCrmStringField(record, "phone", partial)
 	trimCrmStringField(record, "wechat", partial)
 	trimCrmStringField(record, "id_card", partial)
-	trimCrmStringField(record, "source", partial)
-	trimCrmStringField(record, "level", partial)
 	trimCrmStringField(record, "tags", partial)
 	trimCrmStringField(record, "remark", partial)
+	if shouldNormalizeCrmField(record, "source_id", partial) && util.ToUint64(record["source_id"]) == 0 {
+		record["source_id"] = crmmodel.DefaultCustomerSourceID
+	}
+	if shouldNormalizeCrmField(record, "channel_id", partial) && util.ToUint64(record["channel_id"]) == 0 {
+		record["channel_id"] = crmmodel.DefaultCustomerChannelID
+	}
+	if shouldNormalizeCrmField(record, "level_id", partial) && util.ToUint64(record["level_id"]) == 0 {
+		record["level_id"] = crmmodel.DefaultCustomerLevelID
+	}
 
 	if !partial {
 		if util.ToStringTrimmed(record["name"]) == "" {
@@ -53,7 +56,11 @@ func (CrmHook) ProviderBeforeSaveCustomer(c *server.Context, params []any) any {
 		}
 	}
 	if code == "" {
-		code = generateUniqueCustomerCode(ctx)
+		generatedCode, err := crmmodel.GenerateUniqueCustomerCode(ctx)
+		if err != nil {
+			panicCrmField("form.code", err.Error())
+		}
+		code = generatedCode
 	}
 	record["code"] = code
 	delete(record, "creator_id")
@@ -70,8 +77,6 @@ func (CrmHook) ProviderBuildCustomerRows(c *server.Context, params []any) any {
 	if c != nil {
 		ctx = c.Context()
 	}
-	sourceNames := customerSourceNames(ctx)
-	levelNames := customerLevelNames(ctx)
 	prefix := customerCodePrefix(ctx)
 
 	for _, row := range rows {
@@ -81,16 +86,106 @@ func (CrmHook) ProviderBuildCustomerRows(c *server.Context, params []any) any {
 		} else {
 			row["code_display"] = ""
 		}
-		row["source_name"] = sourceNames[strings.TrimSpace(util.ToString(row["source"]))]
-		if row["source_name"] == "" {
-			row["source_name"] = row["source"]
-		}
-		row["level_name"] = levelNames[strings.TrimSpace(util.ToString(row["level"]))]
-		if row["level_name"] == "" {
-			row["level_name"] = row["level"]
-		}
+		row["source_name"] = relationName(row, "source.name")
+		row["channel_name"] = relationName(row, "channel.name")
+		row["level_name"] = relationName(row, "level.name")
 	}
 	return rows
+}
+
+func (CrmHook) ProviderAfterSaveCustomer(c *server.Context, params []any) any {
+	if c == nil || len(params) == 0 {
+		return nil
+	}
+	payload, ok := params[0].(map[string]any)
+	if !ok {
+		return nil
+	}
+	customerID := savedRecordID(payload)
+	if customerID == 0 {
+		return nil
+	}
+	ensureCustomerInitialStage(c.Context(), customerID)
+	return nil
+}
+
+func ensureCustomerInitialStage(ctx context.Context, customerID uint64) {
+	model := crmmodel.NewCustomerStageModel()
+	if model.Find(ctx, map[string]any{"customer_id": customerID, "asset_id": 0}) != nil {
+		return
+	}
+	stage := crmmodel.NewStageModel().Find(
+		ctx,
+		map[string]any{"status": crmmodel.StatusEnabled},
+		map[string]any{"order": "sort asc, id asc"},
+	)
+	if stage == nil {
+		return
+	}
+	now := time.Now()
+	model.Insert(ctx, map[string]any{
+		"customer_id":            customerID,
+		"asset_id":               uint64(0),
+		"current_stage_code":     stage.Code,
+		"current_department_id":  stage.OwnerDepartmentID,
+		"current_staff_id":       uint64(0),
+		"last_operation_log_id":  uint64(0),
+		"last_transition_log_id": uint64(0),
+		"last_operated_at":       now,
+		"context_json":           "{}",
+		"created_at":             now,
+		"updated_at":             now,
+	})
+}
+
+func (CrmHook) ProviderBeforeSaveCustomerSource(_ *server.Context, params []any) any {
+	return normalizeNamedOptionRecord(params, "来源")
+}
+
+func (CrmHook) ProviderBeforeSaveCustomerChannel(_ *server.Context, params []any) any {
+	return normalizeNamedOptionRecord(params, "渠道")
+}
+
+func (CrmHook) ProviderBeforeSaveCustomerLevel(_ *server.Context, params []any) any {
+	record := cloneCrmRecord(params)
+	if len(record) == 0 {
+		return record
+	}
+	partial := isPartialCrmRecord(record)
+	trimCrmStringField(record, "name", partial)
+	if !partial && util.ToStringTrimmed(record["name"]) == "" {
+		panicCrmField("form.name", "等级名称不能为空。")
+	}
+	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
+	defaultCrmInt(record, "sort", 100, partial)
+	if partial {
+		return record
+	}
+	if util.ToStringTrimmed(record["code"]) == "" {
+		record["code"] = uniqueCustomerLevelCode()
+	}
+	return record
+}
+
+func normalizeNamedOptionRecord(params []any, label string) map[string]any {
+	record := cloneCrmRecord(params)
+	if len(record) == 0 {
+		return record
+	}
+	partial := isPartialCrmRecord(record)
+	trimCrmStringField(record, "code", partial)
+	trimCrmStringField(record, "name", partial)
+	if !partial {
+		if util.ToStringTrimmed(record["code"]) == "" {
+			panicCrmField("form.code", label+"标识不能为空。")
+		}
+		if util.ToStringTrimmed(record["name"]) == "" {
+			panicCrmField("form.name", label+"名称不能为空。")
+		}
+	}
+	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
+	defaultCrmInt(record, "sort", 100, partial)
+	return record
 }
 
 func rowsFromProviderParams(params []any) []map[string]any {
@@ -117,48 +212,10 @@ func rowsFromProviderParams(params []any) []map[string]any {
 	}
 }
 
-func customerSourceNames(ctx context.Context) map[string]string {
-	rows := crmmodel.NewCustomerSourceModel().Select(ctx, map[string]any{})
-	result := make(map[string]string, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		result[row.Code] = row.Name
-	}
-	return result
+func relationName(row map[string]any, key string) string {
+	return strings.TrimSpace(util.ToString(row[key]))
 }
 
-func customerLevelNames(ctx context.Context) map[string]string {
-	rows := crmmodel.NewCustomerLevelModel().Select(ctx, map[string]any{})
-	result := make(map[string]string, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		result[row.Code] = row.Name
-	}
-	return result
-}
-
-func generateUniqueCustomerCode(ctx context.Context) string {
-	model := crmmodel.NewCustomerModel()
-	datePrefix := time.Now().Format("20060102")
-	for i := 0; i < maxCustomerCodeAttempts; i++ {
-		code := datePrefix + randomSixDigits()
-		if model.Find(ctx, map[string]any{"code": code}) == nil {
-			return code
-		}
-	}
-	panicCrmField("form.code", "客户编号生成失败，请重试。")
-	return ""
-}
-
-func randomSixDigits() string {
-	value, err := rand.Int(rand.Reader, big.NewInt(1000000))
-	if err != nil {
-		now := time.Now().UnixNano() % 1000000
-		return fmt.Sprintf("%06d", now)
-	}
-	return fmt.Sprintf("%06d", value.Int64())
+func uniqueCustomerLevelCode() string {
+	return fmt.Sprintf("level_%d", time.Now().UnixNano())
 }

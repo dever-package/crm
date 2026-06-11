@@ -8,7 +8,7 @@ import (
 
 type TaskResult struct {
 	ID              uint64    `dorm:"primaryKey;autoIncrement;comment:任务结果ID"`
-	TaskTemplateID  uint64    `dorm:"type:bigint;not null;comment:任务模板"`
+	TaskID          uint64    `dorm:"type:bigint;not null;comment:任务"`
 	Name            string    `dorm:"type:varchar(64);not null;comment:结果名称"`
 	ResultValue     string    `dorm:"type:varchar(64);not null;comment:结果值"`
 	IsSuccess       bool      `dorm:"not null;default:false;comment:是否成功结果"`
@@ -20,8 +20,8 @@ type TaskResult struct {
 }
 
 type TaskResultIndex struct {
-	TaskValue  struct{} `unique:"task_template_id,result_value"`
-	TaskStatus struct{} `index:"task_template_id,status,sort,id"`
+	TaskValue  struct{} `unique:"task_id,result_value"`
+	TaskStatus struct{} `index:"task_id,status,sort,id"`
 }
 
 func NewTaskResultModel() *orm.Model[TaskResult] {
@@ -32,6 +32,6 @@ func NewTaskResultModel() *orm.Model[TaskResult] {
 		Options: map[string]any{
 			"status": statusOptions,
 		},
-		Relations: []orm.Relation{taskTemplateRelation},
+		Relations: []orm.Relation{taskRelation},
 	})
 }

@@ -1,0 +1,118 @@
+{
+  "page": {
+    "name": "模板字段编辑",
+    "parent": "crm/form/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/form_field/create",
+        "name": "模板字段新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/form_field/update",
+        "name": "模板字段编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-switch",
+        "name": "是否必填",
+        "value": "form.required",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "trueValue": true,
+          "falseValue": false,
+          "controlClassName": "min-w-[6rem]"
+        }
+      },
+      {
+        "type": "form-cascader",
+        "name": "字段",
+        "value": "form.field_path",
+        "mode": "form",
+        "placeholder": "请选择字段",
+        "validate": [
+          {
+            "type": "required",
+            "message": "字段不能为空。"
+          }
+        ],
+        "meta": {
+          "api": "/front/route/option",
+          "type": "service",
+          "use": "crm.setting.OptionService.LoadFormFieldCascaderOptions",
+          "formLayout": "horizontal",
+          "parentField": "parent_id",
+          "rootValue": 0,
+          "valueField": "id",
+          "labelField": "name",
+          "leafField": "leaf",
+          "placeholder": [
+            "选择字段来源",
+            "选择主表或扩展表",
+            "选择字段"
+          ],
+          "searchPlaceholder": [
+            "搜索字段来源...",
+            "搜索表名...",
+            "搜索字段..."
+          ],
+          "controlClassName": "min-w-[9.5rem]"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_fields": [
+        "form_id",
+        "field_path",
+        "required",
+        "name",
+        "sort"
+      ],
+      "service": "crm.setting.CrmHook.BuildFormFieldForm",
+      "id": "",
+      "form_id": "",
+      "field_path": [],
+      "required": true,
+      "name": "",
+      "sort": 100
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSaveFormField"
+      }
+    }
+  }
+}

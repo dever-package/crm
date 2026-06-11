@@ -1,0 +1,178 @@
+{
+  "page": {
+    "name": "预定记录",
+    "icon": "calendar-check",
+    "parent": "crm/public_resource/records",
+    "type": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+          }
+        }
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5",
+        "children": {
+          "toolbar-row": {
+            "type": "row",
+            "className": "flex-wrap items-center gap-2.5"
+          },
+          "table-row": {
+            "type": "container",
+            "className": "overflow-hidden rounded-md border bg-background"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "header-actions": [
+      {
+        "type": "show-button",
+        "name": "返回资源",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "arrow-left",
+          "to": "/crm/public_resource/list"
+        }
+      }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-input",
+        "placeholder": "搜索用途、备注...",
+        "value": "search.keyword",
+        "mode": "search"
+      },
+      {
+        "type": "form-select",
+        "placeholder": "公共资源",
+        "value": "search.resource_id",
+        "mode": "search",
+        "option": "/front/route/option?type=model&use=crm.NewPublicResourceModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200"
+      },
+      {
+        "type": "form-select",
+        "placeholder": "预定状态",
+        "value": "search.booking_status",
+        "mode": "search",
+        "option": "option.booking_status"
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "searchSubmit": true
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "重置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "to": "/crm/public_resource_booking/list"
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "rowKey": "id",
+          "columns": [
+            {
+              "name": "资源",
+              "value": "resource.name",
+              "type": "show-base"
+            },
+            {
+              "name": "客户",
+              "value": "customer.name",
+              "type": "show-base"
+            },
+            {
+              "name": "用途",
+              "value": "title",
+              "type": "show-base"
+            },
+            {
+              "name": "开始时间",
+              "value": "start_at",
+              "type": "show-date"
+            },
+            {
+              "name": "结束时间",
+              "value": "end_at",
+              "type": "show-date"
+            },
+            {
+              "name": "预定状态",
+              "value": "booking_status_name",
+              "type": "show-tag"
+            },
+            {
+              "name": "预定人",
+              "value": "booker_staff.name",
+              "type": "show-base"
+            },
+            {
+              "name": "创建时间",
+              "value": "created_at",
+              "type": "show-date"
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ]
+  },
+  "data": {
+    "search": {
+      "keyword": "",
+      "resource_id": "",
+      "booking_status": ""
+    },
+    "table": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 0,
+      "searchFields": [
+        "title",
+        "remark"
+      ],
+      "filterFields": [
+        "resource_id",
+        "booking_status"
+      ],
+      "service": "crm.setting.CrmHook.BuildPublicResourceBookingRows"
+    }
+  },
+  "state": {},
+  "action": {}
+}

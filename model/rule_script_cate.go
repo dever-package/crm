@@ -6,8 +6,6 @@ import (
 	"github.com/shemic/dever/orm"
 )
 
-const DefaultRuleScriptCateID uint64 = 1
-
 type RuleScriptCate struct {
 	ID        uint64    `dorm:"primaryKey;autoIncrement;comment:脚本分类ID"`
 	Name      string    `dorm:"type:varchar(128);not null;comment:名称"`
@@ -21,9 +19,7 @@ type RuleScriptCateIndex struct {
 	StatusSort struct{} `index:"status,sort,id"`
 }
 
-var ruleScriptCateSeed = []map[string]any{
-	{"id": DefaultRuleScriptCateID, "name": "默认", "status": StatusEnabled, "sort": 10},
-}
+var ruleScriptCateSeed = []map[string]any{}
 
 func NewRuleScriptCateModel() *orm.Model[RuleScriptCate] {
 	return orm.LoadModel[RuleScriptCate]("脚本分类", "crm_rule_script_cate", orm.ModelConfig{

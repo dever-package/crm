@@ -1,0 +1,353 @@
+{
+  "page": {
+    "name": "公共资源",
+    "icon": "calendar-days",
+    "parent": "crm-org-manage",
+    "sort": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header",
+        "className": "gap-4",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+          }
+        }
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5 sm:gap-6",
+        "children": {
+          "content-shell": {
+            "type": "container",
+            "className": "front-two-pane-layout",
+            "children": {
+              "category-column": {
+                "type": "container",
+                "className": "min-w-0"
+              },
+              "list-column": {
+                "type": "container",
+                "className": "flex min-w-0 flex-col gap-4",
+                "children": {
+                  "toolbar-row": {
+                    "type": "row",
+                    "className": "flex-wrap items-center gap-2.5"
+                  },
+                  "table-row": {
+                    "type": "container",
+                    "className": "overflow-hidden rounded-md border bg-background"
+                  }
+                }
+              }
+            }
+          },
+          "feedback-shell": {
+            "type": "container"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page",
+        "className": "min-w-0 flex-1"
+      }
+    ],
+    "header-actions": [
+      {
+        "type": "show-button",
+        "name": "预定记录",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "calendar-check",
+          "to": "/crm/public_resource_booking/list"
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "新增资源",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "icon": "plus"
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.create",
+            "value": true
+          }
+        }
+      }
+    ],
+    "category-column": [
+      {
+        "type": "show-category-list",
+        "id": "crm-public-resource-cate",
+        "value": "search.resource_cate_id",
+        "option": "/front/route/option?type=model&use=crm.NewPublicResourceCateModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&extraFields=status,sort",
+        "meta": {
+          "title": "资源分类",
+          "description": "左侧选择分类，右侧维护该分类下的公共资源。",
+          "remote": true,
+          "defaultFirst": true,
+          "queryKey": "resource_cate_id",
+          "createButton": {
+            "name": "新增分类",
+            "icon": "plus",
+            "variant": "outline",
+            "size": "sm",
+            "action": {
+              "click": {
+                "type": "modal",
+                "key": "dialog.createCate",
+                "value": true
+              }
+            }
+          },
+          "buttons": [
+            {
+              "icon": "square-pen",
+              "variant": "ghost",
+              "size": "sm",
+              "description": "编辑当前分类",
+              "action": {
+                "click": [
+                  {
+                    "type": "data",
+                    "key": "actionTarget.cateId",
+                    "value": "$row.id"
+                  },
+                  {
+                    "type": "modal",
+                    "key": "dialog.editCate",
+                    "value": true
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-input",
+        "placeholder": "搜索资源名称...",
+        "value": "search.keyword",
+        "mode": "search"
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "searchSubmit": true
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "重置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "to": "/crm/public_resource/list"
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "savePath": "crm/public_resource/update",
+          "rowKey": "id",
+          "columns": [
+            {
+              "name": "资源名称",
+              "value": "name",
+              "type": "show-base"
+            },
+            {
+              "name": "分类",
+              "value": "resource_cate.name",
+              "type": "show-base"
+            },
+            {
+              "name": "容量",
+              "value": "capacity",
+              "type": "show-base"
+            },
+            {
+              "name": "状态",
+              "value": "status",
+              "type": "form-switch",
+              "meta": {
+                "trueValue": 1,
+                "falseValue": 2
+              }
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "calendar-check",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "查看预定记录",
+                    "to": "/crm/public_resource_booking/list",
+                    "searchField": "resource_id",
+                    "searchParam": "id",
+                    "withBack": true
+                  },
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "编辑资源",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.resourceId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.edit",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.createCate",
+          "pageRoute": "/crm/public_resource_cate/update",
+          "title": "新增资源分类",
+          "assistant": false,
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.editCate",
+          "pageRoute": "/crm/public_resource_cate/update",
+          "title": "编辑资源分类",
+          "assistant": false,
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.cateId"
+          },
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.create",
+          "pageRoute": "/crm/public_resource/update",
+          "title": "新增资源",
+          "assistant": false,
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "size": "lg",
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/public_resource/update",
+          "title": "编辑资源",
+          "assistant": false,
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.resourceId"
+          },
+          "size": "lg",
+          "bodyClassName": "px-6 py-2"
+        }
+      }
+    ]
+  },
+  "data": {
+    "search": {
+      "resource_cate_id": 1,
+      "keyword": ""
+    },
+    "actionTarget": {
+      "cateId": "",
+      "resourceId": ""
+    },
+    "table": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 0,
+      "defaultFilters": {
+        "resource_cate_id": 1
+      },
+      "searchFields": [
+        "name"
+      ],
+      "filterFields": [
+        "resource_cate_id"
+      ]
+    }
+  },
+  "state": {
+    "dialog": {
+      "createCate": false,
+      "editCate": false,
+      "create": false,
+      "edit": false
+    }
+  },
+  "action": {}
+}

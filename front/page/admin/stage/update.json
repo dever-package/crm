@@ -1,0 +1,111 @@
+{
+  "page": {
+    "name": "阶段编辑",
+    "parent": "crm/task/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/stage/create",
+        "name": "阶段新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/stage/update",
+        "name": "阶段编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "name": "状态码",
+        "value": "form.code",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "状态码不能为空。"
+          },
+          {
+            "type": "model",
+            "except": "$form.id",
+            "message": "状态码已存在。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "阶段名称",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "阶段名称不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "主责部门",
+        "value": "form.owner_department_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_fields": [
+        "code",
+        "name",
+        "owner_department_id"
+      ],
+      "id": "",
+      "code": "",
+      "name": "",
+      "owner_department_id": ""
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSaveStage"
+      }
+    }
+  }
+}

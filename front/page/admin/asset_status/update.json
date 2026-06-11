@@ -56,7 +56,16 @@
   "data": {
     "form": {
       "id": "",
-      "name": ""
+      "code": "",
+      "name": "",
+      "status": 1,
+      "sort": 100,
+      "_fields": [
+        "code",
+        "name",
+        "status",
+        "sort"
+      ]
     }
   },
   "state": {},

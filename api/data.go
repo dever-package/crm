@@ -11,11 +11,12 @@ type Data struct{}
 var dataRecordService = crmservice.NewDataRecordService()
 
 func (Data) GetSection(c *server.Context) error {
-	resourceID := uint64FromInput(c.Input("resource_id"))
-	if resourceID == 0 {
-		resourceID = uint64FromInput(c.Input("id"))
+	customerID := uint64FromInput(c.Input("customer_id"))
+	if customerID == 0 {
+		customerID = uint64FromInput(c.Input("id"))
 	}
-	data, err := dataRecordService.Section(c.Context(), resourceID)
+	assetID := uint64FromInput(c.Input("asset_id"))
+	data, err := dataRecordService.Section(c.Context(), customerID, assetID)
 	return crmJSON(c, data, err)
 }
 

@@ -7,16 +7,6 @@ import (
 	crmmodel "my/package/crm/model"
 )
 
-var obsoleteDataFieldFields = []string{
-	"field_key",
-	"options_json",
-	"required",
-	"is_metric",
-	"metric_key",
-	"metric_type",
-	"aggregate",
-}
-
 var dataFieldOptionTypes = map[string]struct{}{
 	"radio":        {},
 	"checkbox":     {},
@@ -30,9 +20,6 @@ func (CrmHook) ProviderBeforeSaveDataField(_ *server.Context, params []any) any 
 		return record
 	}
 	partial := isPartialCrmRecord(record)
-	for _, field := range obsoleteDataFieldFields {
-		delete(record, field)
-	}
 	trimCrmStringField(record, "name", partial)
 	trimCrmStringField(record, "field_type", partial)
 	trimCrmStringField(record, "default_value", partial)

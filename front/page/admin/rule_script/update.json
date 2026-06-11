@@ -165,10 +165,10 @@
   "data": {
     "form": {
       "id": "",
-      "cate_id": 1,
+      "cate_id": "",
       "name": "",
       "description": "",
-      "usage": "task_eval",
+      "usage": "task_rule",
       "language": "javascript",
       "entry": "evaluate",
       "timeout_ms": 100,

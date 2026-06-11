@@ -1,0 +1,386 @@
+{
+  "page": {
+    "name": "任务编辑",
+    "parent": "crm/task/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/task/create",
+        "name": "任务新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/task/update",
+        "name": "任务编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-select",
+        "name": "所属阶段",
+        "value": "form.stage_id",
+        "mode": "form",
+        "option": "/front/route/option?type=service&use=crm.setting.OptionService.LoadStageOptions&valueField=id&labelField=display_name",
+        "validate": [
+          {
+            "type": "required",
+            "message": "所属阶段不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "任务名称",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "任务名称不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "任务动作",
+        "value": "form.task_type",
+        "mode": "form",
+        "option": [
+          {
+            "id": "form",
+            "value": "填写资料"
+          },
+          {
+            "id": "assign",
+            "value": "分配"
+          },
+          {
+            "id": "decision",
+            "value": "决策"
+          },
+          {
+            "id": "booking",
+            "value": "资源预定"
+          }
+        ],
+        "validate": [
+          {
+            "type": "required",
+            "message": "任务动作不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "clearOnChange": [
+            "form.form_id",
+            "form.script_id",
+            "form.result_schema_json",
+            "form.trigger_task_id",
+            "form.booking_resource_cate_id",
+            "form.booking_need_confirm"
+          ]
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "资料方式",
+        "value": "form.form_mode",
+        "mode": "form",
+        "option": [
+          {
+            "id": "create",
+            "value": "新增"
+          },
+          {
+            "id": "edit",
+            "value": "编辑"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "clearOnChange": [
+            "form.form_id"
+          ],
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "form"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "触发方式",
+        "value": "form.trigger_type",
+        "mode": "form",
+        "option": "option.trigger_type",
+        "meta": {
+          "formLayout": "horizontal",
+          "clearOnChange": [
+            "form.trigger_task_id"
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "触发任务",
+        "value": "form.trigger_task_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewTaskModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "选择哪个任务执行后自动触发",
+          "hiddenWhen": [
+            {
+              "path": "form.trigger_type",
+              "operator": "notEquals",
+              "value": "after_task"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "资料模板",
+        "value": "form.form_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewFormModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "选择任务需要填写的资料模板",
+          "hiddenCondition": "all",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "form"
+            },
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "assign"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "资源分类",
+        "value": "form.booking_resource_cate_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewPublicResourceCateModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "资源分类不能为空。",
+            "when": [
+              {
+                "path": "form.task_type",
+                "operator": "equals",
+                "value": "booking"
+              }
+            ]
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "选择这个任务可预定的资源分类",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "booking"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "需要确认",
+        "value": "form.booking_need_confirm",
+        "mode": "form",
+        "option": [
+          {
+            "id": 0,
+            "value": "否"
+          },
+          {
+            "id": 1,
+            "value": "是"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "booking"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "派单方式",
+        "value": "form.assign_mode",
+        "mode": "form",
+        "option": [
+          {
+            "id": "staff",
+            "value": "选择人员"
+          },
+          {
+            "id": "department",
+            "value": "选择部门"
+          },
+          {
+            "id": "department_staff",
+            "value": "先选部门再选人员"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "assign"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "脚本规则",
+        "value": "form.script_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewRuleScriptModel&filterField=status&filterValue=1&labelField=name&searchFields=name,entry&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "选择决策或审核使用的脚本规则",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "decision"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-array",
+        "name": "任务结果",
+        "value": "form.result_schema_json",
+        "mode": "form",
+        "info": "决策或审核输出的结果，例如通过、退回、拒绝；阶段流转可按结果值匹配。",
+        "meta": {
+          "pageRoute": "/crm/task/result_schema_item",
+          "addText": "添加结果",
+          "drag": "sort",
+          "itemName": "任务结果",
+          "valueFormat": "json",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "decision"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "完成后阶段",
+        "value": "form.next_stage_code",
+        "mode": "form",
+        "option": "/front/route/option?type=service&use=crm.setting.OptionService.LoadStageOptions&valueField=code&labelField=display_name",
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "不自动流转"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_fields": [
+        "stage_id",
+        "name",
+        "task_type",
+        "form_mode",
+        "trigger_type",
+        "trigger_task_id",
+        "next_stage_code",
+        "config_json",
+        "form_id",
+        "assign_mode",
+        "booking_resource_cate_id",
+        "booking_need_confirm",
+        "script_id",
+        "result_schema_json"
+      ],
+      "service": "crm.setting.CrmHook.BuildTaskForm",
+      "id": "",
+      "stage_id": "",
+      "name": "",
+      "task_type": "form",
+      "form_mode": "edit",
+      "trigger_type": "manual",
+      "trigger_task_id": "",
+      "next_stage_code": "",
+      "config_json": "{}",
+      "form_id": "",
+      "assign_mode": "department_staff",
+      "booking_resource_cate_id": 1,
+      "booking_need_confirm": 0,
+      "script_id": "",
+      "result_schema_json": []
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSaveTask"
+      },
+      "after": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.AfterSaveTask"
+      }
+    }
+  }
+}

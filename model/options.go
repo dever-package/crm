@@ -8,65 +8,68 @@ const (
 )
 
 const (
-	PublishStatusDraft     = "draft"
-	PublishStatusPublished = "published"
-	PublishStatusEditing   = "editing"
+	TaskTypeForm       = "form"
+	TaskTypeAssign     = "assign"
+	TaskTypeDecision   = "decision"
+	TaskTypeBooking    = "booking"
+	TaskTypeSystemRule = "system_rule"
 )
 
 const (
-	DefaultFlowTemplateID     uint64 = 1
-	ResourceTypeAssetDisposal        = "asset_disposal"
+	TaskFormModeCreate = "create"
+	TaskFormModeEdit   = "edit"
 )
 
 const (
-	ResourceStatusNew        = "new"
-	ResourceStatusProcessing = "processing"
-	ResourceStatusWaiting    = "waiting"
-	ResourceStatusBlocked    = "blocked"
-	ResourceStatusCompleted  = "completed"
-	ResourceStatusClosed     = "closed"
-	ResourceStatusInvalid    = "invalid"
+	ResourceBookingStatusPending  = "pending"
+	ResourceBookingStatusReserved = "reserved"
+	ResourceBookingStatusCanceled = "canceled"
+	ResourceBookingStatusRejected = "rejected"
+	ResourceBookingStatusDone     = "done"
 )
 
 const (
-	TaskStatusPending       = "pending"
-	TaskStatusProcessing    = "processing"
-	TaskStatusWaitingReview = "waiting_review"
-	TaskStatusCompleted     = "completed"
-	TaskStatusRejected      = "rejected"
-	TaskStatusCancelled     = "cancelled"
-	TaskStatusBlocked       = "blocked"
+	TaskTriggerManual     = "manual"
+	TaskTriggerAfterTask  = "after_task"
+	TaskTriggerStageEnter = "on_stage_enter"
 )
 
 const (
-	TaskTypeManual     = "manual"
-	TaskTypeInput      = "manual_input"
-	TaskTypeConfirm    = "manual_confirm"
-	TaskTypeWork       = "task"
-	TaskTypeScriptEval = "script_eval"
-	TaskTypeArchive    = "archive"
-)
-
-const (
-	NodeTypeInput      = "manual_input"
-	NodeTypeConfirm    = "manual_confirm"
-	NodeTypeTask       = "task"
-	NodeTypeScriptEval = "script_eval"
-	NodeTypeBranch     = "branch"
-	NodeTypeArchive    = "archive"
-)
-
-const (
-	ScriptUsageTaskEval   = "task_eval"
+	ScriptUsageTaskRule   = "task_rule"
 	ScriptUsageTransition = "transition"
 	ScriptUsageFieldCalc  = "field_calc"
 	ScriptUsageValidation = "validation"
-	ScriptUsageMetric     = "metric"
+)
+
+const (
+	StageOwnerKeep            = "keep"
+	StageOwnerAssign          = "assign"
+	StageOwnerFixedDepartment = "fixed_department"
+	StageOwnerFixedStaff      = "fixed_staff"
+	StageOwnerCreator         = "creator"
+)
+
+const (
+	MemberRelationCreator     = "creator"
+	MemberRelationAssignee    = "assignee"
+	MemberRelationFollower    = "follower"
+	MemberRelationParticipant = "participant"
+	MemberRelationViewer      = "viewer"
+)
+
+const (
+	StaffTypeLeader   = "leader"
+	StaffTypeEmployee = "employee"
 )
 
 var statusOptions = []map[string]any{
 	{"id": StatusEnabled, "value": "启用"},
 	{"id": StatusDisabled, "value": "停用"},
+}
+
+var staffTypeOptions = []map[string]any{
+	{"id": StaffTypeLeader, "value": "负责人"},
+	{"id": StaffTypeEmployee, "value": "员工"},
 }
 
 var customerGenderOptions = []map[string]any{
@@ -75,78 +78,53 @@ var customerGenderOptions = []map[string]any{
 	{"id": "unknown", "value": "未知"},
 }
 
-var resourceTypeOptions = []map[string]any{
-	{"id": "asset_disposal", "value": "资产处置"},
-	{"id": "debt_restructuring", "value": "债务重组"},
-	{"id": "service", "value": "服务事项"},
-	{"id": "cooperation", "value": "合作事项"},
-	{"id": "other", "value": "其他"},
-}
-
-var resourceStatusOptions = []map[string]any{
-	{"id": ResourceStatusNew, "value": "新建"},
-	{"id": ResourceStatusProcessing, "value": "处理中"},
-	{"id": ResourceStatusWaiting, "value": "等待中"},
-	{"id": ResourceStatusBlocked, "value": "已卡死"},
-	{"id": ResourceStatusCompleted, "value": "已完成"},
-	{"id": ResourceStatusClosed, "value": "已关闭"},
-	{"id": ResourceStatusInvalid, "value": "无效"},
-}
-
-var riskLevelOptions = []map[string]any{
-	{"id": "low", "value": "低"},
-	{"id": "medium", "value": "中"},
-	{"id": "high", "value": "高"},
-	{"id": "critical", "value": "严重"},
-}
-
-var publishStatusOptions = []map[string]any{
-	{"id": PublishStatusDraft, "value": "草稿"},
-	{"id": PublishStatusPublished, "value": "已发布"},
-	{"id": PublishStatusEditing, "value": "编辑草稿"},
-}
-
-var taskTypeOptions = []map[string]any{
-	{"id": TaskTypeManual, "value": "人工任务"},
-	{"id": TaskTypeInput, "value": "人工录入"},
-	{"id": TaskTypeConfirm, "value": "人工确认"},
-	{"id": TaskTypeWork, "value": "任务"},
-	{"id": TaskTypeScriptEval, "value": "脚本判定"},
-	{"id": TaskTypeArchive, "value": "归档"},
-}
-
-var flowNodeTypeOptions = []map[string]any{
-	{"id": NodeTypeInput, "value": "人工录入"},
-	{"id": NodeTypeConfirm, "value": "人工确认"},
-	{"id": NodeTypeTask, "value": "任务"},
-	{"id": NodeTypeScriptEval, "value": "脚本判定"},
-	{"id": NodeTypeBranch, "value": "条件分支"},
-	{"id": NodeTypeArchive, "value": "归档"},
-}
-
 var scriptUsageOptions = []map[string]any{
-	{"id": ScriptUsageTaskEval, "value": "任务判定"},
+	{"id": ScriptUsageTaskRule, "value": "任务规则"},
 	{"id": ScriptUsageTransition, "value": "流转判断"},
 	{"id": ScriptUsageFieldCalc, "value": "字段计算"},
 	{"id": ScriptUsageValidation, "value": "数据校验"},
-	{"id": ScriptUsageMetric, "value": "指标计算"},
 }
 
-var executorModeOptions = []map[string]any{
-	{"id": "manual", "value": "手动选择"},
-	{"id": "department", "value": "按部门"},
-	{"id": "staff", "value": "指定人员"},
-	{"id": "resource_owner", "value": "资源负责人"},
+var taskTypeOptions = []map[string]any{
+	{"id": TaskTypeForm, "value": "填写资料"},
+	{"id": TaskTypeAssign, "value": "分配"},
+	{"id": TaskTypeDecision, "value": "决策"},
+	{"id": TaskTypeBooking, "value": "资源预定"},
 }
 
-var taskStatusOptions = []map[string]any{
-	{"id": TaskStatusPending, "value": "待处理"},
-	{"id": TaskStatusProcessing, "value": "处理中"},
-	{"id": TaskStatusWaitingReview, "value": "待复核"},
-	{"id": TaskStatusCompleted, "value": "已完成"},
-	{"id": TaskStatusRejected, "value": "已驳回"},
-	{"id": TaskStatusCancelled, "value": "已取消"},
-	{"id": TaskStatusBlocked, "value": "已卡死"},
+var taskFormModeOptions = []map[string]any{
+	{"id": TaskFormModeCreate, "value": "新增"},
+	{"id": TaskFormModeEdit, "value": "编辑"},
+}
+
+var resourceBookingStatusOptions = []map[string]any{
+	{"id": ResourceBookingStatusPending, "value": "待确认"},
+	{"id": ResourceBookingStatusReserved, "value": "已预定"},
+	{"id": ResourceBookingStatusCanceled, "value": "已取消"},
+	{"id": ResourceBookingStatusRejected, "value": "已拒绝"},
+	{"id": ResourceBookingStatusDone, "value": "已完成"},
+}
+
+var taskTriggerOptions = []map[string]any{
+	{"id": TaskTriggerManual, "value": "手动触发"},
+	{"id": TaskTriggerAfterTask, "value": "任务后触发"},
+	{"id": TaskTriggerStageEnter, "value": "进入阶段触发"},
+}
+
+var stageOwnerModeOptions = []map[string]any{
+	{"id": StageOwnerKeep, "value": "保持当前"},
+	{"id": StageOwnerAssign, "value": "使用分配结果"},
+	{"id": StageOwnerFixedDepartment, "value": "固定部门"},
+	{"id": StageOwnerFixedStaff, "value": "固定人员"},
+	{"id": StageOwnerCreator, "value": "创建人"},
+}
+
+var memberRelationOptions = []map[string]any{
+	{"id": MemberRelationCreator, "value": "创建人"},
+	{"id": MemberRelationAssignee, "value": "负责人"},
+	{"id": MemberRelationFollower, "value": "跟进人"},
+	{"id": MemberRelationParticipant, "value": "参与人"},
+	{"id": MemberRelationViewer, "value": "查看人"},
 }
 
 var fieldTypeOptions = []map[string]any{
@@ -164,96 +142,94 @@ var fieldTypeOptions = []map[string]any{
 	{"id": "attachment", "value": "附件"},
 }
 
-var recordModeOptions = []map[string]any{
-	{"id": "single", "value": "单条"},
-	{"id": "multiple", "value": "多条"},
-}
-
-var metricTypeOptions = []map[string]any{
-	{"id": "count", "value": "计数"},
-	{"id": "sum", "value": "求和"},
-	{"id": "avg", "value": "平均"},
-	{"id": "group", "value": "分组"},
-}
-
-var departmentTypeOptions = []map[string]any{
-	{"id": "mkt", "value": "MKT"},
-	{"id": "npl", "value": "NPL"},
-	{"id": "pm", "value": "PM"},
-	{"id": "ala", "value": "ALA"},
-	{"id": "finance", "value": "财务"},
-	{"id": "management", "value": "管理层"},
-	{"id": "other", "value": "其他"},
-}
-
-var businessRoleOptions = []map[string]any{
-	{"id": "mkt", "value": "MKT"},
-	{"id": "npl", "value": "NPL"},
-	{"id": "pm", "value": "PM"},
-	{"id": "ala", "value": "ALA"},
-	{"id": "finance", "value": "财务"},
-	{"id": "supervisor", "value": "主管"},
-	{"id": "manager", "value": "管理层"},
-}
-
 var customerRelation = orm.Relation{
 	Field:      "customer_id",
 	Option:     "crm.NewCustomerModel",
 	OptionKeys: []string{"name", "phone"},
 }
 
-var resourceRelation = orm.Relation{
-	Field:      "resource_id",
-	Option:     "crm.NewCustomerResourceModel",
-	OptionKeys: []string{"resource_no", "asset_name", "asset_status"},
+var assetRelation = orm.Relation{
+	Field:      "asset_id",
+	Option:     "crm.NewCustomerAssetModel",
+	OptionKeys: []string{"asset_no", "asset_name", "asset_status_id"},
 }
 
-var assetCateRelation = orm.Relation{
-	Field:      "asset_cate_id",
-	Option:     "crm.NewAssetCateModel",
-	OptionKeys: []string{"name"},
+var assetStatusRelation = orm.Relation{
+	Field:      "asset_status_id",
+	Option:     "crm.NewAssetStatusModel",
+	OptionKeys: []string{"name", "code"},
 }
 
-var flowTemplateRelation = orm.Relation{
-	Field:      "flow_template_id",
-	Option:     "crm.NewFlowTemplateModel",
-	OptionKeys: []string{"name", "publish_status"},
+var customerSourceRelation = orm.Relation{
+	Field:      "source_id",
+	Option:     "crm.NewCustomerSourceModel",
+	OptionKeys: []string{"name", "code"},
 }
 
-var flowReleaseRelation = orm.Relation{
-	Field:      "flow_release_id",
-	Option:     "crm.NewFlowReleaseModel",
-	OptionKeys: []string{"version", "status"},
+var customerChannelRelation = orm.Relation{
+	Field:      "channel_id",
+	Option:     "crm.NewCustomerChannelModel",
+	OptionKeys: []string{"name", "code"},
 }
 
-var flowStageRelation = orm.Relation{
-	Field:      "stage_id",
-	Option:     "crm.NewFlowStageModel",
-	OptionKeys: []string{"stage_key", "name"},
-}
-
-var taskTemplateRelation = orm.Relation{
-	Field:      "task_template_id",
-	Option:     "crm.NewTaskTemplateModel",
-	OptionKeys: []string{"name"},
-}
-
-var taskTemplateCateRelation = orm.Relation{
-	Field:      "cate_id",
-	Option:     "crm.NewTaskTemplateCateModel",
-	OptionKeys: []string{"name"},
-}
-
-var flowNodeRelation = orm.Relation{
-	Field:      "flow_node_id",
-	Option:     "crm.NewFlowNodeModel",
-	OptionKeys: []string{"node_key", "name"},
+var customerLevelRelation = orm.Relation{
+	Field:      "level_id",
+	Option:     "crm.NewCustomerLevelModel",
+	OptionKeys: []string{"name", "code"},
 }
 
 var taskRelation = orm.Relation{
 	Field:      "task_id",
-	Option:     "crm.NewResourceTaskModel",
-	OptionKeys: []string{"task_name", "status"},
+	Option:     "crm.NewTaskModel",
+	OptionKeys: []string{"name", "task_type"},
+}
+
+var stageRelation = orm.Relation{
+	Field:      "stage_id",
+	Option:     "crm.NewStageModel",
+	OptionKeys: []string{"code", "name"},
+}
+
+var triggerTaskRelation = orm.Relation{
+	Field:      "trigger_task_id",
+	Option:     "crm.NewTaskModel",
+	OptionKeys: []string{"name", "task_type"},
+}
+
+var formRelation = orm.Relation{
+	Field:      "form_id",
+	Option:     "crm.NewFormModel",
+	OptionKeys: []string{"name"},
+}
+
+var formFieldRelation = orm.Relation{
+	Field:      "form_field_id",
+	Option:     "crm.NewFormFieldModel",
+	OptionKeys: []string{"name"},
+}
+
+var currentStageRelation = orm.Relation{
+	Field:      "current_stage_code",
+	Option:     "crm.NewStageModel",
+	OptionKeys: []string{"code", "name"},
+}
+
+var stageCodeRelation = orm.Relation{
+	Field:      "stage_code",
+	Option:     "crm.NewStageModel",
+	OptionKeys: []string{"code", "name"},
+}
+
+var fromStageRelation = orm.Relation{
+	Field:      "from_stage_code",
+	Option:     "crm.NewStageModel",
+	OptionKeys: []string{"code", "name"},
+}
+
+var toStageRelation = orm.Relation{
+	Field:      "to_stage_code",
+	Option:     "crm.NewStageModel",
+	OptionKeys: []string{"code", "name"},
 }
 
 var dataTemplateRelation = orm.Relation{
@@ -268,13 +244,13 @@ var dataTemplateCateRelation = orm.Relation{
 	OptionKeys: []string{"name"},
 }
 
-var taskFieldDataTemplateCateRelation = orm.Relation{
+var formFieldDataTemplateCateRelation = orm.Relation{
 	Field:      "data_template_cate_id",
 	Option:     "crm.NewDataTemplateCateModel",
 	OptionKeys: []string{"name", "target_table"},
 }
 
-var taskFieldDataTemplateRelation = orm.Relation{
+var formFieldDataTemplateRelation = orm.Relation{
 	Field:      "data_template_id",
 	Option:     "crm.NewDataTemplateModel",
 	OptionKeys: []string{"name", "cate_id"},
@@ -292,13 +268,25 @@ var ruleScriptRelation = orm.Relation{
 	OptionKeys: []string{"name", "usage"},
 }
 
+var resourceCateRelation = orm.Relation{
+	Field:      "resource_cate_id",
+	Option:     "crm.NewPublicResourceCateModel",
+	OptionKeys: []string{"name"},
+}
+
+var resourceRelation = orm.Relation{
+	Field:      "resource_id",
+	Option:     "crm.NewPublicResourceModel",
+	OptionKeys: []string{"name", "location"},
+}
+
 var matchScriptRelation = orm.Relation{
 	Field:      "match_script_id",
 	Option:     "crm.NewRuleScriptModel",
 	OptionKeys: []string{"name", "usage"},
 }
 
-var taskFieldDataFieldRelation = orm.Relation{
+var formFieldDataFieldRelation = orm.Relation{
 	Field:      "data_field_id",
 	Option:     "crm.NewDataFieldModel",
 	OptionKeys: []string{"name", "field_type"},
@@ -322,20 +310,20 @@ var ownerDepartmentRelation = orm.Relation{
 	OptionKeys: []string{"name", "code"},
 }
 
-var defaultDepartmentRelation = orm.Relation{
-	Field:      "default_department_id",
+var currentDepartmentRelation = orm.Relation{
+	Field:      "current_department_id",
 	Option:     "crm.NewDepartmentModel",
 	OptionKeys: []string{"name", "code"},
 }
 
-var targetDepartmentRelation = orm.Relation{
-	Field:      "target_department_id",
+var toDepartmentRelation = orm.Relation{
+	Field:      "to_department_id",
 	Option:     "crm.NewDepartmentModel",
 	OptionKeys: []string{"name", "code"},
 }
 
-var assigneeDepartmentRelation = orm.Relation{
-	Field:      "assignee_department_id",
+var operatorDepartmentRelation = orm.Relation{
+	Field:      "operator_department_id",
 	Option:     "crm.NewDepartmentModel",
 	OptionKeys: []string{"name", "code"},
 }
@@ -352,86 +340,56 @@ var staffRelation = orm.Relation{
 	OptionKeys: []string{"name", "phone"},
 }
 
+var currentStaffRelation = orm.Relation{
+	Field:      "current_staff_id",
+	Option:     "crm.NewStaffModel",
+	OptionKeys: []string{"name", "phone"},
+}
+
 var ownerStaffRelation = orm.Relation{
 	Field:      "owner_staff_id",
 	Option:     "crm.NewStaffModel",
 	OptionKeys: []string{"name", "phone"},
 }
 
-var defaultStaffRelation = orm.Relation{
-	Field:      "default_staff_id",
+var bookerStaffRelation = orm.Relation{
+	Field:      "booker_staff_id",
 	Option:     "crm.NewStaffModel",
 	OptionKeys: []string{"name", "phone"},
 }
 
-var assigneeStaffRelation = orm.Relation{
-	Field:      "assignee_staff_id",
+var bookerDepartmentRelation = orm.Relation{
+	Field:      "booker_department_id",
+	Option:     "crm.NewDepartmentModel",
+	OptionKeys: []string{"name", "code"},
+}
+
+var approvedByStaffRelation = orm.Relation{
+	Field:      "approved_by_staff_id",
 	Option:     "crm.NewStaffModel",
 	OptionKeys: []string{"name", "phone"},
 }
 
-var accountRelation = orm.Relation{
-	Field:      "account_id",
-	Option:     "front.NewAccountModel",
-	OptionKeys: []string{"name", "account"},
+var toStaffRelation = orm.Relation{
+	Field:      "to_staff_id",
+	Option:     "crm.NewStaffModel",
+	OptionKeys: []string{"name", "phone"},
 }
 
-var operatorRelation = orm.Relation{
-	Field:      "operator_id",
-	Option:     "front.NewAccountModel",
-	OptionKeys: []string{"name", "account"},
+var operatorStaffRelation = orm.Relation{
+	Field:      "operator_staff_id",
+	Option:     "crm.NewStaffModel",
+	OptionKeys: []string{"name", "phone"},
 }
 
-var creatorRelation = orm.Relation{
-	Field:      "creator_id",
-	Option:     "front.NewAccountModel",
-	OptionKeys: []string{"name", "account"},
+var createdByStaffRelation = orm.Relation{
+	Field:      "created_by_staff_id",
+	Option:     "crm.NewStaffModel",
+	OptionKeys: []string{"name", "phone"},
 }
 
 var uploaderRelation = orm.Relation{
 	Field:      "uploader_id",
-	Option:     "front.NewAccountModel",
-	OptionKeys: []string{"name", "account"},
-}
-
-var fromTaskTemplateRelation = orm.Relation{
-	Field:      "from_task_template_id",
-	Option:     "crm.NewTaskTemplateModel",
-	OptionKeys: []string{"name"},
-}
-
-var toTaskTemplateRelation = orm.Relation{
-	Field:      "to_task_template_id",
-	Option:     "crm.NewTaskTemplateModel",
-	OptionKeys: []string{"name"},
-}
-
-var fromFlowNodeRelation = orm.Relation{
-	Field:      "from_node_id",
-	Option:     "crm.NewFlowNodeModel",
-	OptionKeys: []string{"node_key", "name"},
-}
-
-var toFlowNodeRelation = orm.Relation{
-	Field:      "to_node_id",
-	Option:     "crm.NewFlowNodeModel",
-	OptionKeys: []string{"node_key", "name"},
-}
-
-var toStageRelation = orm.Relation{
-	Field:      "to_stage_id",
-	Option:     "crm.NewFlowStageModel",
-	OptionKeys: []string{"stage_key", "name"},
-}
-
-var dashboardRelation = orm.Relation{
-	Field:      "dashboard_id",
-	Option:     "crm.NewDashboardModel",
-	OptionKeys: []string{"name", "resource_type"},
-}
-
-var dashboardFunnelRelation = orm.Relation{
-	Field:      "funnel_id",
-	Option:     "crm.NewDashboardFunnelModel",
-	OptionKeys: []string{"name", "resource_type"},
+	Option:     "crm.NewStaffModel",
+	OptionKeys: []string{"name", "phone"},
 }

@@ -1,0 +1,281 @@
+{
+  "page": {
+    "name": "客户资产",
+    "icon": "folder-kanban",
+    "parent": "crm-customer-manage",
+    "sort": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+          }
+        }
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5",
+        "children": {
+          "toolbar-row": {
+            "type": "row",
+            "className": "flex-wrap items-center gap-2.5"
+          },
+          "table-row": {
+            "type": "container",
+            "className": "overflow-hidden rounded-md border bg-background"
+          },
+          "feedback-shell": {
+            "type": "container"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "header-actions": [
+      {
+        "type": "show-button",
+        "name": "资产状态",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "badge"
+        },
+        "className": "shrink-0",
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.assetStatus",
+            "value": true
+          }
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "新增资产",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "icon": "plus"
+        },
+        "className": "shrink-0",
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.create",
+            "value": true
+          }
+        }
+      }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-input",
+        "placeholder": "搜索资产编号、资产名称、备注...",
+        "value": "search.keyword",
+        "mode": "search"
+      },
+      {
+        "type": "form-select",
+        "placeholder": "资产状态",
+        "value": "search.asset_status_id",
+        "mode": "search",
+        "option": "/front/route/option?type=model&use=crm.NewAssetStatusModel&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "searchPlaceholder": "输入状态名称搜索..."
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "searchSubmit": true
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "重置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "to": "/crm/customer_asset/list"
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "savePath": "crm/customer_asset/update",
+          "rowKey": "id",
+          "columns": [
+            {
+              "value": "asset_no",
+              "name": "资产编号",
+              "type": "show-base"
+            },
+            {
+              "value": "asset_name",
+              "type": "show-base"
+            },
+            {
+              "value": "customer.name",
+              "type": "show-base",
+              "name": "所属客户"
+            },
+            {
+              "value": "asset_status_name",
+              "type": "show-tag",
+              "name": "资产状态"
+            },
+            {
+              "value": "remark",
+              "type": "show-base"
+            },
+            {
+              "value": "created_at",
+              "type": "show-date"
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "eye",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "查看资产详情",
+                    "to": "/crm/customer_asset/detail",
+                    "searchField": "id",
+                    "searchParam": "id",
+                    "withBack": true
+                  },
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "编辑资产",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.editAssetId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.edit",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ],
+    "feedback-shell": [
+      {
+        "id": "crm-customer-asset-status-modal",
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.assetStatus",
+          "pageRoute": "/crm/asset_status/list",
+          "title": "资产状态",
+          "description": "维护资产阶段配置，保存后资产列表和资产编辑表单会同步显示新名称。",
+          "assistant": false,
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "id": "crm-customer-asset-edit-modal",
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/customer_asset/update",
+          "title": "编辑资产",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.editAssetId"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "id": "crm-customer-asset-create-modal",
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.create",
+          "pageRoute": "/crm/customer_asset/update",
+          "title": "新增资产",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      }
+    ]
+  },
+  "data": {
+    "search": {
+      "asset_status_id": ""
+    },
+    "table": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 0,
+      "service": "crm.setting.CrmHook.BuildCustomerAssetRows",
+      "searchFields": [
+        "asset_no",
+        "asset_name",
+        "remark"
+      ],
+      "filterFields": [
+        "asset_status_id"
+      ]
+    },
+    "actionTarget": {
+      "editAssetId": ""
+    }
+  },
+  "state": {
+    "dialog": {
+      "assetStatus": false,
+      "edit": false,
+      "create": false
+    }
+  },
+  "action": {}
+}

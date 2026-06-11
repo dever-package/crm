@@ -1,0 +1,69 @@
+package api
+
+import (
+	"github.com/shemic/dever/server"
+
+	crmservice "my/package/crm/service"
+)
+
+type Work struct{}
+
+var workService = crmservice.NewWorkService()
+
+func (Work) PostLogin(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.Login(c.Context(), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetMe(c *server.Context) error {
+	data, err := workService.Me(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetOptions(c *server.Context) error {
+	data, err := workService.Options(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetCustomers(c *server.Context) error {
+	data, err := workService.Customers(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"keyword":       c.Input("keyword"),
+		"customer_no":   c.Input("customer_no"),
+		"customer_name": c.Input("customer_name"),
+		"phone":         c.Input("phone"),
+		"wechat":        c.Input("wechat"),
+		"asset_no":      c.Input("asset_no"),
+		"status":        c.Input("status"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetOperations(c *server.Context) error {
+	data, err := workService.Operations(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"customer_id": c.Input("customer_id"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetTasks(c *server.Context) error {
+	data, err := workService.Tasks(
+		c.Context(),
+		crmservice.CurrentWorkStaff(c.Context()),
+		uint64FromInput(c.Input("customer_id")),
+		uint64FromInput(c.Input("asset_id")),
+	)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostExecute(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.Execute(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}

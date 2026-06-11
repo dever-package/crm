@@ -38,8 +38,6 @@ func (CrmHook) ProviderBeforeSaveDataTemplate(_ *server.Context, params []any) a
 		return record
 	}
 	partial := isPartialCrmRecord(record)
-	delete(record, "resource_type")
-	delete(record, "record_mode")
 	trimCrmStringField(record, "name", partial)
 	delete(record, "description")
 	if !partial {

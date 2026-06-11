@@ -6,8 +6,6 @@ import (
 	"github.com/shemic/dever/orm"
 )
 
-const CustomerLevelDefault = "default"
-
 type CustomerLevel struct {
 	ID        uint64    `dorm:"primaryKey;autoIncrement;comment:等级ID"`
 	Code      string    `dorm:"type:varchar(32);not null;comment:等级标识"`
@@ -22,8 +20,16 @@ type CustomerLevelIndex struct {
 	StatusSort struct{} `index:"status,sort,id"`
 }
 
+const DefaultCustomerLevelID uint64 = 1
+
 var customerLevelSeed = []map[string]any{
-	{"id": 1, "code": CustomerLevelDefault, "name": "默认等级", "status": StatusEnabled, "sort": 10},
+	{
+		"id":     DefaultCustomerLevelID,
+		"code":   "default",
+		"name":   "默认等级",
+		"status": StatusEnabled,
+		"sort":   100,
+	},
 }
 
 func NewCustomerLevelModel() *orm.Model[CustomerLevel] {

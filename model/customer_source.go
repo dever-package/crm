@@ -6,8 +6,6 @@ import (
 	"github.com/shemic/dever/orm"
 )
 
-const CustomerSourceDefault = "default"
-
 type CustomerSource struct {
 	ID        uint64    `dorm:"primaryKey;autoIncrement;comment:来源ID"`
 	Code      string    `dorm:"type:varchar(32);not null;comment:来源标识"`
@@ -22,13 +20,16 @@ type CustomerSourceIndex struct {
 	StatusSort struct{} `index:"status,sort,id"`
 }
 
+const DefaultCustomerSourceID uint64 = 1
+
 var customerSourceSeed = []map[string]any{
-	{"id": 1, "code": CustomerSourceDefault, "name": "默认来源", "status": StatusEnabled, "sort": 10},
-	{"id": 2, "code": "douyin", "name": "抖音", "status": StatusEnabled, "sort": 20},
-	{"id": 3, "code": "kuaishou", "name": "快手", "status": StatusEnabled, "sort": 30},
-	{"id": 4, "code": "xiaohongshu", "name": "小红书", "status": StatusEnabled, "sort": 40},
-	{"id": 5, "code": "organic", "name": "自然流", "status": StatusEnabled, "sort": 50},
-	{"id": 6, "code": "self_develop", "name": "自拓", "status": StatusEnabled, "sort": 60},
+	{
+		"id":     DefaultCustomerSourceID,
+		"code":   "default",
+		"name":   "默认来源",
+		"status": StatusEnabled,
+		"sort":   100,
+	},
 }
 
 func NewCustomerSourceModel() *orm.Model[CustomerSource] {

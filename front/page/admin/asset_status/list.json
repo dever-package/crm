@@ -1,6 +1,6 @@
 {
   "page": {
-    "parent": "crm/customer_resource/list",
+    "parent": "crm/customer_asset/list",
     "type": 2,
     "sort": 3
   },
@@ -57,7 +57,7 @@
               "icon": "square-pen",
               "variant": "ghost",
               "size": "sm",
-              "description": "编辑当前状态",
+              "description": "编辑当前阶段",
               "action": {
                 "click": [
                   {
@@ -79,6 +79,7 @@
     ],
     "feedback-shell": [
       {
+        "id": "crm-asset-status-create-modal",
         "type": "feedback-modal",
         "meta": {
           "stateKey": "dialog.create",
@@ -94,6 +95,7 @@
         }
       },
       {
+        "id": "crm-asset-status-edit-modal",
         "type": "feedback-modal",
         "meta": {
           "stateKey": "dialog.edit",

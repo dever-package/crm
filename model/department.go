@@ -23,8 +23,17 @@ type DepartmentIndex struct {
 	StatusSort  struct{} `index:"status,sort,id"`
 }
 
+const DefaultDepartmentID uint64 = 1
+
 var departmentSeed = []map[string]any{
-	{"id": 1, "code": "default", "name": "默认部门", "leader_staff_id": 0, "status": StatusEnabled, "sort": 10},
+	{
+		"id":              DefaultDepartmentID,
+		"code":            "default",
+		"name":            "默认部门",
+		"leader_staff_id": 0,
+		"status":          StatusEnabled,
+		"sort":            100,
+	},
 }
 
 func NewDepartmentModel() *orm.Model[Department] {

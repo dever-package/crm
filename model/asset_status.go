@@ -6,8 +6,6 @@ import (
 	"github.com/shemic/dever/orm"
 )
 
-const AssetStatusDefault = "default"
-
 type AssetStatus struct {
 	ID        uint64    `dorm:"primaryKey;autoIncrement;comment:资产状态ID"`
 	Code      string    `dorm:"type:varchar(32);not null;comment:状态标识"`
@@ -22,8 +20,16 @@ type AssetStatusIndex struct {
 	StatusSort struct{} `index:"status,sort,id"`
 }
 
+const DefaultAssetStatusID uint64 = 1
+
 var assetStatusSeed = []map[string]any{
-	{"id": 1, "code": AssetStatusDefault, "name": "默认状态", "status": StatusEnabled, "sort": 10},
+	{
+		"id":     DefaultAssetStatusID,
+		"code":   "default",
+		"name":   "默认状态",
+		"status": StatusEnabled,
+		"sort":   100,
+	},
 }
 
 func NewAssetStatusModel() *orm.Model[AssetStatus] {

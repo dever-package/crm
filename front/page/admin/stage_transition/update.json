@@ -1,0 +1,179 @@
+{
+  "page": {
+    "name": "流转编辑",
+    "parent": "crm/stage_transition/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/stage_transition/create",
+        "name": "流转新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/stage_transition/update",
+        "name": "流转编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "grid grid-cols-1 gap-x-5 md:grid-cols-2"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-select",
+        "name": "来源阶段",
+        "value": "form.from_stage_code",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewStageModel&valueField=code&labelField=name&searchFields=code,name&filterField=status&filterValue=1&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "来源阶段不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "vertical"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "目标阶段",
+        "value": "form.to_stage_code",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewStageModel&valueField=code&labelField=name&searchFields=code,name&filterField=status&filterValue=1&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "目标阶段不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "vertical"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "触发任务",
+        "value": "form.task_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewTaskModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "formLayout": "vertical"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "匹配结果",
+        "value": "form.result_value",
+        "mode": "form",
+        "meta": {
+          "formLayout": "vertical"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "匹配脚本",
+        "value": "form.script_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewRuleScriptModel&filterField=status&filterValue=1&labelField=name&searchFields=name,entry&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "formLayout": "vertical"
+        }
+      },
+      {
+        "type": "form-textarea",
+        "name": "条件JSON",
+        "value": "form.condition_json",
+        "mode": "form",
+        "placeholder": "例如：{\"field\":\"customer.channel_id\",\"operator\":\"equals\",\"value\":\"1\"}",
+        "meta": {
+          "formLayout": "vertical"
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "主责模式",
+        "value": "form.owner_mode",
+        "mode": "form",
+        "option": "option.owner_mode",
+        "meta": {
+          "formLayout": "vertical"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "目标部门",
+        "value": "form.to_department_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "formLayout": "vertical"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "目标人员",
+        "value": "form.to_staff_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewStaffModel&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id desc&pageSize=200",
+        "meta": {
+          "formLayout": "vertical"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_fields": [
+        "from_stage_code",
+        "to_stage_code",
+        "task_id",
+        "result_value",
+        "script_id",
+        "condition_json",
+        "owner_mode",
+        "to_department_id",
+        "to_staff_id"
+      ],
+      "id": "",
+      "from_stage_code": "",
+      "to_stage_code": "",
+      "task_id": "",
+      "result_value": "",
+      "script_id": "",
+      "condition_json": "{}",
+      "owner_mode": "keep",
+      "to_department_id": "",
+      "to_staff_id": ""
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSaveStageTransition"
+      }
+    }
+  }
+}

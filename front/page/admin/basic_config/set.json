@@ -7,10 +7,7 @@
     "auth": [
       {
         "key": "crm/basic_config/set",
-        "name": "基本配置",
-        "query": {
-          "id": "required"
-        }
+        "name": "基本配置"
       }
     ]
   },
@@ -38,12 +35,6 @@
         "mode": "form",
         "placeholder": "例如：GJJ-",
         "info": "客户编号保存为年月日加 6 位随机数，列表展示时会自动拼接此前缀。",
-        "validate": [
-          {
-            "type": "required",
-            "message": "客户编号前缀不能为空。"
-          }
-        ],
         "meta": {
           "formLayout": "horizontal",
           "controlClassName": "max-w-[220px]"
@@ -55,7 +46,7 @@
     "form": {
       "_model": "crm.NewBasicConfigModel",
       "id": 1,
-      "customer_code_prefix": "GJJ-"
+      "customer_code_prefix": ""
     }
   },
   "state": {},
@@ -63,6 +54,7 @@
     "submit": {
       "type": "save",
       "use": "crm.NewBasicConfigModel",
+      "upsert": true,
       "params": "form",
       "before": {
         "type": "service",
