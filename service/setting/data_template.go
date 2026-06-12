@@ -78,3 +78,12 @@ func defaultCrmInt(record map[string]any, field string, fallback int, partial bo
 		record[field] = fallback
 	}
 }
+
+func defaultCrmBool(record map[string]any, field string, fallback bool, partial bool) {
+	if !shouldNormalizeCrmField(record, field, partial) {
+		return
+	}
+	if _, exists := record[field]; !exists {
+		record[field] = fallback
+	}
+}

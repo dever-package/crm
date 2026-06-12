@@ -59,6 +59,26 @@ const (
 )
 
 const (
+	StatEventTypeTask       = "task"
+	StatEventTypeTransition = "transition"
+)
+
+const (
+	StatValueSourceForm       = "form"
+	StatValueSourceTransition = "transition"
+	StatValueSourceTask       = "task"
+)
+
+const (
+	DataFieldStatTypeDimension = "dimension"
+	DataFieldStatTypeMetric    = "metric"
+	DataFieldStatTypeAmount    = "amount"
+	DataFieldStatTypeTime      = "time"
+	DataFieldStatTypeStatus    = "status"
+	DataFieldStatTypeText      = "text"
+)
+
+const (
 	StaffTypeLeader   = "leader"
 	StaffTypeEmployee = "employee"
 )
@@ -84,6 +104,20 @@ var scriptUsageOptions = []map[string]any{
 	{"id": ScriptUsageTransition, "value": "流转判断"},
 	{"id": ScriptUsageFieldCalc, "value": "字段计算"},
 	{"id": ScriptUsageValidation, "value": "数据校验"},
+}
+
+var dataFieldStatTypeOptions = []map[string]any{
+	{"id": DataFieldStatTypeDimension, "value": "维度"},
+	{"id": DataFieldStatTypeMetric, "value": "指标"},
+	{"id": DataFieldStatTypeAmount, "value": "金额"},
+	{"id": DataFieldStatTypeTime, "value": "时间"},
+	{"id": DataFieldStatTypeStatus, "value": "状态"},
+	{"id": DataFieldStatTypeText, "value": "文本"},
+}
+
+var statEventTypeOptions = []map[string]any{
+	{"id": StatEventTypeTask, "value": "任务"},
+	{"id": StatEventTypeTransition, "value": "流转"},
 }
 
 var taskTypeOptions = []map[string]any{
@@ -233,6 +267,12 @@ var dataTemplateRelation = orm.Relation{
 	Field:      "data_template_id",
 	Option:     "crm.NewDataTemplateModel",
 	OptionKeys: []string{"name"},
+}
+
+var dataFieldRelation = orm.Relation{
+	Field:      "data_field_id",
+	Option:     "crm.NewDataFieldModel",
+	OptionKeys: []string{"name", "field_key", "field_type"},
 }
 
 var dataTemplateCateRelation = orm.Relation{

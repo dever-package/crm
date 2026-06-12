@@ -110,7 +110,23 @@
               "type": "show-base"
             },
             {
+              "value": "field_key",
+              "type": "show-base"
+            },
+            {
               "value": "field_type",
+              "type": "show-tag"
+            },
+            {
+              "value": "stat_enabled",
+              "type": "form-switch",
+              "meta": {
+                "trueValue": true,
+                "falseValue": false
+              }
+            },
+            {
+              "value": "stat_type",
               "type": "show-tag"
             },
             {

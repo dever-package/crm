@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Check, Inbox, Loader2, Plus, RefreshCw } from "lucide-react";
+import { Check, FileText, Inbox, Loader2, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -1143,7 +1143,24 @@ function openWorkDetail(customer: WorkCustomer, store?: StoreLike, asset?: WorkA
   setWorkStoreValue(store, "data.actionTarget.workDetailCustomer", customer);
   setWorkStoreValue(store, "data.actionTarget.workDetailAsset", asset ?? null);
   setWorkStoreValue(store, "data.actionTarget.workDetailName", asset ? assetTitle(asset) : workCustomerTitle(customer));
-  setWorkModalOpen(store, "dialog.workDetail", true);
+  setWorkStoreValue(store, "data.actionTarget.workDetailDescription", workDetailDescription(customer, asset));
+  setWorkModalOpen(store, "dialog.workDetail", false);
+  setWorkModalOpen(store, "drawer.workDetail", true);
+}
+
+function workDetailDescription(customer: WorkCustomer, asset?: WorkAsset): string {
+  const customerInfo = [
+    workCustomerNo(customer),
+    workCustomerName(customer),
+    workCustomerPhone(customer),
+    textValue(customer.wechat),
+  ].filter(Boolean);
+  if (!asset) return customerInfo.join(" / ");
+
+  const assetNo = workAssetNo(asset);
+  return [customerInfo.join(" / "), assetNo ? `资产编号 ${assetNo}` : ""]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function openWorkRecords(customer: WorkCustomer, store?: StoreLike, asset?: WorkAsset) {
@@ -1166,6 +1183,15 @@ function workRecordDescription(customer: WorkCustomer, asset?: WorkAsset): strin
     ? [assetTitle(asset), workCustomerTitle(customer)]
     : [workCustomerTitle(customer), workCustomerPhone(customer)];
   return values.map(textValue).filter(Boolean).join(" / ");
+}
+
+function workDetailCustomerSummary(customer: WorkCustomer): string {
+  return [
+    workCustomerNo(customer),
+    workCustomerName(customer),
+    workCustomerPhone(customer),
+    textValue(customer.wechat),
+  ].filter(Boolean).join(" / ") || "-";
 }
 
 function workRecordTitle(record: WorkOperation): string {
@@ -1793,7 +1819,7 @@ function WorkMyRecordTimeline({
 }) {
   if (loading) {
     return (
-      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+      <div className="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         正在加载我的记录
       </div>
@@ -1801,43 +1827,85 @@ function WorkMyRecordTimeline({
   }
 
   if (records.length === 0) {
-    return <div className="py-8 text-sm text-muted-foreground">暂无我的操作记录</div>;
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
+        <FileText className="h-8 w-8 text-muted-foreground/40" strokeWidth={1.5} />
+        <span>暂无我的操作记录</span>
+      </div>
+    );
   }
 
   return (
-    <ol className="relative ml-3 space-y-6 border-l border-border/70 pl-5">
-      {records.map((record, index) => (
-        <WorkMyRecordItem key={`${textValue(record.id) || index}`} record={record} store={store} />
-      ))}
-    </ol>
+    <div className="relative px-1">
+      {/* Timeline vertical line */}
+      <div className="absolute left-[19px] top-0 bottom-0 w-[2px] bg-border/50" />
+
+      <div>
+        {records.map((record, index) => (
+          <WorkMyRecordItem
+            key={`${textValue(record.id) || index}`}
+            record={record}
+            index={index}
+            store={store}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
+const recordDotColors = [
+  { border: "border-blue-500", bg: "bg-blue-500" },
+  { border: "border-emerald-500", bg: "bg-emerald-500" },
+  { border: "border-amber-500", bg: "bg-amber-500" },
+  { border: "border-violet-500", bg: "bg-violet-500" },
+  { border: "border-rose-500", bg: "bg-rose-500" },
+  { border: "border-cyan-500", bg: "bg-cyan-500" },
+];
+
 function WorkMyRecordItem({
   record,
+  index,
   store,
 }: {
   record: WorkOperation;
+  index: number;
   store?: StoreLike;
 }) {
+  const color = recordDotColors[index % recordDotColors.length];
+  const content = record.content || record.summary || record.remark;
+
   return (
-    <li className="relative">
-      <span className="absolute -left-[1.56rem] top-2 size-2 rounded-full bg-foreground ring-4 ring-background" />
+    <div className="relative" style={{ marginBottom: 10 }}>
+      {/* Timeline dot */}
+      <div className={`absolute left-[11px] z-10 flex size-[18px] items-center justify-center rounded-full border-[2.5px] bg-background shadow-sm ${color.border}`}>
+        <div className={`size-[7px] rounded-full ${color.bg}`} />
+      </div>
+
+      {/* Content */}
       <button
         type="button"
-        className="block w-full rounded-md px-1 py-1.5 text-left transition-colors hover:bg-muted/50"
+        className="ml-14 block w-full rounded-lg border border-border/40 bg-card px-5 py-4 text-left shadow-sm transition-all duration-200 hover:border-border/80 hover:shadow-md active:shadow-sm"
         onClick={() => openWorkRecordDetail(record, store)}
       >
+        {/* Header: title + time */}
         <div className="flex items-start justify-between gap-4">
-          <span className="min-w-0 text-sm font-semibold leading-5">
+          <span className="min-w-0 text-sm font-semibold leading-6 text-foreground/90">
             {workRecordTitle(record)}
           </span>
-          <span className="shrink-0 whitespace-nowrap text-sm leading-5 text-muted-foreground">
+          <span className="shrink-0 whitespace-nowrap text-xs leading-6 text-muted-foreground/60">
             {workRecordTime(record)}
           </span>
         </div>
+
+        {/* Content preview */}
+        {content ? (
+          <p className="mt-2 text-sm leading-6 text-muted-foreground/70">
+            {content}
+          </p>
+        ) : null}
       </button>
-    </li>
+    </div>
   );
 }
 
@@ -1851,21 +1919,37 @@ export function ShowCrmWorkRecordDetail({ store }: WorkNodeProps) {
 
 function WorkRecordDetailContent({ record }: { record: WorkOperation }) {
   const summaryItems = workRecordSummaryItems(record);
+  const content = record.content || record.remark;
+
   return (
-    <div>
+    <div className="grid gap-5">
+      {/* Summary items table or content block */}
       {summaryItems.length > 0 ? (
-        <dl className="grid gap-y-3 text-sm">
-          {summaryItems.map((item) => (
-            <div key={textValue(item.key || item.label)} className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3">
-              <dt className="text-muted-foreground">{displayText(item.label, "-")}</dt>
-              <dd className="min-w-0 break-words font-medium">{displayText(item.value, "-")}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <div className="text-sm leading-6 text-muted-foreground">
-          {displayText(record.content || record.remark, "暂无提交明细")}
+        <div className="overflow-hidden rounded-lg border border-border/50">
+          <table className="w-full text-sm">
+            <tbody>
+              {summaryItems.map((item, i) => (
+                <tr
+                  key={textValue(item.key || item.label || i)}
+                  className="border-b border-border/30 last:border-b-0"
+                >
+                  <td className="w-[100px] min-w-[100px] bg-muted/15 px-4 py-2.5 text-muted-foreground">
+                    {displayText(item.label, "-")}
+                  </td>
+                  <td className="px-4 py-2.5 font-medium text-foreground/85">
+                    {displayText(item.value, "-")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+      ) : content ? (
+        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3.5 text-sm leading-6 text-muted-foreground/80">
+          {content}
+        </div>
+      ) : (
+        <div className="py-8 text-center text-sm text-muted-foreground/60">暂无提交明细</div>
       )}
     </div>
   );
@@ -1924,25 +2008,22 @@ function WorkCustomerDetailContent({
   }, [customerID, loadOperations]);
 
   return (
-    <div className="grid gap-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-muted-foreground">客户编号</span>
-            <span className="font-medium">{workCustomerNo(customer) || "-"}</span>
-            {renderStatus(customer)}
-          </div>
-        </div>
-      </div>
+    <div className="grid gap-5">
+      <WorkDetailHero
+        title={workCustomerTitle(customer)}
+        description={workDetailCustomerSummary(customer)}
+        badges={[renderStatus(customer)]}
+      />
 
       <WorkDetailTabs activeTab={activeTab} onChange={setActiveTab} />
 
       <div>
         {activeTab === "base" ? (
-          <div className="grid gap-4">
+          <div className="grid gap-6">
             <WorkDetailSection title="客户信息">
               <WorkDetailGrid
                 items={[
+                  ["客户编号", workCustomerNo(customer)],
                   ["姓名", workCustomerName(customer)],
                   ["手机号", workCustomerPhone(customer)],
                   ["微信", displayText(customer.wechat)],
@@ -1976,16 +2057,16 @@ function WorkCustomerDetailContent({
             ) : null}
 
             {customerExtraFields.length > 0 ? (
-              <WorkDetailSection title="补充资料">
+              <WorkDetailSection title="已收集资料">
                 <WorkDetailGrid items={customerExtraFields} />
               </WorkDetailSection>
             ) : null}
 
             <WorkDetailSection title="客户资产">
               {assets.length > 0 ? (
-                <div className="grid gap-3">
+                <div className="grid gap-4">
                   {assets.map((asset) => (
-                    <WorkAssetDetailCard
+                    <WorkAssetDetailRow
                       key={textValue(asset.id) || workAssetNo(asset)}
                       customer={customer}
                       asset={asset}
@@ -2064,23 +2145,18 @@ function WorkAssetDetailContent({
   }, [customerID, loadOperations]);
 
   return (
-    <div className="grid gap-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-muted-foreground">资产编号</span>
-            <span className="font-medium">{workAssetNo(asset) || "-"}</span>
-            {renderStatus(asset)}
-            {renderAssetStatus(asset)}
-          </div>
-        </div>
-      </div>
+    <div className="grid gap-5">
+      <WorkDetailHero
+        title={assetTitle(asset)}
+        description={workAssetNo(asset) ? `资产编号 ${workAssetNo(asset)}` : workDetailCustomerSummary(customer)}
+        badges={[renderStatus(asset), renderAssetStatus(asset)]}
+      />
 
       <WorkDetailTabs activeTab={activeTab} onChange={setActiveTab} />
 
       <div>
         {activeTab === "base" ? (
-          <div className="grid gap-4">
+          <div className="grid gap-6">
             <WorkDetailSection title="所属客户">
               <WorkDetailGrid
                 items={[
@@ -2094,15 +2170,21 @@ function WorkAssetDetailContent({
 
             <WorkDetailSection title="资产信息">
               <WorkDetailGrid
-                items={[
+                items={compactWorkDetailItems([
                   ["资产名称", assetTitle(asset)],
-                  ["资产编号", workAssetNo(asset) || "-"],
-                  ["资产状态", textValue(asset.asset_status_name) || "-"],
+                  ["资产编号", workAssetNo(asset)],
+                  ["资产状态", textValue(asset.asset_status_name)],
                   ["当前状态", workStatusName(asset)],
-                  ["备注", displayText(asset.remark)],
-                ]}
+                  ["备注", textValue(asset.remark)],
+                ])}
               />
             </WorkDetailSection>
+
+            {assetExtraFields.length > 0 ? (
+              <WorkDetailSection title="已收集资料">
+                <WorkDetailGrid items={assetExtraFields} />
+              </WorkDetailSection>
+            ) : null}
 
             {assetTasks.length > 0 ? (
               <WorkDetailSection title="当前应做">
@@ -2110,12 +2192,6 @@ function WorkAssetDetailContent({
                   tasks={assetTasks}
                   onOpen={(task) => openRowTask(customer, task, store, asset)}
                 />
-              </WorkDetailSection>
-            ) : null}
-
-            {assetExtraFields.length > 0 ? (
-              <WorkDetailSection title="补充资料">
-                <WorkDetailGrid items={assetExtraFields} />
               </WorkDetailSection>
             ) : null}
           </div>
@@ -2130,6 +2206,33 @@ function WorkAssetDetailContent({
 }
 
 type WorkDetailTab = "base" | "operations";
+
+function WorkDetailHero({
+  title,
+  description,
+  badges,
+}: {
+  title: string;
+  description?: string;
+  badges?: ReactNode[];
+}) {
+  const visibleBadges = (badges || []).filter(Boolean);
+  return (
+    <div className="grid gap-2 border-b pb-4">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <h2 className="min-w-0 truncate text-lg font-semibold leading-7">{displayText(title, "详情")}</h2>
+        {visibleBadges.map((badge, index) => (
+          <span key={index} className="inline-flex">
+            {badge}
+          </span>
+        ))}
+      </div>
+      {description ? (
+        <div className="text-sm leading-6 text-muted-foreground">{description}</div>
+      ) : null}
+    </div>
+  );
+}
 
 function WorkDetailTabs({
   activeTab,
@@ -2173,29 +2276,40 @@ function WorkDetailSection({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-md border bg-background">
-      <div className="border-b px-4 py-3">
-        <h3 className="text-sm font-semibold">{title}</h3>
-      </div>
-      <div className="px-4 py-4">{children}</div>
+    <section className="grid gap-3">
+      <h3 className="text-sm font-semibold leading-6">{title}</h3>
+      <div>{children}</div>
     </section>
   );
 }
 
+function compactWorkDetailItems(items: Array<[string, unknown]>): Array<[string, ReactNode]> {
+  return items
+    .map(([label, value]) => {
+      const text = textValue(value);
+      return text ? ([label, text] as [string, ReactNode]) : null;
+    })
+    .filter(Boolean) as Array<[string, ReactNode]>;
+}
+
 function WorkDetailGrid({ items }: { items: Array<[string, ReactNode]> }) {
+  if (items.length === 0) {
+    return <WorkEmptyText>暂无已收集信息</WorkEmptyText>;
+  }
+
   return (
-    <dl className="grid gap-x-6 gap-y-3 md:grid-cols-2">
+    <dl className="grid gap-x-6 gap-y-4 md:grid-cols-2">
       {items.map(([label, value]) => (
-        <div key={label} className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3 text-sm">
+        <div key={label} className="grid gap-1 text-sm">
           <dt className="text-muted-foreground">{label}</dt>
-          <dd className="min-w-0 break-words font-medium">{value}</dd>
+          <dd className="min-w-0 break-words font-medium leading-6 text-foreground/90">{value}</dd>
         </div>
       ))}
     </dl>
   );
 }
 
-function WorkAssetDetailCard({
+function WorkAssetDetailRow({
   customer,
   asset,
   store,
@@ -2206,22 +2320,28 @@ function WorkAssetDetailCard({
 }) {
   const tasks = workAssetRowTasks(asset);
   return (
-    <div className="rounded-md border bg-muted/10 px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
+    <div className="border-b pb-4 last:border-b-0 last:pb-0">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <button
+          type="button"
+          className="min-w-0 text-left"
+          onClick={() => openWorkDetail(customer, store, asset)}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-medium">{assetTitle(asset)}</span>
+            <span className="truncate font-medium leading-6">{assetTitle(asset)}</span>
             {renderStatus(asset)}
             {renderAssetStatus(asset)}
           </div>
-          <div className="mt-1 text-sm text-muted-foreground">
+          <div className="text-sm leading-6 text-muted-foreground">
             {workAssetNo(asset) || "暂无资产编号"}
           </div>
+        </button>
+        <div className="shrink-0">
+          <WorkTaskButtons
+            tasks={tasks}
+            onOpen={(task) => openRowTask(customer, task, store, asset)}
+          />
         </div>
-        <WorkTaskButtons
-          tasks={tasks}
-          onOpen={(task) => openRowTask(customer, task, store, asset)}
-        />
       </div>
     </div>
   );
@@ -2267,7 +2387,7 @@ function WorkOperationTimeline({
 }) {
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         正在加载操作记录
       </div>

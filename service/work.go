@@ -2410,7 +2410,7 @@ func insertWorkOperationLogWithResult(ctx context.Context, staff *WorkStaffSessi
 	if resultValue == "" {
 		resultValue = workResultSuccess
 	}
-	return uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
+	operationID := uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
 		"customer_id":            customerID,
 		"asset_id":               assetID,
 		"task_id":                task.ID,
@@ -2424,6 +2424,8 @@ func insertWorkOperationLogWithResult(ctx context.Context, staff *WorkStaffSessi
 		"operator_department_id": staff.DepartmentID,
 		"created_at":             now,
 	}))
+	syncWorkTaskStatEvent(ctx, staff, task, customerID, assetID, statusCode, operationID, resultValue, now)
+	return operationID
 }
 
 func saveWorkDataRecord(ctx context.Context, customerID uint64, assetID uint64, templateID uint64, taskID uint64, operationID uint64, record map[string]any) {
@@ -2455,10 +2457,208 @@ func saveWorkDataRecord(ctx context.Context, customerID uint64, assetID uint64, 
 		}
 		data["record_json"] = jsonText(merged)
 		model.Update(ctx, map[string]any{"id": existing.ID}, data)
+		syncWorkStatFieldValues(ctx, customerID, assetID, templateID, taskID, operationID, record, now)
 		return
 	}
 	data["created_at"] = now
 	model.Insert(ctx, data)
+	syncWorkStatFieldValues(ctx, customerID, assetID, templateID, taskID, operationID, record, now)
+}
+
+func syncWorkStatFieldValues(ctx context.Context, customerID uint64, assetID uint64, templateID uint64, taskID uint64, operationID uint64, record map[string]any, changedAt time.Time) {
+	defer func() {
+		_ = recover()
+	}()
+	if customerID == 0 || templateID == 0 || len(record) == 0 {
+		return
+	}
+	model := crmmodel.NewStatFieldValueModel()
+	for fieldIDText, value := range record {
+		fieldID := inputUint64(fieldIDText)
+		if fieldID == 0 {
+			continue
+		}
+		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+			"id":               fieldID,
+			"data_template_id": templateID,
+			"stat_enabled":     true,
+			"status":           crmmodel.StatusEnabled,
+		})
+		if field == nil || strings.TrimSpace(field.FieldKey) == "" {
+			continue
+		}
+		data := workStatFieldValueRecord(customerID, assetID, templateID, taskID, operationID, field, value, changedAt)
+		existing := model.Find(ctx, map[string]any{
+			"customer_id":   customerID,
+			"asset_id":      assetID,
+			"data_field_id": field.ID,
+		})
+		if existing != nil {
+			model.Update(ctx, map[string]any{"id": existing.ID}, data)
+			continue
+		}
+		data["created_at"] = changedAt
+		model.Insert(ctx, data)
+	}
+}
+
+func workStatFieldValueRecord(customerID uint64, assetID uint64, templateID uint64, taskID uint64, operationID uint64, field *crmmodel.DataField, value any, changedAt time.Time) map[string]any {
+	valueText := inputText(value)
+	if emptyWorkFieldValue(value) {
+		valueText = ""
+	}
+	return map[string]any{
+		"customer_id":      customerID,
+		"asset_id":         assetID,
+		"data_template_id": templateID,
+		"data_field_id":    field.ID,
+		"field_key":        field.FieldKey,
+		"field_name":       field.Name,
+		"field_type":       field.FieldType,
+		"stat_type":        normalizeWorkStatType(field.StatType),
+		"stat_group":       field.StatGroup,
+		"value_text":       valueText,
+		"value_number":     workStatNumberValue(field, value),
+		"value_date":       workStatDateValue(field, value),
+		"value_bool":       booleanFromAny(value),
+		"value_json":       workStatJSONValue(value),
+		"source":           crmmodel.StatValueSourceForm,
+		"task_id":          taskID,
+		"operation_log_id": operationID,
+		"status":           crmmodel.StatusEnabled,
+		"updated_at":       changedAt,
+	}
+}
+
+func normalizeWorkStatType(statType string) string {
+	switch strings.TrimSpace(statType) {
+	case crmmodel.DataFieldStatTypeMetric,
+		crmmodel.DataFieldStatTypeAmount,
+		crmmodel.DataFieldStatTypeTime,
+		crmmodel.DataFieldStatTypeStatus,
+		crmmodel.DataFieldStatTypeText:
+		return strings.TrimSpace(statType)
+	default:
+		return crmmodel.DataFieldStatTypeDimension
+	}
+}
+
+func workStatNumberValue(field *crmmodel.DataField, value any) float64 {
+	if field == nil {
+		return 0
+	}
+	switch field.StatType {
+	case crmmodel.DataFieldStatTypeMetric, crmmodel.DataFieldStatTypeAmount:
+		return numericValue(value)
+	}
+	switch field.FieldType {
+	case "number", "money":
+		return numericValue(value)
+	default:
+		return 0
+	}
+}
+
+func workStatDateValue(field *crmmodel.DataField, value any) time.Time {
+	if field == nil {
+		return time.Time{}
+	}
+	if field.StatType != crmmodel.DataFieldStatTypeTime && field.FieldType != "date" && field.FieldType != "datetime" {
+		return time.Time{}
+	}
+	text := inputText(value)
+	if text == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{
+		time.RFC3339,
+		"2006-01-02T15:04",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	} {
+		if parsed, err := time.ParseInLocation(layout, text, time.Local); err == nil {
+			return parsed
+		}
+	}
+	return time.Time{}
+}
+
+func workStatJSONValue(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "null"
+	}
+	return string(raw)
+}
+
+func syncWorkTaskStatEvent(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, customerID uint64, assetID uint64, stageCode string, operationID uint64, resultValue string, eventAt time.Time) {
+	defer func() {
+		_ = recover()
+	}()
+	if staff == nil || task == nil || customerID == 0 || operationID == 0 {
+		return
+	}
+	eventKey := fmt.Sprintf("task:%d:%s", task.ID, resultValue)
+	insertWorkStatEvent(ctx, map[string]any{
+		"event_type":             crmmodel.StatEventTypeTask,
+		"event_key":              eventKey,
+		"customer_id":            customerID,
+		"asset_id":               assetID,
+		"stage_code":             stageCode,
+		"from_stage_code":        "",
+		"to_stage_code":          "",
+		"task_id":                task.ID,
+		"task_type":              task.TaskType,
+		"result_value":           resultValue,
+		"operation_log_id":       operationID,
+		"transition_log_id":      0,
+		"operator_staff_id":      staff.ID,
+		"operator_department_id": staff.DepartmentID,
+		"event_at":               eventAt,
+		"created_at":             eventAt,
+	})
+}
+
+func syncWorkTransitionStatEvent(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, customerID uint64, assetID uint64, fromStageCode string, toStageCode string, operationID uint64, transitionLogID uint64, resultValue string, eventAt time.Time) {
+	defer func() {
+		_ = recover()
+	}()
+	if staff == nil || task == nil || customerID == 0 || operationID == 0 || transitionLogID == 0 {
+		return
+	}
+	eventKey := fmt.Sprintf("transition:%s:%s:%d:%s", fromStageCode, toStageCode, task.ID, resultValue)
+	insertWorkStatEvent(ctx, map[string]any{
+		"event_type":             crmmodel.StatEventTypeTransition,
+		"event_key":              eventKey,
+		"customer_id":            customerID,
+		"asset_id":               assetID,
+		"stage_code":             toStageCode,
+		"from_stage_code":        fromStageCode,
+		"to_stage_code":          toStageCode,
+		"task_id":                task.ID,
+		"task_type":              task.TaskType,
+		"result_value":           resultValue,
+		"operation_log_id":       operationID,
+		"transition_log_id":      transitionLogID,
+		"operator_staff_id":      staff.ID,
+		"operator_department_id": staff.DepartmentID,
+		"event_at":               eventAt,
+		"created_at":             eventAt,
+	})
+}
+
+func insertWorkStatEvent(ctx context.Context, record map[string]any) {
+	model := crmmodel.NewStatEventModel()
+	if existing := model.Find(ctx, map[string]any{
+		"event_key":         record["event_key"],
+		"operation_log_id":  record["operation_log_id"],
+		"transition_log_id": record["transition_log_id"],
+	}); existing != nil {
+		return
+	}
+	model.Insert(ctx, record)
 }
 
 func insertWorkCustomerMember(ctx context.Context, staff *WorkStaffSession, customerID uint64) {
@@ -2690,6 +2890,7 @@ func applyWorkStageTransitionWithOwner(ctx context.Context, staff *WorkStaffSess
 	if departmentID > 0 || staffID > 0 {
 		upsertWorkAssigneeMember(ctx, customerID, assetID, departmentID, staffID)
 	}
+	syncWorkTransitionStatEvent(ctx, staff, task, customerID, assetID, fromState.CurrentStageCode, transition.ToStageCode, operationID, transitionLogID, resultValue, now)
 }
 
 func findWorkStageTransition(ctx context.Context, staff *WorkStaffSession, customerID uint64, fromState *crmmodel.CustomerStage, task *crmmodel.Task, resultValue string) *crmmodel.StageTransition {
