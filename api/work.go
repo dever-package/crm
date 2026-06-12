@@ -38,6 +38,7 @@ func (Work) GetCustomers(c *server.Context) error {
 		"wechat":        c.Input("wechat"),
 		"asset_no":      c.Input("asset_no"),
 		"status":        c.Input("status"),
+		"mode":          c.Input("mode"),
 	})
 	return crmJSON(c, data, err)
 }
@@ -45,6 +46,8 @@ func (Work) GetCustomers(c *server.Context) error {
 func (Work) GetOperations(c *server.Context) error {
 	data, err := workService.Operations(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
 		"customer_id": c.Input("customer_id"),
+		"asset_id":    c.Input("asset_id"),
+		"mine":        c.Input("mine"),
 	})
 	return crmJSON(c, data, err)
 }

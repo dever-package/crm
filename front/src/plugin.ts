@@ -35,5 +35,15 @@ export default defineFrontPlugin({
         default: mod.ShowCrmWorkDetail,
       })),
     ),
+    "show-crm-work-records": lazyNode(() =>
+      loadWorkAuth().then((mod) => ({
+        default: mod.ShowCrmWorkRecords,
+      })),
+    ),
+    "show-crm-work-record-detail": lazyNode(() =>
+      loadWorkAuth().then((mod) => ({
+        default: mod.ShowCrmWorkRecordDetail,
+      })),
+    ),
   },
 });

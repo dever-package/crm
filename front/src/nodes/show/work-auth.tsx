@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Check, Loader2, Plus, RefreshCw } from "lucide-react";
+import { Check, Inbox, Loader2, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,9 @@ import { getStoreValueByPath, setStoreValueByPath } from "@/lib/store";
 type StoreLike = Record<string, unknown>;
 
 type WorkNodeProps = {
+  item?: {
+    meta?: Record<string, unknown>;
+  };
   store?: StoreLike;
   data?: Record<string, unknown>;
 };
@@ -162,15 +165,26 @@ type WorkOperation = {
   id?: string | number;
   asset_id?: string | number;
   customer_id?: string | number;
+  task_type?: string;
+  result_value?: string;
   title?: string;
+  summary?: string;
   operation_name?: string;
   task_name?: string;
   content?: string;
   remark?: string;
   operator_name?: string;
+  operator_is_current?: boolean;
   "operator_staff.name"?: string;
+  "operator_department.name"?: string;
+  "task.name"?: string;
   created_at?: string;
   create_time?: string;
+  summary_items?: Array<{
+    key?: string;
+    label?: string;
+    value?: string | number;
+  }>;
   [key: string]: unknown;
 };
 
@@ -181,6 +195,8 @@ type WorkItem = {
   asset?: WorkAsset;
   tasks: WorkTask[];
 };
+
+type WorkCustomerMode = "pending" | "done";
 
 type WorkSearchFilters = {
   customerNo: string;
@@ -286,6 +302,23 @@ function emptyWorkSearchFilters(): WorkSearchFilters {
     status: "",
   };
 }
+
+const workCustomerModeConfig: Record<
+  WorkCustomerMode,
+  {
+    emptyTitle: string;
+    emptyDescription: string;
+  }
+> = {
+  pending: {
+    emptyTitle: "暂无待处理工作",
+    emptyDescription: "当前没有需要处理的客户或资产任务",
+  },
+  done: {
+    emptyTitle: "暂无已完成工作",
+    emptyDescription: "完成客户或资产任务后，会在这里留存记录",
+  },
+};
 
 const workTableHeadClass =
   "h-12 whitespace-nowrap px-4 text-left text-sm font-medium text-muted-foreground";
@@ -486,6 +519,34 @@ function setWorkModalOpen(store: StoreLike | undefined, key: string, open: boole
   setWorkStoreValue(store, `state.${key}`, open);
 }
 
+function currentWorkStoreState(store: StoreLike | undefined): WorkPageStoreState | undefined {
+  return (store as { getState?: () => WorkPageStoreState } | undefined)?.getState?.();
+}
+
+function updateWorkStoreErrors(
+  store: StoreLike | undefined,
+  nextErrors: (errors: Record<string, string>) => Record<string, string>,
+) {
+  const storeApi = store as
+    | {
+        getState?: () => WorkPageStoreState;
+        setState?: (updater: (state: WorkPageStoreState) => Partial<WorkPageStoreState>) => void;
+      }
+    | undefined;
+
+  if (typeof storeApi?.setState === "function") {
+    storeApi.setState((state) => ({
+      errors: nextErrors(state.errors || {}),
+    }));
+    return;
+  }
+
+  const state = storeApi?.getState?.();
+  if (state) {
+    state.errors = nextErrors(state.errors || {});
+  }
+}
+
 function positiveTextID(value: unknown): string {
   const id = textValue(value);
   return id && id !== "0" ? id : "";
@@ -680,6 +741,20 @@ function workSearchQuery(filters: WorkSearchFilters): string {
   });
   const query = params.toString();
   return query ? `?${query}` : "";
+}
+
+function workCustomerQuery(filters: WorkSearchFilters, mode: WorkCustomerMode): string {
+  const params = new URLSearchParams(workSearchQuery(filters).replace(/^\?/, ""));
+  params.set("mode", mode);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function workCustomerModeFromNode(item?: WorkNodeProps["item"]): WorkCustomerMode {
+  const configured = textValue(item?.meta?.mode || item?.meta?.customerMode);
+  if (configured === "done") return "done";
+  const pathname = textValue(window.location.pathname);
+  return pathname.endsWith("/work/done") || pathname.includes("/work/done/") ? "done" : "pending";
 }
 
 function renderStatus(
@@ -1071,6 +1146,51 @@ function openWorkDetail(customer: WorkCustomer, store?: StoreLike, asset?: WorkA
   setWorkModalOpen(store, "dialog.workDetail", true);
 }
 
+function openWorkRecords(customer: WorkCustomer, store?: StoreLike, asset?: WorkAsset) {
+  setWorkStoreValue(store, "data.actionTarget.workRecordCustomer", customer);
+  setWorkStoreValue(store, "data.actionTarget.workRecordAsset", asset ?? null);
+  setWorkStoreValue(store, "data.actionTarget.workRecordName", "我的记录");
+  setWorkStoreValue(store, "data.actionTarget.workRecordDescription", workRecordDescription(customer, asset));
+  setWorkModalOpen(store, "drawer.workRecords", true);
+}
+
+function openWorkRecordDetail(record: WorkOperation, store?: StoreLike) {
+  setWorkStoreValue(store, "data.actionTarget.workRecordDetail", record);
+  setWorkStoreValue(store, "data.actionTarget.workRecordDetailName", workRecordTitle(record));
+  setWorkStoreValue(store, "data.actionTarget.workRecordDetailDescription", workRecordDetailDescription(record));
+  setWorkModalOpen(store, "dialog.workRecordDetail", true);
+}
+
+function workRecordDescription(customer: WorkCustomer, asset?: WorkAsset): string {
+  const values = asset
+    ? [assetTitle(asset), workCustomerTitle(customer)]
+    : [workCustomerTitle(customer), workCustomerPhone(customer)];
+  return values.map(textValue).filter(Boolean).join(" / ");
+}
+
+function workRecordTitle(record: WorkOperation): string {
+  return displayText(record.task_name || record.operation_name || record["task.name"] || record.title, "任务记录");
+}
+
+function workRecordSubtitle(record: WorkOperation): string {
+  return displayText(record.summary || record.content || record.remark, "任务记录");
+}
+
+function workRecordTime(record: WorkOperation): string {
+  return formatWorkDate(record.created_at || record.create_time);
+}
+
+function workRecordDetailDescription(record: WorkOperation): string {
+  return [workRecordSubtitle(record), workRecordTime(record)]
+    .map(textValue)
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function workRecordSummaryItems(record: WorkOperation): Array<{ key?: string; label?: string; value?: string | number }> {
+  return Array.isArray(record.summary_items) ? record.summary_items : [];
+}
+
 function notifyWorkRefresh() {
   window.dispatchEvent(new CustomEvent(workRefreshEvent));
 }
@@ -1248,11 +1368,13 @@ export function ShowCrmWorkTasks({ store }: WorkNodeProps = {}) {
   );
 }
 
-export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
+export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
   const [customers, setCustomers] = useState<WorkCustomer[]>([]);
   const [filters, setFilters] = useState<WorkSearchFilters>(emptyWorkSearchFilters);
   const [activeFilters, setActiveFilters] = useState<WorkSearchFilters>(emptyWorkSearchFilters);
   const [loading, setLoading] = useState(false);
+  const mode = workCustomerModeFromNode(item);
+  const modeConfig = workCustomerModeConfig[mode];
 
   const loadCustomers = useCallback(async () => {
     setLoading(true);
@@ -1261,7 +1383,7 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
         list?: WorkCustomer[];
         customers?: WorkCustomer[];
         data?: WorkCustomer[];
-      }>(`/crm/work/customers${workSearchQuery(activeFilters)}`);
+      }>(`/crm/work/customers${workCustomerQuery(activeFilters, mode)}`);
       const list = payload.list || payload.customers || payload.data || [];
       setCustomers(Array.isArray(list) ? list : []);
     } catch (error) {
@@ -1269,7 +1391,7 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
     } finally {
       setLoading(false);
     }
-  }, [activeFilters]);
+  }, [activeFilters, mode]);
 
   useEffect(() => {
     loadCustomers();
@@ -1323,6 +1445,9 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
           <WorkItemCardList
             items={workItems}
             loading={loading}
+            emptyTitle={modeConfig.emptyTitle}
+            emptyDescription={modeConfig.emptyDescription}
+            mode={mode}
             store={store}
           />
         </div>
@@ -1345,17 +1470,22 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="h-32 text-center text-muted-foreground">
-                      <span className="inline-flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        正在加载
-                      </span>
+                    <td colSpan={8} className="px-6 py-16">
+                      <WorkStatusState
+                        icon="loading"
+                        title="正在加载"
+                        description="请稍候，正在同步最新数据"
+                      />
                     </td>
                   </tr>
                 ) : workItems.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="h-32 text-center text-muted-foreground">
-                      暂无待处理工作
+                    <td colSpan={8} className="px-6 py-16">
+                      <WorkStatusState
+                        icon="empty"
+                        title={modeConfig.emptyTitle}
+                        description={modeConfig.emptyDescription}
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -1363,6 +1493,7 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
                     <WorkItemTableRow
                       key={item.id}
                       item={item}
+                      mode={mode}
                       store={store}
                     />
                   ))
@@ -1398,9 +1529,11 @@ function WorkTableCell({
 
 function WorkItemTableRow({
   item,
+  mode,
   store,
 }: {
   item: WorkItem;
+  mode: WorkCustomerMode;
   store?: StoreLike;
 }) {
   const { customer, asset } = item;
@@ -1424,6 +1557,7 @@ function WorkItemTableRow({
       <WorkTableCell className="text-center">
         <WorkItemActions
           item={item}
+          mode={mode}
           store={store}
         />
       </WorkTableCell>
@@ -1434,27 +1568,40 @@ function WorkItemTableRow({
 function WorkItemCardList({
   items,
   loading,
+  emptyTitle,
+  emptyDescription,
+  mode,
   store,
 }: {
   items: WorkItem[];
   loading: boolean;
+  emptyTitle: string;
+  emptyDescription: string;
+  mode: WorkCustomerMode;
   store?: StoreLike;
 }) {
   if (loading) {
     return (
-      <div className="rounded-md border bg-background px-4 py-10 text-center text-sm text-muted-foreground">
-        <span className="inline-flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          正在加载
-        </span>
-      </div>
+      <WorkStatusFrame>
+        <WorkStatusState
+          compact
+          icon="loading"
+          title="正在加载"
+          description="请稍候，正在同步最新数据"
+        />
+      </WorkStatusFrame>
     );
   }
   if (items.length === 0) {
     return (
-      <div className="rounded-md border bg-background px-4 py-10 text-center text-sm text-muted-foreground">
-        暂无待处理工作
-      </div>
+      <WorkStatusFrame>
+        <WorkStatusState
+          compact
+          icon="empty"
+          title={emptyTitle}
+          description={emptyDescription}
+        />
+      </WorkStatusFrame>
     );
   }
   return (
@@ -1491,6 +1638,7 @@ function WorkItemCardList({
               <div className="mt-3">
                 <WorkItemActions
                   item={item}
+                  mode={mode}
                   store={store}
                 />
               </div>
@@ -1502,18 +1650,62 @@ function WorkItemCardList({
   );
 }
 
+function WorkStatusFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-md border bg-background px-4 py-14">
+      {children}
+    </div>
+  );
+}
+
+function WorkStatusState({
+  compact = false,
+  icon,
+  title,
+  description,
+}: {
+  compact?: boolean;
+  icon: "loading" | "empty";
+  title: string;
+  description: string;
+}) {
+  const isLoading = icon === "loading";
+  const Icon = isLoading ? Loader2 : Inbox;
+  const iconClassName = `${compact ? "h-5 w-5" : "h-6 w-6"} text-muted-foreground/70 ${
+    isLoading ? "animate-spin" : ""
+  }`;
+
+  return (
+    <div className="mx-auto flex max-w-sm flex-col items-center justify-center text-center">
+      <Icon className={iconClassName} strokeWidth={1.8} />
+      <div className={compact ? "mt-2" : "mt-3"}>
+        <div className="text-sm font-medium text-foreground/90">{title}</div>
+        <div className="mt-1 text-xs leading-5 text-muted-foreground">{description}</div>
+      </div>
+    </div>
+  );
+}
+
 function WorkItemActions({
   item,
+  mode,
   store,
 }: {
   item: WorkItem;
+  mode: WorkCustomerMode;
   store?: StoreLike;
 }) {
   const { customer, asset, tasks } = item;
   const openDetail = () => openWorkDetail(customer, store, asset);
+  const openRecords = () => openWorkRecords(customer, store, asset);
 
   return (
     <div className="flex flex-wrap justify-center gap-2">
+      {mode === "done" ? (
+        <Button type="button" variant="outline" size="sm" onClick={openRecords}>
+          我的记录
+        </Button>
+      ) : null}
       <Button type="button" variant="outline" size="sm" onClick={openDetail}>
         详情
       </Button>
@@ -1545,6 +1737,138 @@ export function ShowCrmWorkDetail({ store }: WorkNodeProps) {
   }
 
   return <WorkCustomerDetailContent customer={customer} store={store} />;
+}
+
+export function ShowCrmWorkRecords({ store }: WorkNodeProps) {
+  const customer = workStoreValue<WorkCustomer | null>(store, "data.actionTarget.workRecordCustomer", null);
+  const asset = workStoreValue<WorkAsset | null>(store, "data.actionTarget.workRecordAsset", null);
+  const [records, setRecords] = useState<WorkOperation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const customerID = workCustomerID(customer);
+  const assetID = textValue(asset?.id);
+
+  const loadRecords = useCallback(async () => {
+    if (!customerID) {
+      setRecords([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const query = new URLSearchParams({
+        customer_id: customerID,
+        mine: "1",
+      });
+      if (assetID) {
+        query.set("asset_id", assetID);
+      }
+      const data = await workApi<{ list?: WorkOperation[] }>(`/crm/work/operations?${query.toString()}`);
+      setRecords(Array.isArray(data.list) ? data.list : []);
+    } catch (error) {
+      toast.error(errorMessage(error, "我的记录加载失败"));
+      setRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [assetID, customerID]);
+
+  useEffect(() => {
+    loadRecords();
+  }, [loadRecords]);
+
+  if (!customer) {
+    return <div className="py-8 text-sm text-muted-foreground">暂无我的记录</div>;
+  }
+
+  return <WorkMyRecordTimeline records={records} loading={loading} store={store} />;
+}
+
+function WorkMyRecordTimeline({
+  records,
+  loading,
+  store,
+}: {
+  records: WorkOperation[];
+  loading: boolean;
+  store?: StoreLike;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        正在加载我的记录
+      </div>
+    );
+  }
+
+  if (records.length === 0) {
+    return <div className="py-8 text-sm text-muted-foreground">暂无我的操作记录</div>;
+  }
+
+  return (
+    <ol className="relative ml-3 space-y-6 border-l border-border/70 pl-5">
+      {records.map((record, index) => (
+        <WorkMyRecordItem key={`${textValue(record.id) || index}`} record={record} store={store} />
+      ))}
+    </ol>
+  );
+}
+
+function WorkMyRecordItem({
+  record,
+  store,
+}: {
+  record: WorkOperation;
+  store?: StoreLike;
+}) {
+  return (
+    <li className="relative">
+      <span className="absolute -left-[1.56rem] top-2 size-2 rounded-full bg-foreground ring-4 ring-background" />
+      <button
+        type="button"
+        className="block w-full rounded-md px-1 py-1.5 text-left transition-colors hover:bg-muted/50"
+        onClick={() => openWorkRecordDetail(record, store)}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <span className="min-w-0 text-sm font-semibold leading-5">
+            {workRecordTitle(record)}
+          </span>
+          <span className="shrink-0 whitespace-nowrap text-sm leading-5 text-muted-foreground">
+            {workRecordTime(record)}
+          </span>
+        </div>
+      </button>
+    </li>
+  );
+}
+
+export function ShowCrmWorkRecordDetail({ store }: WorkNodeProps) {
+  const record = workStoreValue<WorkOperation | null>(store, "data.actionTarget.workRecordDetail", null);
+  if (!record) {
+    return <WorkEmptyText>暂无记录详情</WorkEmptyText>;
+  }
+  return <WorkRecordDetailContent record={record} />;
+}
+
+function WorkRecordDetailContent({ record }: { record: WorkOperation }) {
+  const summaryItems = workRecordSummaryItems(record);
+  return (
+    <div>
+      {summaryItems.length > 0 ? (
+        <dl className="grid gap-y-3 text-sm">
+          {summaryItems.map((item) => (
+            <div key={textValue(item.key || item.label)} className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3">
+              <dt className="text-muted-foreground">{displayText(item.label, "-")}</dt>
+              <dd className="min-w-0 break-words font-medium">{displayText(item.value, "-")}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <div className="text-sm leading-6 text-muted-foreground">
+          {displayText(record.content || record.remark, "暂无提交明细")}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function WorkCustomerDetailContent({
@@ -1999,6 +2323,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
   const submit = useCallback(async () => {
     if (!task) return false;
     if (submitting) return false;
+    clearCurrentWorkTaskFormErrors(store);
     if (!validateCurrentWorkTaskForm(store)) return false;
 
     setSubmitting(true);
@@ -2016,7 +2341,9 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
       notifyWorkRefresh();
       close();
     } catch (error) {
-      toast.error(errorMessage(error));
+      const message = errorMessage(error);
+      applyWorkTaskSubmitError(store, message);
+      toast.error(message);
       return false;
     } finally {
       setSubmitting(false);
@@ -2055,9 +2382,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
 }
 
 function validateCurrentWorkTaskForm(store: StoreLike | undefined): boolean {
-  const validateForm = (store as { getState?: () => { validateForm?: () => boolean } } | undefined)
-    ?.getState?.()
-    ?.validateForm;
+  const validateForm = currentWorkStoreState(store)?.validateForm;
   return typeof validateForm === "function" ? validateForm() : true;
 }
 
@@ -2068,6 +2393,59 @@ function collectWorkTaskSubmitValues(store: StoreLike | undefined): Record<strin
     values[rawKey] = formValues[formKey];
     return values;
   }, {});
+}
+
+function clearCurrentWorkTaskFormErrors(store: StoreLike | undefined) {
+  setCurrentWorkTaskFormErrors(store, {});
+}
+
+function applyWorkTaskSubmitError(store: StoreLike | undefined, message: string) {
+  const errorField = workTaskSubmitErrorField(message);
+  if (!errorField) return;
+
+  const errorKey = currentWorkTaskFormErrorKey(store, errorField);
+  if (!errorKey) return;
+
+  setCurrentWorkTaskFormErrors(store, {
+    [errorKey]: message,
+  });
+}
+
+function setCurrentWorkTaskFormErrors(
+  store: StoreLike | undefined,
+  formErrors: Record<string, string>,
+) {
+  updateWorkStoreErrors(store, (errors) => ({
+    ...withoutCurrentWorkTaskFormErrors(errors),
+    ...formErrors,
+  }));
+}
+
+function withoutCurrentWorkTaskFormErrors(errors: Record<string, string>): Record<string, string> {
+  return Object.entries(errors).reduce<Record<string, string>>((result, [key, message]) => {
+    if (!key.startsWith("workTaskForm.")) {
+      result[key] = message;
+    }
+    return result;
+  }, {});
+}
+
+function currentWorkTaskFormErrorKey(store: StoreLike | undefined, field: string): string {
+  const fieldMap = workStoreValue<Record<string, string>>(store, workTaskFieldMapPath, {});
+  const matched = Object.entries(fieldMap).find(([, rawKey]) => workTaskRawMainField(rawKey) === field);
+  return matched ? `workTaskForm.${matched[0]}` : "";
+}
+
+function workTaskRawMainField(rawKey: string): string {
+  const normalized = textValue(rawKey);
+  return normalized.startsWith("main:") ? normalized.slice("main:".length) : normalized;
+}
+
+function workTaskSubmitErrorField(message: string): string {
+  if (message.includes("手机号") || message.includes("phone")) return "phone";
+  if (message.includes("微信") || message.includes("wechat")) return "wechat";
+  if (message.includes("身份证") || message.includes("id_card")) return "id_card";
+  return "";
 }
 
 function workDecisionValue(result: WorkDecisionResult): string {

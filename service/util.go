@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -70,6 +71,15 @@ func copyMap(row map[string]any) map[string]any {
 		result[key] = value
 	}
 	return result
+}
+
+func sortedMapKeys(row map[string]any) []string {
+	keys := make([]string, 0, len(row))
+	for key := range row {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func mapListFromAny(value any) []map[string]any {
