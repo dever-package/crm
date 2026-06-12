@@ -30,5 +30,10 @@ export default defineFrontPlugin({
         default: mod.ShowCrmWorkCustomerTable,
       })),
     ),
+    "show-crm-work-detail": lazyNode(() =>
+      loadWorkAuth().then((mod) => ({
+        default: mod.ShowCrmWorkDetail,
+      })),
+    ),
   },
 });

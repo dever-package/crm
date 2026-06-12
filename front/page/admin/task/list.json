@@ -184,11 +184,6 @@
               "type": "show-tag"
             },
             {
-              "name": "资料方式",
-              "value": "form_mode_name",
-              "type": "show-tag"
-            },
-            {
               "name": "触发方式",
               "value": "trigger_type_name",
               "type": "show-base"

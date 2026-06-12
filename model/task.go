@@ -11,7 +11,6 @@ type Task struct {
 	StageID          uint64    `dorm:"type:bigint;not null;default:0;comment:所属阶段"`
 	Name             string    `dorm:"type:varchar(128);not null;comment:任务名称"`
 	TaskType         string    `dorm:"type:varchar(32);not null;default:'form';comment:任务动作"`
-	FormMode         string    `dorm:"type:varchar(32);not null;default:'edit';comment:资料方式"`
 	FormID           uint64    `dorm:"type:bigint;not null;default:0;comment:资料模板"`
 	TriggerType      string    `dorm:"type:varchar(32);not null;default:'manual';comment:触发方式"`
 	TriggerTaskID    uint64    `dorm:"type:bigint;not null;default:0;comment:触发任务"`
@@ -38,7 +37,6 @@ func NewTaskModel() *orm.Model[Task] {
 		Database: "default",
 		Options: map[string]any{
 			"task_type":    taskTypeOptions,
-			"form_mode":    taskFormModeOptions,
 			"trigger_type": taskTriggerOptions,
 			"status":       statusOptions,
 		},

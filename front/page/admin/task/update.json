@@ -75,6 +75,10 @@
         "mode": "form",
         "option": [
           {
+            "id": "create",
+            "value": "创建资料"
+          },
+          {
             "id": "form",
             "value": "填写资料"
           },
@@ -104,37 +108,9 @@
             "form.script_id",
             "form.result_schema_json",
             "form.trigger_task_id",
+            "form.assign_department_ids",
             "form.booking_resource_cate_id",
             "form.booking_need_confirm"
-          ]
-        }
-      },
-      {
-        "type": "form-radio",
-        "name": "资料方式",
-        "value": "form.form_mode",
-        "mode": "form",
-        "option": [
-          {
-            "id": "create",
-            "value": "新增"
-          },
-          {
-            "id": "edit",
-            "value": "编辑"
-          }
-        ],
-        "meta": {
-          "formLayout": "horizontal",
-          "clearOnChange": [
-            "form.form_id"
-          ],
-          "hiddenWhen": [
-            {
-              "path": "form.task_type",
-              "operator": "notEquals",
-              "value": "form"
-            }
           ]
         }
       },
@@ -183,12 +159,12 @@
             {
               "path": "form.task_type",
               "operator": "notEquals",
-              "value": "form"
+              "value": "create"
             },
             {
               "path": "form.task_type",
               "operator": "notEquals",
-              "value": "assign"
+              "value": "form"
             }
           ]
         }
@@ -263,14 +239,42 @@
           {
             "id": "department",
             "value": "选择部门"
-          },
-          {
-            "id": "department_staff",
-            "value": "先选部门再选人员"
           }
         ],
         "meta": {
           "formLayout": "horizontal",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "assign"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "可选部门",
+        "value": "form.assign_department_ids",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "可选部门不能为空。",
+            "when": [
+              {
+                "path": "form.task_type",
+                "operator": "equals",
+                "value": "assign"
+              }
+            ]
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "multiple": true,
+          "placeholder": "请选择这个任务允许派单的部门",
           "hiddenWhen": [
             {
               "path": "form.task_type",
@@ -338,13 +342,13 @@
         "stage_id",
         "name",
         "task_type",
-        "form_mode",
         "trigger_type",
         "trigger_task_id",
         "next_stage_code",
         "config_json",
         "form_id",
         "assign_mode",
+        "assign_department_ids",
         "booking_resource_cate_id",
         "booking_need_confirm",
         "script_id",
@@ -355,13 +359,13 @@
       "stage_id": "",
       "name": "",
       "task_type": "form",
-      "form_mode": "edit",
       "trigger_type": "manual",
       "trigger_task_id": "",
       "next_stage_code": "",
       "config_json": "{}",
       "form_id": "",
-      "assign_mode": "department_staff",
+      "assign_mode": "staff",
+      "assign_department_ids": [],
       "booking_resource_cate_id": 1,
       "booking_need_confirm": 0,
       "script_id": "",

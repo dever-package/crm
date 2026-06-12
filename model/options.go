@@ -8,6 +8,7 @@ const (
 )
 
 const (
+	TaskTypeCreate     = "create"
 	TaskTypeForm       = "form"
 	TaskTypeAssign     = "assign"
 	TaskTypeDecision   = "decision"
@@ -16,8 +17,8 @@ const (
 )
 
 const (
-	TaskFormModeCreate = "create"
-	TaskFormModeEdit   = "edit"
+	TaskAssignModeStaff      = "staff"
+	TaskAssignModeDepartment = "department"
 )
 
 const (
@@ -86,15 +87,11 @@ var scriptUsageOptions = []map[string]any{
 }
 
 var taskTypeOptions = []map[string]any{
+	{"id": TaskTypeCreate, "value": "创建资料"},
 	{"id": TaskTypeForm, "value": "填写资料"},
 	{"id": TaskTypeAssign, "value": "分配"},
 	{"id": TaskTypeDecision, "value": "决策"},
 	{"id": TaskTypeBooking, "value": "资源预定"},
-}
-
-var taskFormModeOptions = []map[string]any{
-	{"id": TaskFormModeCreate, "value": "新增"},
-	{"id": TaskFormModeEdit, "value": "编辑"},
 }
 
 var resourceBookingStatusOptions = []map[string]any{

@@ -22,7 +22,6 @@ func (CrmHook) ProviderBuildTaskRows(c *server.Context, params []any) any {
 	}
 	for _, row := range rows {
 		row["task_type_name"] = taskTypeName(row["task_type"])
-		row["form_mode_name"] = taskFormModeName(row["task_type"], row["form_mode"])
 		row["trigger_type_name"] = taskTriggerTypeName(row["trigger_type"])
 	}
 	return rows
@@ -30,6 +29,8 @@ func (CrmHook) ProviderBuildTaskRows(c *server.Context, params []any) any {
 
 func taskTypeName(value any) string {
 	switch util.ToStringTrimmed(value) {
+	case crmmodel.TaskTypeCreate:
+		return "创建资料"
 	case crmmodel.TaskTypeForm:
 		return "填写资料"
 	case crmmodel.TaskTypeAssign:
@@ -40,18 +41,6 @@ func taskTypeName(value any) string {
 		return "资源预定"
 	default:
 		return util.ToStringTrimmed(value)
-	}
-}
-
-func taskFormModeName(taskType any, value any) string {
-	if util.ToStringTrimmed(taskType) != crmmodel.TaskTypeForm {
-		return "-"
-	}
-	switch util.ToStringTrimmed(value) {
-	case crmmodel.TaskFormModeCreate:
-		return "新增"
-	default:
-		return "编辑"
 	}
 }
 
@@ -87,7 +76,6 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	partial := isPartialCrmRecord(record)
 	trimCrmStringField(record, "name", partial)
 	trimCrmStringField(record, "task_type", partial)
-	trimCrmStringField(record, "form_mode", partial)
 	trimCrmStringField(record, "trigger_type", partial)
 	trimCrmStringField(record, "assign_mode", partial)
 	trimCrmStringField(record, "next_stage_code", partial)
@@ -108,9 +96,6 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	defaultCrmInt(record, "stage_id", 0, partial)
 	if shouldNormalizeCrmField(record, "task_type", partial) && util.ToStringTrimmed(record["task_type"]) == "" {
 		record["task_type"] = crmmodel.TaskTypeForm
-	}
-	if shouldNormalizeCrmField(record, "form_mode", partial) && util.ToStringTrimmed(record["form_mode"]) == "" {
-		record["form_mode"] = crmmodel.TaskFormModeEdit
 	}
 	if shouldNormalizeCrmField(record, "trigger_type", partial) && util.ToStringTrimmed(record["trigger_type"]) == "" {
 		record["trigger_type"] = crmmodel.TaskTriggerManual
@@ -182,6 +167,13 @@ func normalizeTaskTypeConfig(record map[string]any, partial bool) {
 	}
 	taskType := util.ToStringTrimmed(record["task_type"])
 	switch taskType {
+	case crmmodel.TaskTypeCreate:
+		if !partial && util.ToUint64(record["form_id"]) == 0 {
+			panicCrmField("form.form_id", "创建资料任务必须选择资料模板。")
+		}
+		record["script_id"] = uint64(0)
+		record["result_schema_json"] = "[]"
+		mergeTaskConfigField(record, "next_stage_code", util.ToStringTrimmed(record["next_stage_code"]))
 	case crmmodel.TaskTypeForm:
 		if !partial && util.ToUint64(record["form_id"]) == 0 {
 			panicCrmField("form.form_id", "填写资料任务必须选择资料模板。")
@@ -194,15 +186,23 @@ func normalizeTaskTypeConfig(record map[string]any, partial bool) {
 		record["result_schema_json"] = "[]"
 		assignMode := util.ToStringTrimmed(record["assign_mode"])
 		if assignMode == "" {
-			assignMode = "department_staff"
+			assignMode = crmmodel.TaskAssignModeStaff
+		}
+		if assignMode != crmmodel.TaskAssignModeDepartment {
+			assignMode = crmmodel.TaskAssignModeStaff
+		}
+		departmentIDs := normalizeTaskAssignDepartmentIDs(record["assign_department_ids"])
+		if len(departmentIDs) == 0 {
+			panicCrmField("form.assign_department_ids", "可选部门不能为空。")
 		}
 		record["config_json"] = encodeTaskConfig(mergedTaskConfig(record, map[string]any{
-			"assign_mode":     assignMode,
-			"next_stage_code": util.ToStringTrimmed(record["next_stage_code"]),
+			"assign_mode":           assignMode,
+			"assign_department_ids": departmentIDs,
+			"next_stage_code":       util.ToStringTrimmed(record["next_stage_code"]),
 		}))
+		record["form_id"] = uint64(0)
 	case crmmodel.TaskTypeBooking:
 		record["form_id"] = uint64(0)
-		record["form_mode"] = crmmodel.TaskFormModeEdit
 		record["script_id"] = uint64(0)
 		record["result_schema_json"] = "[]"
 		resourceCateID := util.ToUint64(record["booking_resource_cate_id"])
@@ -220,7 +220,6 @@ func normalizeTaskTypeConfig(record map[string]any, partial bool) {
 			panicCrmField("form.result_schema_json", "决策任务必须配置任务结果。")
 		}
 		record["form_id"] = uint64(0)
-		record["form_mode"] = crmmodel.TaskFormModeEdit
 		mergeTaskConfigField(record, "next_stage_code", util.ToStringTrimmed(record["next_stage_code"]))
 	default:
 		record["task_type"] = crmmodel.TaskTypeForm
@@ -243,7 +242,7 @@ func ensureTaskFormExists(ctx context.Context, record map[string]any, partial bo
 			}
 		}
 	}
-	if taskType != crmmodel.TaskTypeForm && taskType != crmmodel.TaskTypeAssign {
+	if taskType != crmmodel.TaskTypeCreate && taskType != crmmodel.TaskTypeForm {
 		return
 	}
 	if formID == 0 {
@@ -258,9 +257,9 @@ func ensureTaskFormExists(ctx context.Context, record map[string]any, partial bo
 func shouldNormalizeTaskConfig(record map[string]any, partial bool) bool {
 	for _, field := range []string{
 		"task_type",
-		"form_mode",
 		"form_id",
 		"assign_mode",
+		"assign_department_ids",
 		"next_stage_code",
 		"booking_resource_cate_id",
 		"booking_need_confirm",
@@ -329,22 +328,38 @@ func applyTaskConfigForm(record map[string]any) {
 	if util.ToStringTrimmed(record["task_type"]) == "" {
 		record["task_type"] = crmmodel.TaskTypeForm
 	}
-	if util.ToStringTrimmed(record["form_mode"]) == "" {
-		record["form_mode"] = crmmodel.TaskFormModeEdit
-	}
 	config := decodeTaskConfig(record["config_json"])
 	record["next_stage_code"] = util.ToStringTrimmed(config["next_stage_code"])
 	assignMode := util.ToStringTrimmed(config["assign_mode"])
 	if assignMode == "" {
-		assignMode = "department_staff"
+		assignMode = crmmodel.TaskAssignModeStaff
+	}
+	if assignMode != crmmodel.TaskAssignModeDepartment {
+		assignMode = crmmodel.TaskAssignModeStaff
 	}
 	record["assign_mode"] = assignMode
+	record["assign_department_ids"] = normalizeTaskAssignDepartmentIDs(config["assign_department_ids"])
 	resourceCateID := util.ToUint64(config["resource_cate_id"])
 	if resourceCateID == 0 {
 		resourceCateID = crmmodel.DefaultResourceCateID
 	}
 	record["booking_resource_cate_id"] = resourceCateID
 	record["booking_need_confirm"] = util.ToBool(config["need_confirm"])
+}
+
+func normalizeTaskAssignDepartmentIDs(value any) []uint64 {
+	items := compactStringList(value)
+	result := make([]uint64, 0, len(items))
+	seen := map[uint64]bool{}
+	for _, item := range items {
+		id := util.ToUint64(item)
+		if id == 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		result = append(result, id)
+	}
+	return result
 }
 
 func applyTaskResultSchemaForm(record map[string]any) {

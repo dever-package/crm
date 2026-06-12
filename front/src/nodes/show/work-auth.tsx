@@ -1,18 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Check, Loader2, Plus, RefreshCw, X } from "lucide-react";
+import { Check, Loader2, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { getStoreValueByPath, setStoreValueByPath } from "@/lib/store";
 
 type StoreLike = Record<string, unknown>;
@@ -92,6 +84,8 @@ type WorkTask = {
   task_action?: string;
   task_type?: string;
   trigger_type?: string;
+  assign_mode?: string;
+  assign_department_ids?: Array<string | number> | string;
   form_id?: string | number;
   form?: WorkForm | null;
   result_schema?: WorkDecisionResult[];
@@ -117,6 +111,9 @@ type WorkCustomer = {
   channel?: string;
   level_name?: string;
   customer_level?: string;
+  source_id?: string | number;
+  channel_id?: string | number;
+  level_id?: string | number;
   status_name?: string;
   stage_name?: string;
   stage_code?: string;
@@ -213,6 +210,39 @@ type WorkOptions = {
   staffs: WorkStaffOption[];
 };
 
+type WorkCommonOption = {
+  id: string;
+  value: string;
+  [key: string]: unknown;
+};
+
+type WorkTaskFormNode = {
+  id: string;
+  type: string;
+  name?: string;
+  placeholder?: string;
+  value?: string;
+  mode?: "form";
+  option?: WorkCommonOption[] | string;
+  validate?: Array<Record<string, unknown>>;
+  meta?: Record<string, unknown>;
+};
+
+type WorkTaskFormState = {
+  nodes: WorkTaskFormNode[];
+  values: Record<string, unknown>;
+  fieldMap: Record<string, string>;
+};
+
+type WorkPageStoreState = {
+  schema?: {
+    nodes?: Record<string, WorkTaskFormNode[]>;
+    [key: string]: unknown;
+  };
+  errors?: Record<string, string>;
+  validateForm?: () => boolean;
+};
+
 const workRefreshEvent = "crm-work-refresh";
 const workTokenKey = "crm_work_token";
 const workUserKey = "crm_work_user";
@@ -222,6 +252,9 @@ const legacyFrontTokenKey = "front-token:work";
 const legacyFrontUserKey = "front-user:work";
 const defaultWorkSiteKey = "work";
 const authCookieMaxAge = 3600 * 24 * 7;
+const workTaskFormSectionID = "work-task-form-section";
+const workTaskFormDataPath = "data.workTaskForm";
+const workTaskFieldMapPath = "data.actionTarget.workTaskFieldMap";
 
 const buttonBase =
   "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60";
@@ -556,19 +589,27 @@ function workTaskIsBooking(task: WorkTask): boolean {
   return action === "booking" || action === "resource" || action === "资源预定";
 }
 
+function workTaskIsCreate(task: WorkTask): boolean {
+  const action = workTaskAction(task);
+  return action === "create" || action === "创建资料";
+}
+
 function workTaskIsForm(task: WorkTask): boolean {
-  return !workTaskIsAssign(task) && !workTaskIsDecision(task) && !workTaskIsBooking(task);
+  return !workTaskIsCreate(task) && !workTaskIsAssign(task) && !workTaskIsDecision(task) && !workTaskIsBooking(task);
 }
 
 function workTaskShouldRenderFields(task: WorkTask): boolean {
   const fields = task.form?.fields || [];
-  if (fields.length === 0) return workTaskIsForm(task) || workTaskIsBooking(task);
-  return workTaskIsForm(task) || workTaskIsBooking(task) || workTaskIsAssign(task);
+  if (fields.length === 0) {
+    return workTaskIsCreate(task) || workTaskIsForm(task) || workTaskIsBooking(task);
+  }
+  return workTaskIsCreate(task) || workTaskIsForm(task) || workTaskIsBooking(task) || workTaskIsAssign(task);
 }
 
 function workTaskButtonLabel(task: WorkTask): string {
   const name = workTaskName(task);
   if (name && name !== "任务") return name;
+  if (workTaskIsCreate(task)) return "创建资料";
   if (workTaskIsAssign(task)) return "派单";
   if (workTaskIsDecision(task)) return "决策";
   if (workTaskIsBooking(task)) return "资源预定";
@@ -677,8 +718,8 @@ function workReadableDataValueItems(target: WorkCustomer | WorkAsset): Array<[st
   return readableValueItems(target.data_values, target.data_value_labels);
 }
 
-function openRowTask(
-  customer: WorkCustomer,
+async function openRowTask(
+  customer: WorkCustomer | null,
   task: WorkTask,
   store?: StoreLike,
   asset?: WorkAsset,
@@ -687,7 +728,347 @@ function openRowTask(
   setWorkStoreValue(store, "data.actionTarget.workTaskCustomer", customer);
   setWorkStoreValue(store, "data.actionTarget.workTaskAsset", asset ?? null);
   setWorkStoreValue(store, "data.actionTarget.workTaskName", workTaskButtonLabel(task));
+  await prepareWorkTaskForm(store, task, customer, asset);
   setWorkModalOpen(store, "dialog.workTask", true);
+}
+
+async function prepareWorkTaskForm(
+  store: StoreLike | undefined,
+  task: WorkTask,
+  customer?: WorkCustomer | null,
+  asset?: WorkAsset,
+) {
+  const options = await loadWorkTaskOptions(task);
+  const formState = buildWorkTaskFormState(task, customer, asset, options);
+  setWorkStoreValue(store, workTaskFormDataPath, formState.values);
+  setWorkStoreValue(store, workTaskFieldMapPath, formState.fieldMap);
+  replaceWorkTaskFormSection(store, formState.nodes);
+}
+
+async function loadWorkTaskOptions(task: WorkTask): Promise<WorkOptions> {
+  if (!workTaskIsAssign(task)) {
+    return { departments: [], staffs: [] };
+  }
+
+  try {
+    const payload = await workApi<Partial<WorkOptions>>("/crm/work/options");
+    return {
+      departments: Array.isArray(payload.departments) ? payload.departments : [],
+      staffs: Array.isArray(payload.staffs) ? payload.staffs : [],
+    };
+  } catch (error) {
+    toast.error(errorMessage(error, "选项加载失败"));
+    return { departments: [], staffs: [] };
+  }
+}
+
+function replaceWorkTaskFormSection(store: StoreLike | undefined, nodes: WorkTaskFormNode[]) {
+  const storeApi = store as
+    | {
+        getState?: () => WorkPageStoreState;
+        setState?: (updater: (state: WorkPageStoreState) => Partial<WorkPageStoreState>) => void;
+      }
+    | undefined;
+
+  if (typeof storeApi?.setState === "function") {
+    storeApi.setState((state) => ({
+      schema: {
+        ...(state.schema || {}),
+        nodes: {
+          ...(state.schema?.nodes || {}),
+          [workTaskFormSectionID]: nodes,
+        },
+      },
+      errors: {},
+    }));
+    return;
+  }
+
+  const state = storeApi?.getState?.();
+  if (!state?.schema) return;
+  state.schema.nodes = {
+    ...(state.schema.nodes || {}),
+    [workTaskFormSectionID]: nodes,
+  };
+}
+
+function buildWorkTaskFormState(
+  task: WorkTask,
+  customer?: WorkCustomer | null,
+  asset?: WorkAsset,
+  options: WorkOptions = { departments: [], staffs: [] },
+): WorkTaskFormState {
+  const nodes: WorkTaskFormNode[] = [
+    {
+      id: "work-task-submit-controller",
+      type: "show-crm-work-task-form",
+    },
+  ];
+  const values: Record<string, unknown> = {};
+  const fieldMap: Record<string, string> = {};
+
+  if (workTaskIsDecision(task)) {
+    addWorkTaskSelectNode(nodes, values, fieldMap, {
+      formKey: "result_value",
+      rawKey: "result_value",
+      label: "决策结果",
+      placeholder: "请选择决策结果",
+      required: true,
+      options: workDecisionOptions(task),
+    });
+    addWorkTaskTextNode(nodes, values, fieldMap, {
+      formKey: "remark",
+      rawKey: "remark",
+      label: "备注",
+      placeholder: "请输入备注",
+      type: "form-textarea",
+    });
+  }
+
+  if (workTaskShouldRenderFields(task)) {
+    for (const field of task.form?.fields || []) {
+      addWorkTaskFieldNode(nodes, values, fieldMap, field, customer, asset);
+    }
+  }
+
+  if (workTaskIsAssign(task)) {
+    const assignMode = workTaskAssignMode(task);
+    const departments = workAllowedDepartments(task, options.departments);
+    const departmentFormKey = addWorkTaskSelectNode(nodes, values, fieldMap, {
+      formKey: "assign_department_id",
+      rawKey: "department_id",
+      label: "部门",
+      placeholder: "请选择部门",
+      required: true,
+      options: workDepartmentOptions(departments),
+    });
+    if (assignMode === "staff") {
+      addWorkTaskSelectNode(nodes, values, fieldMap, {
+        formKey: "staff_id",
+        rawKey: "staff_id",
+        label: "人员",
+        placeholder: "请选择人员，不选则自动派给部门负责人",
+        required: false,
+        options: workStaffOptions(options.staffs),
+        meta: {
+          hiddenWhen: [{ path: `workTaskForm.${departmentFormKey}`, operator: "empty" }],
+          optionFilter: [
+            {
+              field: "department_id",
+              path: `workTaskForm.${departmentFormKey}`,
+              operator: "equals",
+            },
+          ],
+        },
+      });
+    }
+  }
+
+  return { nodes, values, fieldMap };
+}
+
+function addWorkTaskFieldNode(
+  nodes: WorkTaskFormNode[],
+  values: Record<string, unknown>,
+  fieldMap: Record<string, string>,
+  field: WorkFormField,
+  customer?: WorkCustomer | null,
+  asset?: WorkAsset,
+) {
+  const rawKey = workFieldKey(field);
+  if (!rawKey) return;
+
+  const formKey = workTaskFormKey(rawKey);
+  const label = textValue(field.label) || textValue(field.name) || rawKey;
+  const options = Array.isArray(field.options) ? field.options.map(workFieldOption) : [];
+  const type = options.length > 0
+    ? "form-select"
+    : textValue(field.field_type) === "textarea"
+      ? "form-textarea"
+      : "form-input";
+
+  addWorkTaskTextNode(nodes, values, fieldMap, {
+    formKey,
+    rawKey,
+    label,
+    placeholder: type === "form-select" ? `请选择${label}` : `请输入${label}`,
+    required: Boolean(field.required),
+    type,
+    options,
+    initialValue: workFieldInitialValue(field, customer, asset),
+  });
+}
+
+function addWorkTaskSelectNode(
+  nodes: WorkTaskFormNode[],
+  values: Record<string, unknown>,
+  fieldMap: Record<string, string>,
+  config: {
+    formKey: string;
+    rawKey: string;
+    label: string;
+    placeholder: string;
+    required?: boolean;
+    options: WorkCommonOption[];
+    initialValue?: unknown;
+    meta?: Record<string, unknown>;
+  },
+): string {
+  return addWorkTaskTextNode(nodes, values, fieldMap, {
+    ...config,
+    type: "form-select",
+  });
+}
+
+function addWorkTaskTextNode(
+  nodes: WorkTaskFormNode[],
+  values: Record<string, unknown>,
+  fieldMap: Record<string, string>,
+  config: {
+    formKey: string;
+    rawKey: string;
+    label: string;
+    placeholder: string;
+    required?: boolean;
+    type?: string;
+    options?: WorkCommonOption[];
+    initialValue?: unknown;
+    meta?: Record<string, unknown>;
+  },
+): string {
+  const formKey = uniqueWorkTaskFormKey(config.formKey, fieldMap);
+  values[formKey] = formatFormValue(config.initialValue);
+  fieldMap[formKey] = config.rawKey;
+
+  nodes.push({
+    id: `work-task-field-${formKey}`,
+    type: config.type || "form-input",
+    name: config.label,
+    placeholder: config.placeholder,
+    value: `workTaskForm.${formKey}`,
+    mode: "form",
+    ...(config.options ? { option: config.options } : {}),
+    ...(config.required
+      ? {
+          validate: [
+            {
+              type: "required",
+              message: `${config.label}不能为空。`,
+            },
+          ],
+        }
+      : {}),
+    meta: {
+      formLayout: "horizontal",
+      ...(config.type === "form-textarea" ? { rows: 4 } : {}),
+      ...(config.meta || {}),
+    },
+  });
+  return formKey;
+}
+
+function workTaskFormKey(key: string): string {
+  const normalized = key.trim().replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  return normalized || "field";
+}
+
+function uniqueWorkTaskFormKey(key: string, fieldMap: Record<string, string>): string {
+  const base = workTaskFormKey(key);
+  let candidate = base;
+  let index = 2;
+  while (Object.prototype.hasOwnProperty.call(fieldMap, candidate)) {
+    candidate = `${base}_${index}`;
+    index += 1;
+  }
+  return candidate;
+}
+
+function workDecisionOptions(task: WorkTask): WorkCommonOption[] {
+  return (Array.isArray(task.result_schema) ? task.result_schema : [])
+    .map((result) => {
+      const id = workDecisionValue(result);
+      return id
+        ? {
+            id,
+            value: displayText(result.label || result.name || result.value || result.result_value),
+          }
+        : null;
+    })
+    .filter(Boolean) as WorkCommonOption[];
+}
+
+function workFieldOption(option: WorkFieldOption): WorkCommonOption {
+  const id = workOptionID(option);
+  return {
+    ...option,
+    id,
+    value: workOptionLabel(option),
+  };
+}
+
+function workDepartmentOptions(departments: WorkDepartmentOption[]): WorkCommonOption[] {
+  return departments
+    .map((department) => {
+      const id = textValue(department.id);
+      return id
+        ? {
+            ...department,
+            id,
+            value: displayText(department.department_name || department.name),
+          }
+        : null;
+    })
+    .filter(Boolean) as WorkCommonOption[];
+}
+
+function workStaffOptions(staffs: WorkStaffOption[]): WorkCommonOption[] {
+  return staffs
+    .map((staff) => {
+      const id = textValue(staff.id);
+      return id
+        ? {
+            ...staff,
+            id,
+            department_id: textValue(staff.department_id),
+            value: `${displayText(staff.real_name || staff.name)}${staff.phone ? `（${staff.phone}）` : ""}`,
+          }
+        : null;
+    })
+    .filter(Boolean) as WorkCommonOption[];
+}
+
+function workTaskAssignMode(task: WorkTask): "staff" | "department" {
+  return textValue(task.assign_mode) === "department" ? "department" : "staff";
+}
+
+function workTaskAllowedDepartmentIDSet(task: WorkTask): Set<string> {
+  const raw = task.assign_department_ids;
+  const values = Array.isArray(raw)
+    ? raw
+    : (() => {
+        const text = textValue(raw);
+        if (!text) return [];
+        try {
+          const parsed = JSON.parse(text) as unknown;
+          return Array.isArray(parsed) ? parsed : [text];
+        } catch {
+          return text.split(",");
+        }
+      })();
+  return new Set(values.map((value) => textValue(value)).filter(Boolean));
+}
+
+function workAllowedDepartments(task: WorkTask, departments: WorkDepartmentOption[]): WorkDepartmentOption[] {
+  const allowed = workTaskAllowedDepartmentIDSet(task);
+  if (allowed.size === 0) return departments;
+  return departments.filter((department) => allowed.has(textValue(department.id)));
+}
+
+function openWorkDetail(customer: WorkCustomer, store?: StoreLike, asset?: WorkAsset) {
+  setWorkStoreValue(store, "data.actionTarget.workDetailCustomer", customer);
+  setWorkStoreValue(store, "data.actionTarget.workDetailAsset", asset ?? null);
+  setWorkStoreValue(store, "data.actionTarget.workDetailName", asset ? assetTitle(asset) : workCustomerTitle(customer));
+  setWorkModalOpen(store, "dialog.workDetail", true);
 }
 
 function notifyWorkRefresh() {
@@ -839,11 +1220,7 @@ export function ShowCrmWorkTasks({ store }: WorkNodeProps = {}) {
   }, [loadTasks]);
 
   const openTask = (task: WorkTask) => {
-    setWorkStoreValue(store, "data.actionTarget.workTask", task);
-    setWorkStoreValue(store, "data.actionTarget.workTaskCustomer", null);
-    setWorkStoreValue(store, "data.actionTarget.workTaskAsset", null);
-    setWorkStoreValue(store, "data.actionTarget.workTaskName", workTaskName(task));
-    setWorkModalOpen(store, "dialog.workTask", true);
+    void openRowTask(null, task, store);
   };
 
   if (loading) {
@@ -876,11 +1253,6 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
   const [filters, setFilters] = useState<WorkSearchFilters>(emptyWorkSearchFilters);
   const [activeFilters, setActiveFilters] = useState<WorkSearchFilters>(emptyWorkSearchFilters);
   const [loading, setLoading] = useState(false);
-  const [selectedCustomerID, setSelectedCustomerID] = useState("");
-  const [selectedAssetTarget, setSelectedAssetTarget] = useState<{
-    customer: WorkCustomer;
-    asset: WorkAsset;
-  } | null>(null);
 
   const loadCustomers = useCallback(async () => {
     setLoading(true);
@@ -910,7 +1282,6 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
   }, [loadCustomers]);
 
   const workItems = useMemo(() => buildWorkItems(customers), [customers]);
-  const selectedCustomer = customers.find((customer) => workCustomerID(customer) === selectedCustomerID);
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -953,8 +1324,6 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
             items={workItems}
             loading={loading}
             store={store}
-            onOpenCustomerDetail={(customer) => setSelectedCustomerID(workCustomerID(customer))}
-            onOpenAssetDetail={(customer, asset) => setSelectedAssetTarget({ customer, asset })}
           />
         </div>
 
@@ -970,7 +1339,7 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
                   <WorkTableHead>资产编号</WorkTableHead>
                   <WorkTableHead>资产名称</WorkTableHead>
                   <WorkTableHead>状态</WorkTableHead>
-                  <WorkTableHead className="text-right">操作</WorkTableHead>
+                  <WorkTableHead className="text-center">操作</WorkTableHead>
                 </tr>
               </thead>
               <tbody>
@@ -995,8 +1364,6 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
                       key={item.id}
                       item={item}
                       store={store}
-                      onOpenCustomerDetail={(customer) => setSelectedCustomerID(workCustomerID(customer))}
-                      onOpenAssetDetail={(customer, asset) => setSelectedAssetTarget({ customer, asset })}
                     />
                   ))
                 )}
@@ -1005,17 +1372,6 @@ export function ShowCrmWorkCustomerTable({ store }: WorkNodeProps) {
           </div>
         </div>
       </div>
-      <WorkCustomerDetailDrawer
-        customer={selectedCustomer}
-        store={store}
-        onClose={() => setSelectedCustomerID("")}
-      />
-      <WorkAssetDetailDrawer
-        customer={selectedAssetTarget?.customer}
-        asset={selectedAssetTarget?.asset}
-        store={store}
-        onClose={() => setSelectedAssetTarget(null)}
-      />
     </>
   );
 }
@@ -1043,22 +1399,12 @@ function WorkTableCell({
 function WorkItemTableRow({
   item,
   store,
-  onOpenCustomerDetail,
-  onOpenAssetDetail,
 }: {
   item: WorkItem;
   store?: StoreLike;
-  onOpenCustomerDetail: (customer: WorkCustomer) => void;
-  onOpenAssetDetail: (customer: WorkCustomer, asset: WorkAsset) => void;
 }) {
   const { customer, asset } = item;
-  const openDetail = () => {
-    if (asset) {
-      onOpenAssetDetail(customer, asset);
-      return;
-    }
-    onOpenCustomerDetail(customer);
-  };
+  const openDetail = () => openWorkDetail(customer, store, asset);
 
   return (
     <tr className="border-b last:border-b-0">
@@ -1075,12 +1421,10 @@ function WorkItemTableRow({
         {asset ? assetTitle(asset) : <span className="text-muted-foreground">未录入资产</span>}
       </WorkTableCell>
       <WorkTableCell>{renderWorkItemStatus(item)}</WorkTableCell>
-      <WorkTableCell className="text-right">
+      <WorkTableCell className="text-center">
         <WorkItemActions
           item={item}
           store={store}
-          onOpenCustomerDetail={onOpenCustomerDetail}
-          onOpenAssetDetail={onOpenAssetDetail}
         />
       </WorkTableCell>
     </tr>
@@ -1091,14 +1435,10 @@ function WorkItemCardList({
   items,
   loading,
   store,
-  onOpenCustomerDetail,
-  onOpenAssetDetail,
 }: {
   items: WorkItem[];
   loading: boolean;
   store?: StoreLike;
-  onOpenCustomerDetail: (customer: WorkCustomer) => void;
-  onOpenAssetDetail: (customer: WorkCustomer, asset: WorkAsset) => void;
 }) {
   if (loading) {
     return (
@@ -1121,13 +1461,7 @@ function WorkItemCardList({
     <div className="grid gap-3">
       {items.map((item) => {
         const { customer, asset } = item;
-        const openDetail = () => {
-          if (asset) {
-            onOpenAssetDetail(customer, asset);
-            return;
-          }
-          onOpenCustomerDetail(customer);
-        };
+        const openDetail = () => openWorkDetail(customer, store, asset);
         return (
           <article key={item.id} className="rounded-md border bg-background">
             <div className="px-4 py-3">
@@ -1158,8 +1492,6 @@ function WorkItemCardList({
                 <WorkItemActions
                   item={item}
                   store={store}
-                  onOpenCustomerDetail={onOpenCustomerDetail}
-                  onOpenAssetDetail={onOpenAssetDetail}
                 />
               </div>
             </div>
@@ -1173,25 +1505,15 @@ function WorkItemCardList({
 function WorkItemActions({
   item,
   store,
-  onOpenCustomerDetail,
-  onOpenAssetDetail,
 }: {
   item: WorkItem;
   store?: StoreLike;
-  onOpenCustomerDetail: (customer: WorkCustomer) => void;
-  onOpenAssetDetail: (customer: WorkCustomer, asset: WorkAsset) => void;
 }) {
   const { customer, asset, tasks } = item;
-  const openDetail = () => {
-    if (asset) {
-      onOpenAssetDetail(customer, asset);
-      return;
-    }
-    onOpenCustomerDetail(customer);
-  };
+  const openDetail = () => openWorkDetail(customer, store, asset);
 
   return (
-    <div className="flex flex-wrap gap-2 md:justify-end">
+    <div className="flex flex-wrap justify-center gap-2">
       <Button type="button" variant="outline" size="sm" onClick={openDetail}>
         详情
       </Button>
@@ -1206,19 +1528,31 @@ function WorkItemActions({
           {workTaskButtonLabel(task)}
         </Button>
       ))}
-      {tasks.length === 0 ? <span className="self-center text-sm text-muted-foreground">暂无可执行任务</span> : null}
     </div>
   );
 }
 
-function WorkCustomerDetailDrawer({
+export function ShowCrmWorkDetail({ store }: WorkNodeProps) {
+  const customer = workStoreValue<WorkCustomer | null>(store, "data.actionTarget.workDetailCustomer", null);
+  const asset = workStoreValue<WorkAsset | null>(store, "data.actionTarget.workDetailAsset", null);
+
+  if (!customer) {
+    return <WorkEmptyText>暂无详情</WorkEmptyText>;
+  }
+
+  if (asset) {
+    return <WorkAssetDetailContent customer={customer} asset={asset} store={store} />;
+  }
+
+  return <WorkCustomerDetailContent customer={customer} store={store} />;
+}
+
+function WorkCustomerDetailContent({
   customer,
   store,
-  onClose,
 }: {
-  customer?: WorkCustomer;
+  customer: WorkCustomer;
   store?: StoreLike;
-  onClose: () => void;
 }) {
   const [operations, setOperations] = useState<WorkOperation[]>([]);
   const [loadingOperations, setLoadingOperations] = useState(false);
@@ -1226,6 +1560,11 @@ function WorkCustomerDetailDrawer({
   const assets = customer ? (Array.isArray(customer.assets) ? customer.assets : []) : [];
   const customerTasks = customer ? workCustomerRowTasks(customer) : [];
   const customerExtraFields = customer ? workReadableDataValueItems(customer) : [];
+  const [activeTab, setActiveTab] = useState<WorkDetailTab>("base");
+
+  useEffect(() => {
+    setActiveTab("base");
+  }, [customerID]);
 
   const loadOperations = useCallback(async () => {
     if (!customerID) {
@@ -1260,105 +1599,99 @@ function WorkCustomerDetailDrawer({
     };
   }, [customerID, loadOperations]);
 
-  if (!customer) {
-    return null;
-  }
-
   return (
-    <WorkResponsiveDrawer ariaLabel="关闭客户详情" maxWidth="max-w-[920px]" onClose={onClose}>
-      <div className="flex items-start justify-between gap-4 border-b px-6 py-5">
+    <div className="grid gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-xl font-semibold">{workCustomerTitle(customer)}</h2>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">客户编号</span>
+            <span className="font-medium">{workCustomerNo(customer) || "-"}</span>
             {renderStatus(customer)}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {workCustomerNo(customer) || "暂无客户编号"}
-          </p>
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="grid gap-5">
-          <WorkDetailSection title="客户信息">
-            <WorkDetailGrid
-              items={[
-                ["姓名", workCustomerName(customer)],
-                ["手机号", workCustomerPhone(customer)],
-                ["微信", displayText(customer.wechat)],
-                ["性别", displayText(customer.gender_name || customer.gender)],
-                ["来源", displayText(customer.source_name)],
-                ["渠道", displayText(customer.channel_name)],
-                ["客户等级", displayText(customer.level_name)],
-                ["创建时间", formatWorkDate(customer.created_at)],
-              ]}
-            />
-          </WorkDetailSection>
+      <WorkDetailTabs activeTab={activeTab} onChange={setActiveTab} />
 
-          <WorkDetailSection title="客户阶段">
-            <div className="flex flex-wrap items-center gap-2">
-              {renderStatus(customer)}
-              <span className="text-sm text-muted-foreground">
-                {textValue(customer.stage_name) && textValue(customer.stage_name) !== textValue(customer.stage_code)
-                  ? textValue(customer.stage_name)
-                  : "按当前状态展示可执行任务"}
-              </span>
-            </div>
-          </WorkDetailSection>
-
-          <WorkDetailSection title="当前应做">
-            <WorkTaskButtons
-              tasks={customerTasks}
-              emptyText="当前客户暂无可执行任务"
-              onOpen={(task) => openRowTask(customer, task, store)}
-            />
-          </WorkDetailSection>
-
-          {customerExtraFields.length > 0 ? (
-            <WorkDetailSection title="补充资料">
-              <WorkDetailGrid items={customerExtraFields} />
+      <div>
+        {activeTab === "base" ? (
+          <div className="grid gap-4">
+            <WorkDetailSection title="客户信息">
+              <WorkDetailGrid
+                items={[
+                  ["姓名", workCustomerName(customer)],
+                  ["手机号", workCustomerPhone(customer)],
+                  ["微信", displayText(customer.wechat)],
+                  ["性别", displayText(customer.gender_name || customer.gender)],
+                  ["来源", displayText(customer.source_name)],
+                  ["渠道", displayText(customer.channel_name)],
+                  ["客户等级", displayText(customer.level_name)],
+                  ["创建时间", formatWorkDate(customer.created_at)],
+                ]}
+              />
             </WorkDetailSection>
-          ) : null}
 
-          <WorkDetailSection title="客户资产">
-            {assets.length > 0 ? (
-              <div className="grid gap-3">
-                {assets.map((asset) => (
-                  <WorkAssetDetailCard
-                    key={textValue(asset.id) || workAssetNo(asset)}
-                    customer={customer}
-                    asset={asset}
-                    store={store}
-                  />
-                ))}
+            <WorkDetailSection title="客户阶段">
+              <div className="flex flex-wrap items-center gap-2">
+                {renderStatus(customer)}
+                <span className="text-sm text-muted-foreground">
+                  {textValue(customer.stage_name) && textValue(customer.stage_name) !== textValue(customer.stage_code)
+                    ? textValue(customer.stage_name)
+                    : "按当前状态展示可执行任务"}
+                </span>
               </div>
-            ) : (
-              <WorkEmptyText>暂无客户资产</WorkEmptyText>
-            )}
-          </WorkDetailSection>
+            </WorkDetailSection>
 
-          <WorkDetailSection title="操作记录">
+            {customerTasks.length > 0 ? (
+              <WorkDetailSection title="当前应做">
+                <WorkTaskButtons
+                  tasks={customerTasks}
+                  onOpen={(task) => openRowTask(customer, task, store)}
+                />
+              </WorkDetailSection>
+            ) : null}
+
+            {customerExtraFields.length > 0 ? (
+              <WorkDetailSection title="补充资料">
+                <WorkDetailGrid items={customerExtraFields} />
+              </WorkDetailSection>
+            ) : null}
+
+            <WorkDetailSection title="客户资产">
+              {assets.length > 0 ? (
+                <div className="grid gap-3">
+                  {assets.map((asset) => (
+                    <WorkAssetDetailCard
+                      key={textValue(asset.id) || workAssetNo(asset)}
+                      customer={customer}
+                      asset={asset}
+                      store={store}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <WorkEmptyText>暂无客户资产</WorkEmptyText>
+              )}
+            </WorkDetailSection>
+          </div>
+        ) : (
+          <WorkDetailSection title="日志记录">
             <WorkOperationTimeline operations={operations} loading={loadingOperations} />
           </WorkDetailSection>
-        </div>
+        )}
       </div>
-    </WorkResponsiveDrawer>
+    </div>
   );
 }
 
-function WorkAssetDetailDrawer({
+function WorkAssetDetailContent({
   customer,
   asset,
   store,
-  onClose,
 }: {
-  customer?: WorkCustomer;
-  asset?: WorkAsset;
+  customer: WorkCustomer;
+  asset: WorkAsset;
   store?: StoreLike;
-  onClose: () => void;
 }) {
   const [operations, setOperations] = useState<WorkOperation[]>([]);
   const [loadingOperations, setLoadingOperations] = useState(false);
@@ -1366,6 +1699,11 @@ function WorkAssetDetailDrawer({
   const assetID = textValue(asset?.id);
   const assetTasks = asset ? workAssetRowTasks(asset) : [];
   const assetExtraFields = asset ? workReadableDataValueItems(asset) : [];
+  const [activeTab, setActiveTab] = useState<WorkDetailTab>("base");
+
+  useEffect(() => {
+    setActiveTab("base");
+  }, [assetID]);
 
   const loadOperations = useCallback(async () => {
     if (!customerID) {
@@ -1401,100 +1739,104 @@ function WorkAssetDetailDrawer({
     };
   }, [customerID, loadOperations]);
 
-  if (!customer || !asset) {
-    return null;
-  }
-
   return (
-    <WorkResponsiveDrawer ariaLabel="关闭资产详情" maxWidth="max-w-[760px]" onClose={onClose}>
-      <div className="flex items-start justify-between gap-4 border-b px-6 py-5">
+    <div className="grid gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-xl font-semibold">{assetTitle(asset)}</h2>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">资产编号</span>
+            <span className="font-medium">{workAssetNo(asset) || "-"}</span>
             {renderStatus(asset)}
             {renderAssetStatus(asset)}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {workAssetNo(asset) || "暂无资产编号"}
-          </p>
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="grid gap-5">
-          <WorkDetailSection title="所属客户">
-            <WorkDetailGrid
-              items={[
-                ["客户编号", workCustomerNo(customer)],
-                ["姓名", workCustomerName(customer)],
-                ["手机号", workCustomerPhone(customer)],
-                ["微信", displayText(customer.wechat)],
-              ]}
-            />
-          </WorkDetailSection>
+      <WorkDetailTabs activeTab={activeTab} onChange={setActiveTab} />
 
-          <WorkDetailSection title="资产信息">
-            <WorkDetailGrid
-              items={[
-                ["资产名称", assetTitle(asset)],
-                ["资产编号", workAssetNo(asset) || "-"],
-                ["资产状态", textValue(asset.asset_status_name) || "-"],
-                ["当前状态", workStatusName(asset)],
-                ["备注", displayText(asset.remark)],
-              ]}
-            />
-          </WorkDetailSection>
-
-          <WorkDetailSection title="当前应做">
-            <WorkTaskButtons
-              tasks={assetTasks}
-              emptyText="当前资产暂无可执行任务"
-              onOpen={(task) => openRowTask(customer, task, store, asset)}
-            />
-          </WorkDetailSection>
-
-          {assetExtraFields.length > 0 ? (
-            <WorkDetailSection title="补充资料">
-              <WorkDetailGrid items={assetExtraFields} />
+      <div>
+        {activeTab === "base" ? (
+          <div className="grid gap-4">
+            <WorkDetailSection title="所属客户">
+              <WorkDetailGrid
+                items={[
+                  ["客户编号", workCustomerNo(customer)],
+                  ["姓名", workCustomerName(customer)],
+                  ["手机号", workCustomerPhone(customer)],
+                  ["微信", displayText(customer.wechat)],
+                ]}
+              />
             </WorkDetailSection>
-          ) : null}
 
-          <WorkDetailSection title="操作记录">
+            <WorkDetailSection title="资产信息">
+              <WorkDetailGrid
+                items={[
+                  ["资产名称", assetTitle(asset)],
+                  ["资产编号", workAssetNo(asset) || "-"],
+                  ["资产状态", textValue(asset.asset_status_name) || "-"],
+                  ["当前状态", workStatusName(asset)],
+                  ["备注", displayText(asset.remark)],
+                ]}
+              />
+            </WorkDetailSection>
+
+            {assetTasks.length > 0 ? (
+              <WorkDetailSection title="当前应做">
+                <WorkTaskButtons
+                  tasks={assetTasks}
+                  onOpen={(task) => openRowTask(customer, task, store, asset)}
+                />
+              </WorkDetailSection>
+            ) : null}
+
+            {assetExtraFields.length > 0 ? (
+              <WorkDetailSection title="补充资料">
+                <WorkDetailGrid items={assetExtraFields} />
+              </WorkDetailSection>
+            ) : null}
+          </div>
+        ) : (
+          <WorkDetailSection title="日志记录">
             <WorkOperationTimeline operations={operations} loading={loadingOperations} />
           </WorkDetailSection>
-        </div>
+        )}
       </div>
-    </WorkResponsiveDrawer>
+    </div>
   );
 }
 
-function WorkResponsiveDrawer({
-  ariaLabel,
-  maxWidth,
-  onClose,
-  children,
+type WorkDetailTab = "base" | "operations";
+
+function WorkDetailTabs({
+  activeTab,
+  onChange,
 }: {
-  ariaLabel: string;
-  maxWidth: string;
-  onClose: () => void;
-  children: ReactNode;
+  activeTab: WorkDetailTab;
+  onChange: (tab: WorkDetailTab) => void;
 }) {
+  const tabs: Array<{ key: WorkDetailTab; label: string }> = [
+    { key: "base", label: "基础信息" },
+    { key: "operations", label: "日志记录" },
+  ];
+
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/45 md:items-stretch md:justify-end">
-      <button
-        type="button"
-        aria-label={ariaLabel}
-        className="absolute inset-0 cursor-default"
-        onClick={onClose}
-      />
-      <aside
-        className={`relative flex h-[92vh] w-full flex-col rounded-t-lg border bg-background shadow-2xl md:h-full md:rounded-none md:border-l ${maxWidth}`}
-      >
-        {children}
-      </aside>
+    <div className="border-b">
+      <div className="flex gap-1">
+        {tabs.map((tab) => (
+          <button
+            type="button"
+            key={tab.key}
+            className={`border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
+              activeTab === tab.key
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => onChange(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1554,7 +1896,6 @@ function WorkAssetDetailCard({
         </div>
         <WorkTaskButtons
           tasks={tasks}
-          emptyText="暂无可执行任务"
           onOpen={(task) => openRowTask(customer, task, store, asset)}
         />
       </div>
@@ -1564,15 +1905,13 @@ function WorkAssetDetailCard({
 
 function WorkTaskButtons({
   tasks,
-  emptyText,
   onOpen,
 }: {
   tasks: WorkTask[];
-  emptyText: string;
   onOpen: (task: WorkTask) => void;
 }) {
   if (tasks.length === 0) {
-    return <WorkEmptyText>{emptyText}</WorkEmptyText>;
+    return null;
   }
   return (
     <div className="flex flex-wrap gap-2">
@@ -1650,36 +1989,8 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
     null,
   );
   const asset = workStoreValue<WorkAsset | null>(store, "data.actionTarget.workTaskAsset", null);
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [options, setOptions] = useState<WorkOptions>({ departments: [], staffs: [] });
   const [submitting, setSubmitting] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!task) return;
-    const initialValues: Record<string, string> = {};
-    (task.form?.fields || []).forEach((field) => {
-      const key = workFieldKey(field);
-      if (key) initialValues[key] = formatFormValue(workEntityFieldValue(field, customer, asset));
-    });
-    setValues(initialValues);
-  }, [task, customer, asset]);
-
-  useEffect(() => {
-    if (!task || !workTaskIsAssign(task)) return;
-    workApi<Partial<WorkOptions>>("/crm/work/options")
-      .then((payload) => {
-        setOptions({
-          departments: Array.isArray(payload.departments) ? payload.departments : [],
-          staffs: Array.isArray(payload.staffs) ? payload.staffs : [],
-        });
-      })
-      .catch((error) => toast.error(errorMessage(error, "选项加载失败")));
-  }, [task]);
-
-  const updateValue = (key: string, value: string) => {
-    setValues((current) => ({ ...current, [key]: value }));
-  };
 
   const close = useCallback(() => {
     setWorkModalOpen(store, "dialog.workTask", false);
@@ -1688,6 +1999,8 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
   const submit = useCallback(async () => {
     if (!task) return false;
     if (submitting) return false;
+    if (!validateCurrentWorkTaskForm(store)) return false;
+
     setSubmitting(true);
     try {
       await workApi("/crm/work/execute", {
@@ -1696,7 +2009,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
           task_id: task.id,
           customer_id: workCustomerID(customer),
           asset_id: workAssetID(asset),
-          values,
+          values: collectWorkTaskSubmitValues(store),
         }),
       });
       toast.success("保存成功");
@@ -1709,7 +2022,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
       setSubmitting(false);
     }
     return true;
-  }, [asset, close, customer, submitting, task, values]);
+  }, [asset, close, customer, store, submitting, task]);
 
   useEffect(() => {
     const form = contentRef.current?.closest("form");
@@ -1730,23 +2043,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
   if (!task) return null;
 
   return (
-    <div ref={contentRef} className="space-y-5">
-      {workTaskIsDecision(task) ? (
-        <WorkDecisionFields task={task} values={values} onChange={updateValue} />
-      ) : null}
-
-      {workTaskShouldRenderFields(task) ? (
-        <WorkDynamicFields
-          fields={task.form?.fields || []}
-          values={values}
-          onChange={updateValue}
-        />
-      ) : null}
-
-      {workTaskIsAssign(task) ? (
-        <WorkAssignFields values={values} options={options} onChange={updateValue} />
-      ) : null}
-
+    <div ref={contentRef} className="contents">
       {submitting ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -1757,187 +2054,20 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
   );
 }
 
-function WorkAssignFields({
-  values,
-  options,
-  onChange,
-}: {
-  values: Record<string, string>;
-  options: WorkOptions;
-  onChange: (key: string, value: string) => void;
-}) {
-  const departmentID = values.department_id || "";
-  const staffs = departmentID
-    ? options.staffs.filter((staff) => textValue(staff.department_id) === departmentID)
-    : [];
-
-  return (
-    <div className="grid gap-4">
-      <FieldLabel label="部门" required>
-        <Select
-          value={departmentID}
-          onValueChange={(value) => {
-            onChange("department_id", value);
-            onChange("staff_id", "");
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="请选择部门" />
-          </SelectTrigger>
-          <SelectContent>
-            {options.departments.map((department) => (
-              <SelectItem key={textValue(department.id)} value={textValue(department.id)}>
-                {displayText(department.department_name || department.name)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </FieldLabel>
-      <FieldLabel label="人员" required>
-        <Select
-          value={values.staff_id || ""}
-          onValueChange={(value) => onChange("staff_id", value)}
-          disabled={!departmentID}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder={departmentID ? "请选择人员" : "请先选择部门"} />
-          </SelectTrigger>
-          <SelectContent>
-            {staffs.map((staff) => (
-              <SelectItem key={textValue(staff.id)} value={textValue(staff.id)}>
-                {displayText(staff.real_name || staff.name)}
-                {staff.phone ? `（${staff.phone}）` : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </FieldLabel>
-    </div>
-  );
+function validateCurrentWorkTaskForm(store: StoreLike | undefined): boolean {
+  const validateForm = (store as { getState?: () => { validateForm?: () => boolean } } | undefined)
+    ?.getState?.()
+    ?.validateForm;
+  return typeof validateForm === "function" ? validateForm() : true;
 }
 
-function WorkDecisionFields({
-  task,
-  values,
-  onChange,
-}: {
-  task: WorkTask;
-  values: Record<string, string>;
-  onChange: (key: string, value: string) => void;
-}) {
-  const results = Array.isArray(task.result_schema) ? task.result_schema : [];
-
-  return (
-    <div className="grid gap-4">
-      <FieldLabel label="决策结果" required>
-        <Select
-          value={values.result_value || ""}
-          onValueChange={(value) => onChange("result_value", value)}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="请选择决策结果" />
-          </SelectTrigger>
-          <SelectContent>
-            {results.map((result) => (
-              <SelectItem
-                key={workDecisionValue(result)}
-                value={workDecisionValue(result)}
-              >
-                {displayText(result.label || result.name || result.value || result.result_value)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </FieldLabel>
-      <FieldLabel label="备注">
-        <Textarea
-          value={values.remark || ""}
-          onChange={(event) => onChange("remark", event.target.value)}
-          placeholder="请输入备注"
-        />
-      </FieldLabel>
-    </div>
-  );
-}
-
-function WorkDynamicFields({
-  fields,
-  values,
-  onChange,
-}: {
-  fields: WorkFormField[];
-  values: Record<string, string>;
-  onChange: (key: string, value: string) => void;
-}) {
-  if (fields.length === 0) {
-    return <div className="text-sm text-slate-500">该任务未配置资料字段</div>;
-  }
-
-  return (
-    <div className="grid gap-4">
-      {fields.map((field) => {
-        const key = workFieldKey(field);
-        if (!key) return null;
-        const label = textValue(field.label) || textValue(field.name) || key;
-        const options = Array.isArray(field.options) ? field.options : [];
-        const isTextarea = textValue(field.field_type) === "textarea";
-
-        return (
-          <FieldLabel key={key} label={label} required={Boolean(field.required)}>
-            {options.length > 0 ? (
-              <Select value={values[key] || ""} onValueChange={(value) => onChange(key, value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder={`请选择${label}`} />
-                </SelectTrigger>
-                <SelectContent>
-                  {options.map((option) => (
-                    <SelectItem
-                      key={workOptionValue(option)}
-                      value={workOptionValue(option)}
-                    >
-                      {workOptionLabel(option)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : isTextarea ? (
-              <Textarea
-                value={values[key] || ""}
-                onChange={(event) => onChange(key, event.target.value)}
-                placeholder={`请输入${label}`}
-              />
-            ) : (
-              <Input
-                value={values[key] || ""}
-                onChange={(event) => onChange(key, event.target.value)}
-                placeholder={`请输入${label}`}
-              />
-            )}
-          </FieldLabel>
-        );
-      })}
-    </div>
-  );
-}
-
-function FieldLabel({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <label className="grid gap-2 md:grid-cols-[120px_1fr] md:items-start">
-      <span className="pt-2 text-sm font-medium text-slate-950">
-        {label}
-        {required ? <span className="ml-1 text-red-500">*</span> : null}
-      </span>
-      <span>{children}</span>
-    </label>
-  );
+function collectWorkTaskSubmitValues(store: StoreLike | undefined): Record<string, unknown> {
+  const formValues = workStoreValue<Record<string, unknown>>(store, workTaskFormDataPath, {});
+  const fieldMap = workStoreValue<Record<string, string>>(store, workTaskFieldMapPath, {});
+  return Object.entries(fieldMap).reduce<Record<string, unknown>>((values, [formKey, rawKey]) => {
+    values[rawKey] = formValues[formKey];
+    return values;
+  }, {});
 }
 
 function workDecisionValue(result: WorkDecisionResult): string {
@@ -1946,6 +2076,15 @@ function workDecisionValue(result: WorkDecisionResult): string {
     textValue(result.value) ||
     textValue(result.name) ||
     textValue(result.label)
+  );
+}
+
+function workOptionID(option: WorkFieldOption): string {
+  return (
+    textValue(option.id) ||
+    textValue(option.value) ||
+    textValue(option.name) ||
+    textValue(option.label)
   );
 }
 
@@ -1982,6 +2121,44 @@ function formatFormValue(value: unknown): string {
   return String(value);
 }
 
+function workFieldInitialValue(
+  field: WorkFormField,
+  customer?: WorkCustomer | null,
+  asset?: WorkAsset | null,
+): string {
+  const value = formatFormValue(workEntityFieldValue(field, customer, asset));
+  const options = Array.isArray(field.options) ? field.options : [];
+  if (!value || options.length === 0) return value;
+
+  const exactOption = options.find((option) => workOptionID(option) === value);
+  if (exactOption) return workOptionID(exactOption);
+
+  const valueOption = options.find((option) => workOptionValue(option) === value);
+  if (valueOption) return workOptionID(valueOption);
+
+  const labelOption = options.find((option) => workOptionLabel(option) === value);
+  return labelOption ? workOptionID(labelOption) : value;
+}
+
+const workMainFieldAliases: Record<string, string[]> = {
+  source_id: ["source_id", "source", "customer_source_id", "source_name"],
+  channel_id: ["channel_id", "channel", "customer_channel_id", "channel_name"],
+  level_id: ["level_id", "customer_level_id", "customer_level", "level_name"],
+  asset_status_id: ["asset_status_id", "asset_status", "asset_status_name"],
+};
+
+function workEntityValueByKeys(
+  target: Record<string, unknown> | null | undefined,
+  keys: string[],
+): unknown {
+  if (!target) return undefined;
+  for (const key of keys) {
+    const value = target[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return undefined;
+}
+
 function workEntityFieldValue(
   field: WorkFormField,
   customer?: WorkCustomer | null,
@@ -1989,8 +2166,11 @@ function workEntityFieldValue(
 ): unknown {
   const mainField = textValue(field.main_field);
   if (mainField) {
-    if (asset && asset[mainField] !== undefined) return asset[mainField];
-    if (customer && customer[mainField] !== undefined) return customer[mainField];
+    const keys = [mainField, ...(workMainFieldAliases[mainField] || [])];
+    const assetValue = workEntityValueByKeys(asset, keys);
+    if (assetValue !== undefined) return assetValue;
+    const customerValue = workEntityValueByKeys(customer, keys);
+    if (customerValue !== undefined) return customerValue;
   }
   const key = workFieldKey(field);
   if (key) {

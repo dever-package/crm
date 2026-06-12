@@ -202,6 +202,11 @@ func executeWorkTask(ctx context.Context, staff *WorkStaffSession, payload map[s
 	}
 	defer endWorkTaskExecution(runtime, customerID, assetID, task.ID)
 	switch task.TaskType {
+	case crmmodel.TaskTypeCreate:
+		if customerID > 0 {
+			return nil, fmt.Errorf("创建资料任务不能在已有客户上执行")
+		}
+		return executeCreateCustomerTask(ctx, staff, task, mapFromAny(payload["values"]), runtime)
 	case crmmodel.TaskTypeForm:
 		return executeFormTask(ctx, staff, task, customerID, assetID, mapFromAny(payload["values"]), runtime)
 	case crmmodel.TaskTypeAssign:
@@ -225,30 +230,10 @@ func executeWorkTask(ctx context.Context, staff *WorkStaffSession, payload map[s
 }
 
 func executeFormTask(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, customerID uint64, assetID uint64, values map[string]any, runtime *workExecutionRuntime) (map[string]any, error) {
-	formMode := taskFormMode(task)
 	if customerID == 0 {
-		return executeCreateCustomerTask(ctx, staff, task, values, runtime)
-	}
-	if formMode == crmmodel.TaskFormModeCreate {
-		formInput, err := collectWorkFormInput(ctx, task, values)
-		if err != nil {
-			return nil, err
-		}
-		if formInputHasAssetValues(formInput) {
-			if assetID > 0 {
-				return executeEditFormTask(ctx, staff, task, customerID, assetID, values, runtime)
-			}
-			return executeCreateAssetTask(ctx, staff, task, customerID, values, runtime)
-		}
+		return nil, fmt.Errorf("客户不能为空")
 	}
 	return executeEditFormTask(ctx, staff, task, customerID, assetID, values, runtime)
-}
-
-func taskFormMode(task *crmmodel.Task) string {
-	if task == nil || strings.TrimSpace(task.FormMode) == "" {
-		return crmmodel.TaskFormModeEdit
-	}
-	return strings.TrimSpace(task.FormMode)
 }
 
 func newWorkExecutionRuntime() *workExecutionRuntime {
@@ -745,7 +730,7 @@ func workDepartmentTasks(ctx context.Context, staff *WorkStaffSession) []map[str
 		if stageID == 0 || !stageIDs[stageID] {
 			continue
 		}
-		if inputText(task["task_type"]) != crmmodel.TaskTypeForm {
+		if inputText(task["task_type"]) != crmmodel.TaskTypeCreate {
 			continue
 		}
 		if workTaskTriggerType(task) != crmmodel.TaskTriggerManual {
@@ -761,7 +746,7 @@ func workDepartmentTasks(ctx context.Context, staff *WorkStaffSession) []map[str
 }
 
 func workTaskCreatesCustomerFromDepartment(task map[string]any) bool {
-	return workTaskFormMode(task) == crmmodel.TaskFormModeCreate && !workTaskFormHasAssetFields(task)
+	return inputText(task["task_type"]) == crmmodel.TaskTypeCreate && !workTaskFormHasAssetFields(task)
 }
 
 func workAvailableTasks(ctx context.Context, staff *WorkStaffSession, state *crmmodel.CustomerStage) []map[string]any {
@@ -810,22 +795,20 @@ func workAssetRowTasks(tasks []map[string]any) []map[string]any {
 }
 
 func workTaskCanRunOnCustomerRow(task map[string]any) bool {
-	return !workTaskIsCustomerCreateForm(task)
+	return inputText(task["task_type"]) != crmmodel.TaskTypeCreate
 }
 
 func workTaskCanRunOnAssetRow(task map[string]any) bool {
-	return !workTaskIsCustomerCreateForm(task) && !workTaskIsAssetCreateForm(task)
+	return inputText(task["task_type"]) != crmmodel.TaskTypeCreate
 }
 
 func workTaskIsCustomerCreateForm(task map[string]any) bool {
-	return inputText(task["task_type"]) == crmmodel.TaskTypeForm &&
-		workTaskFormMode(task) == crmmodel.TaskFormModeCreate &&
+	return inputText(task["task_type"]) == crmmodel.TaskTypeCreate &&
 		!workTaskFormHasAssetFields(task)
 }
 
 func workTaskIsAssetCreateForm(task map[string]any) bool {
-	return inputText(task["task_type"]) == crmmodel.TaskTypeForm &&
-		workTaskFormMode(task) == crmmodel.TaskFormModeCreate &&
+	return inputText(task["task_type"]) == crmmodel.TaskTypeCreate &&
 		workTaskFormHasAssetFields(task)
 }
 
@@ -849,14 +832,6 @@ func workMapFormFieldIsAsset(field map[string]any) bool {
 	default:
 		return false
 	}
-}
-
-func workTaskFormMode(task map[string]any) string {
-	mode := inputText(task["form_mode"])
-	if mode == "" {
-		return crmmodel.TaskFormModeEdit
-	}
-	return mode
 }
 
 func workTaskTriggerType(task map[string]any) string {
@@ -1087,11 +1062,10 @@ func attachWorkTaskForm(ctx context.Context, task map[string]any) {
 func attachWorkTaskConfig(ctx context.Context, task map[string]any) {
 	switch inputText(task["task_type"]) {
 	case crmmodel.TaskTypeAssign:
-		assignMode := inputText(mapFromAny(task["config_json"])["assign_mode"])
-		if assignMode == "" {
-			assignMode = "staff"
-		}
+		config := mapFromAny(task["config_json"])
+		assignMode := normalizeWorkAssignMode(inputText(config["assign_mode"]))
 		task["assign_mode"] = assignMode
+		task["assign_department_ids"] = uint64ListFromAny(config["assign_department_ids"])
 	case crmmodel.TaskTypeDecision:
 		task["result_schema"] = decisionResultSchemaRows(inputText(task["result_schema_json"]))
 	case crmmodel.TaskTypeBooking:
@@ -1233,33 +1207,6 @@ func executeCreateCustomerTask(ctx context.Context, staff *WorkStaffSession, tas
 	}, nil
 }
 
-func executeCreateAssetTask(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, customerID uint64, values map[string]any, runtime *workExecutionRuntime) (map[string]any, error) {
-	if crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}) == nil {
-		return nil, fmt.Errorf("客户不存在")
-	}
-	formInput, err := collectWorkFormInput(ctx, task, values)
-	if err != nil {
-		return nil, err
-	}
-	assetID, err := createWorkCustomerAsset(ctx, customerID, formInput)
-	if err != nil {
-		return nil, err
-	}
-	if err := saveWorkFormInput(ctx, customerID, assetID, formInput); err != nil {
-		return nil, err
-	}
-	operationID := insertWorkOperationLog(ctx, staff, task, customerID, assetID, values)
-	saveWorkFormDataRecords(ctx, customerID, assetID, task.ID, operationID, formInput)
-	insertWorkCustomerStage(ctx, staff, customerID, assetID, operationID, task.ID)
-	applyWorkStageTransition(ctx, staff, customerID, assetID, currentWorkCustomerStage(ctx, customerID, assetID), task, operationID, workResultSuccess)
-	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, workResultSuccess, runtime)
-	return map[string]any{
-		"customer_id": customerID,
-		"asset_id":    assetID,
-		"saved":       true,
-	}, nil
-}
-
 func executeEditFormTask(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, customerID uint64, assetID uint64, values map[string]any, runtime *workExecutionRuntime) (map[string]any, error) {
 	if crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}) == nil {
 		return nil, fmt.Errorf("客户不存在")
@@ -1299,11 +1246,9 @@ func executeAssignCustomerTask(ctx context.Context, staff *WorkStaffSession, tas
 	if err != nil {
 		return nil, err
 	}
-	assignMode := inputText(mapFromAny(task.ConfigJSON)["assign_mode"])
-	if assignMode == "" {
-		assignMode = "staff"
-	}
-	targetDepartmentID, targetStaffID, err := resolveWorkAssignTarget(ctx, assignMode, values)
+	config := mapFromAny(task.ConfigJSON)
+	assignMode := normalizeWorkAssignMode(inputText(config["assign_mode"]))
+	targetDepartmentID, targetStaffID, err := resolveWorkAssignTarget(ctx, assignMode, uint64ListFromAny(config["assign_department_ids"]), values)
 	if err != nil {
 		return nil, err
 	}
@@ -1551,34 +1496,73 @@ func insertWorkResourceBooking(ctx context.Context, staff *WorkStaffSession, tas
 	}))
 }
 
-func resolveWorkAssignTarget(ctx context.Context, assignMode string, values map[string]any) (uint64, uint64, error) {
+func resolveWorkAssignTarget(ctx context.Context, assignMode string, allowedDepartmentIDs []uint64, values map[string]any) (uint64, uint64, error) {
 	departmentID := firstUint64(values, "department_id", "departmentId")
 	staffID := firstUint64(values, "staff_id", "staffId")
+	if departmentID == 0 {
+		return 0, 0, fmt.Errorf("请选择部门")
+	}
+	department := crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": departmentID, "status": crmmodel.StatusEnabled})
+	if department == nil {
+		return 0, 0, fmt.Errorf("部门不存在或已停用")
+	}
+	if len(allowedDepartmentIDs) > 0 && !uint64SetContains(allowedDepartmentIDs, departmentID) {
+		return 0, 0, fmt.Errorf("该部门不在当前任务可选范围内")
+	}
 	switch assignMode {
-	case "department":
-		if departmentID == 0 {
-			return 0, 0, fmt.Errorf("请选择部门")
+	case crmmodel.TaskAssignModeDepartment:
+		leaderStaffID := workDepartmentLeaderStaffID(ctx, department)
+		if leaderStaffID == 0 {
+			return 0, 0, fmt.Errorf("该部门未配置负责人，无法自动派单")
 		}
-		if crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": departmentID, "status": crmmodel.StatusEnabled}) == nil {
-			return 0, 0, fmt.Errorf("部门不存在或已停用")
-		}
-		return departmentID, 0, nil
+		return departmentID, leaderStaffID, nil
 	default:
 		if staffID == 0 {
-			return 0, 0, fmt.Errorf("请选择人员")
+			leaderStaffID := workDepartmentLeaderStaffID(ctx, department)
+			if leaderStaffID == 0 {
+				return 0, 0, fmt.Errorf("该部门未配置负责人，无法自动派单")
+			}
+			return departmentID, leaderStaffID, nil
 		}
 		targetStaff := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": staffID, "status": crmmodel.StatusEnabled})
 		if targetStaff == nil {
 			return 0, 0, fmt.Errorf("人员不存在或已停用")
 		}
-		if departmentID == 0 {
-			departmentID = targetStaff.DepartmentID
-		}
-		if departmentID == 0 {
-			return 0, 0, fmt.Errorf("目标人员未配置部门")
+		if targetStaff.DepartmentID != departmentID {
+			return 0, 0, fmt.Errorf("人员不属于所选部门")
 		}
 		return departmentID, staffID, nil
 	}
+}
+
+func normalizeWorkAssignMode(assignMode string) string {
+	if strings.TrimSpace(assignMode) == crmmodel.TaskAssignModeDepartment {
+		return crmmodel.TaskAssignModeDepartment
+	}
+	return crmmodel.TaskAssignModeStaff
+}
+
+func workDepartmentLeaderStaffID(ctx context.Context, department *crmmodel.Department) uint64 {
+	if department == nil || department.ID == 0 {
+		return 0
+	}
+	if department.LeaderStaffID > 0 {
+		if staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
+			"id":            department.LeaderStaffID,
+			"department_id": department.ID,
+			"status":        crmmodel.StatusEnabled,
+		}); staff != nil {
+			return staff.ID
+		}
+	}
+	if staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
+		"department_id": department.ID,
+		"staff_type":    crmmodel.StaffTypeLeader,
+		"status":        crmmodel.StatusEnabled,
+	}); staff != nil {
+		return staff.ID
+	}
+	return 0
 }
 
 type workFormInput struct {
@@ -2669,7 +2653,11 @@ func canOperateCurrentState(staff *WorkStaffSession, state *crmmodel.CustomerSta
 }
 
 func uint64ListFromJSON(raw string) []uint64 {
-	values := stringListFromJSON(raw)
+	return uint64ListFromAny(raw)
+}
+
+func uint64ListFromAny(value any) []uint64 {
+	values := stringListFromJSON(value)
 	result := make([]uint64, 0, len(values))
 	seen := map[uint64]bool{}
 	for _, value := range values {
@@ -2681,6 +2669,15 @@ func uint64ListFromJSON(raw string) []uint64 {
 		result = append(result, id)
 	}
 	return result
+}
+
+func uint64SetContains(values []uint64, target uint64) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func mapsFromJSON(raw string) []map[string]any {
