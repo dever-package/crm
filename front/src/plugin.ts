@@ -25,6 +25,11 @@ export default defineFrontPlugin({
         default: mod.ShowCrmWorkTaskForm,
       })),
     ),
+    "show-crm-work-task-upload": lazyNode(() =>
+      loadWorkAuth().then((mod) => ({
+        default: mod.ShowCrmWorkTaskUpload,
+      })),
+    ),
     "show-crm-work-customer-table": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
         default: mod.ShowCrmWorkCustomerTable,

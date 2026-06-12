@@ -53,12 +53,15 @@ func (Work) GetOperations(c *server.Context) error {
 }
 
 func (Work) GetTasks(c *server.Context) error {
-	data, err := workService.Tasks(
-		c.Context(),
-		crmservice.CurrentWorkStaff(c.Context()),
-		uint64FromInput(c.Input("customer_id")),
-		uint64FromInput(c.Input("asset_id")),
-	)
+	customerID := uint64FromInput(c.Input("customer_id"))
+	assetID := uint64FromInput(c.Input("asset_id"))
+	var data map[string]any
+	var err error
+	if assetID > 0 {
+		data, err = workService.Tasks(c.Context(), crmservice.CurrentWorkStaff(c.Context()), customerID, assetID)
+	} else {
+		data, err = workService.Tasks(c.Context(), crmservice.CurrentWorkStaff(c.Context()), customerID)
+	}
 	return crmJSON(c, data, err)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,12 +15,14 @@ import (
 	crmmodel "my/package/crm/model"
 	frontservice "my/package/front/service"
 	fronteval "my/package/front/service/eval"
+	uploadrepo "my/package/front/service/upload/repository"
 )
 
 const (
 	workSiteKey              = "work"
 	workAuthProvider         = "crm_work"
 	workResultSuccess        = "success"
+	workCustomerModeAll      = "all"
 	workCustomerModePending  = "pending"
 	workCustomerModeDone     = "done"
 	maxWorkAutoTriggerDepth  = 5
@@ -394,6 +397,8 @@ func pendingWorkCustomers(ctx context.Context, staff *WorkStaffSession) []map[st
 
 func workCustomersByMode(ctx context.Context, staff *WorkStaffSession, mode string) []map[string]any {
 	switch normalizeWorkCustomerMode(mode) {
+	case workCustomerModeAll:
+		return allWorkCustomers(ctx, staff)
 	case workCustomerModeDone:
 		return doneWorkCustomers(ctx, staff)
 	default:
@@ -403,11 +408,57 @@ func workCustomersByMode(ctx context.Context, staff *WorkStaffSession, mode stri
 
 func normalizeWorkCustomerMode(mode string) string {
 	switch strings.TrimSpace(mode) {
+	case workCustomerModeAll:
+		return workCustomerModeAll
 	case workCustomerModeDone:
 		return workCustomerModeDone
 	default:
 		return workCustomerModePending
 	}
+}
+
+func allWorkCustomers(ctx context.Context, staff *WorkStaffSession) []map[string]any {
+	rows := visibleWorkCustomers(ctx, staff)
+	seen := map[uint64]bool{}
+	for _, row := range rows {
+		if customerID := inputUint64(row["id"]); customerID > 0 {
+			seen[customerID] = true
+		}
+	}
+	for _, target := range doneWorkCustomerTargets(ctx, staff) {
+		if target.customerID == 0 || seen[target.customerID] {
+			continue
+		}
+		if row := doneWorkCustomerRow(ctx, staff, target.customerID, target.assetIDs); len(row) > 0 {
+			rows = append(rows, row)
+			seen[target.customerID] = true
+		}
+	}
+	sortWorkRowsByPendingTasks(rows)
+	return rows
+}
+
+func sortWorkRowsByPendingTasks(rows []map[string]any) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		leftPending := workRowHasPendingTasks(rows[i])
+		rightPending := workRowHasPendingTasks(rows[j])
+		if leftPending != rightPending {
+			return leftPending
+		}
+		return false
+	})
+}
+
+func workRowHasPendingTasks(row map[string]any) bool {
+	if len(mapListFromAny(row["row_tasks"])) > 0 {
+		return true
+	}
+	for _, asset := range mapListFromAny(row["assets"]) {
+		if len(mapListFromAny(asset["row_tasks"])) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 type doneWorkCustomerTarget struct {
@@ -620,6 +671,9 @@ func canViewWorkCustomer(ctx context.Context, staff *WorkStaffSession, customerI
 func canViewWorkAsset(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) bool {
 	if staff == nil || customerID == 0 || assetID == 0 {
 		return false
+	}
+	if customer := crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}); customer != nil && customer.CreatedByStaffID == staff.ID {
+		return true
 	}
 	if canOperateCurrentState(staff, currentWorkCustomerStage(ctx, customerID, assetID)) {
 		return true
@@ -971,66 +1025,108 @@ func workOperationSummaryItems(ctx context.Context, row map[string]any) []map[st
 		if text == "" {
 			continue
 		}
-		label, displayValue := workOperationSnapshotItem(ctx, key, value)
+		label, displayValue, meta := workOperationSnapshotItem(ctx, key, value)
 		if label == "" || displayValue == "" {
 			continue
 		}
-		items = append(items, map[string]any{
+		item := map[string]any{
 			"key":   key,
 			"label": label,
 			"value": displayValue,
-		})
+		}
+		for metaKey, metaValue := range meta {
+			item[metaKey] = metaValue
+		}
+		items = append(items, item)
 	}
 	return items
 }
 
-func workOperationSnapshotItem(ctx context.Context, key string, value any) (string, string) {
+func workOperationSnapshotItem(ctx context.Context, key string, value any) (string, string, map[string]any) {
 	switch key {
 	case "department_id", "departmentId":
-		return "分配部门", workDepartmentName(ctx, inputUint64(value))
+		return "分配部门", workDepartmentName(ctx, inputUint64(value)), nil
 	case "staff_id", "staffId":
-		return "分配人员", workStaffName(ctx, inputUint64(value))
+		return "分配人员", workStaffName(ctx, inputUint64(value)), nil
 	case "result_value", "resultValue":
-		return "决策结果", inputText(value)
+		return "决策结果", inputText(value), nil
 	case "resource_id", "resourceId", "booking:resource_id", "main:resource_id":
-		return "预定资源", workPublicResourceName(ctx, inputUint64(value))
+		return "预定资源", workPublicResourceName(ctx, inputUint64(value)), nil
 	case "start_at", "startAt", "booking:start_at", "main:start_at":
-		return "开始时间", inputText(value)
+		return "开始时间", inputText(value), nil
 	case "end_at", "endAt", "booking:end_at", "main:end_at":
-		return "结束时间", inputText(value)
+		return "结束时间", inputText(value), nil
 	case "remark", "booking:remark", "main:remark":
-		return "备注", inputText(value)
+		return "备注", inputText(value), nil
 	}
 	if strings.HasPrefix(key, "main:") {
 		field := strings.TrimPrefix(key, "main:")
-		return workMainFieldLabel(field), workMainFieldDisplayValue(ctx, field, value)
+		return workMainFieldLabel(field), workMainFieldDisplayValue(ctx, field, value), nil
 	}
 	if strings.HasPrefix(key, "data:") {
 		fieldID := inputUint64(strings.TrimPrefix(key, "data:"))
 		if fieldID == 0 {
-			return "", ""
+			return "", "", nil
 		}
 		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID})
 		if field == nil {
-			return key, inputText(value)
+			return key, inputText(value), nil
 		}
-		return field.Name, workDataFieldDisplayValue(ctx, fieldID, value)
+		displayValue, meta := workDataFieldDisplayValue(ctx, field, value)
+		return field.Name, displayValue, meta
 	}
-	return key, inputText(value)
+	return key, inputText(value), nil
 }
 
-func workDataFieldDisplayValue(ctx context.Context, fieldID uint64, value any) string {
+func workDataFieldDisplayValue(ctx context.Context, field *crmmodel.DataField, value any) (string, map[string]any) {
 	text := inputText(value)
-	if fieldID == 0 || text == "" {
-		return text
+	if field == nil || field.ID == 0 || text == "" {
+		return text, nil
+	}
+	if workIsAttachmentFieldType(field.FieldType) {
+		files := workUploadFilePayloads(ctx, uint64ListFromAny(value))
+		if len(files) == 0 {
+			return text, nil
+		}
+		return fmt.Sprintf("%d 个附件", len(files)), map[string]any{
+			"value_type": "files",
+			"files":      files,
+		}
 	}
 	if option := crmmodel.NewDataFieldOptionModel().Find(ctx, map[string]any{
-		"data_field_id": fieldID,
+		"data_field_id": field.ID,
 		"value":         text,
 	}); option != nil {
-		return option.Name
+		return option.Name, nil
 	}
-	return text
+	return text, nil
+}
+
+func workIsAttachmentFieldType(fieldType string) bool {
+	switch strings.ToLower(strings.TrimSpace(fieldType)) {
+	case "attachment", "file", "image":
+		return true
+	default:
+		return false
+	}
+}
+
+func workUploadFilePayloads(ctx context.Context, ids []uint64) []map[string]any {
+	if len(ids) == 0 {
+		return []map[string]any{}
+	}
+	result := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		file, err := uploadrepo.FindUploadFile(ctx, id)
+		if err != nil || file.ID == 0 {
+			continue
+		}
+		result = append(result, uploadrepo.BuildUploadFilePayload(file))
+	}
+	return result
 }
 
 func workMainFieldLabel(field string) string {
@@ -1213,7 +1309,7 @@ func workMapFormFieldIsAsset(field map[string]any) bool {
 		return true
 	}
 	switch inputText(field["main_field"]) {
-	case "asset_name", "asset_status_id", "remark":
+	case "asset_name", "asset_status_id":
 		return true
 	default:
 		return false
@@ -2213,7 +2309,7 @@ func isWorkAssetMainField(field *crmmodel.FormField) bool {
 		return true
 	}
 	switch field.MainField {
-	case "asset_name", "asset_status_id", "remark":
+	case "asset_name", "asset_status_id":
 		return true
 	default:
 		return false
