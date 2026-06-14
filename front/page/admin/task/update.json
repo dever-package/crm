@@ -87,6 +87,10 @@
             "value": "分配"
           },
           {
+            "id": "collaborate",
+            "value": "协作任务"
+          },
+          {
             "id": "decision",
             "value": "决策"
           },
@@ -106,9 +110,11 @@
           "clearOnChange": [
             "form.form_id",
             "form.script_id",
-            "form.result_schema_json",
+            "form.decision_result_field_path",
             "form.trigger_task_id",
             "form.assign_department_ids",
+            "form.collaboration_items",
+            "form.collaboration_complete_mode",
             "form.booking_resource_cate_id",
             "form.booking_need_confirm"
           ]
@@ -165,6 +171,57 @@
               "path": "form.task_type",
               "operator": "notEquals",
               "value": "form"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-array",
+        "name": "协作子任务",
+        "value": "form.collaboration_items",
+        "mode": "form",
+        "info": "生成多个部门/人员的并行待办；派单时间使用本次协作任务操作日志的创建时间。",
+        "meta": {
+          "pageRoute": "/crm/task/collaboration_item",
+          "addText": "添加子任务",
+          "drag": "sort",
+          "itemName": "协作子任务",
+          "valueFormat": "json",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "collaborate"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "完成规则",
+        "value": "form.collaboration_complete_mode",
+        "mode": "form",
+        "option": [
+          {
+            "id": "all",
+            "value": "全部必做完成后流转"
+          },
+          {
+            "id": "any",
+            "value": "任意完成后流转"
+          },
+          {
+            "id": "manual",
+            "value": "仅生成待办不自动流转"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "collaborate"
             }
           ]
         }
@@ -289,31 +346,83 @@
         "name": "脚本规则",
         "value": "form.script_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewRuleScriptModel&filterField=status&filterValue=1&labelField=name&searchFields=name,entry&order=sort asc,id asc&pageSize=200",
+        "option": "/front/route/option?type=model&use=crm.NewRuleScriptModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "自动触发的决策任务必须选择脚本规则。",
+            "when": [
+              {
+                "path": "form.task_type",
+                "operator": "equals",
+                "value": "decision"
+              },
+              {
+                "path": "form.trigger_type",
+                "operator": "notEquals",
+                "value": "manual"
+              }
+            ]
+          }
+        ],
         "meta": {
           "formLayout": "horizontal",
-          "placeholder": "选择决策或审核使用的脚本规则",
+          "placeholder": "选择自动触发时使用的脚本规则",
+          "hiddenCondition": "any",
           "hiddenWhen": [
             {
               "path": "form.task_type",
               "operator": "notEquals",
               "value": "decision"
+            },
+            {
+              "path": "form.trigger_type",
+              "operator": "equals",
+              "value": "manual"
             }
           ]
         }
       },
       {
-        "type": "form-array",
-        "name": "任务结果",
-        "value": "form.result_schema_json",
+        "type": "form-cascader",
+        "name": "结果写入字段",
+        "value": "form.decision_result_field_path",
         "mode": "form",
-        "info": "决策或审核输出的结果，例如通过、退回、拒绝；阶段流转可按结果值匹配。",
+        "placeholder": "选择决策结果要写入的条件字段",
+        "validate": [
+          {
+            "type": "required",
+            "message": "决策任务必须选择结果写入字段。",
+            "when": [
+              {
+                "path": "form.task_type",
+                "operator": "equals",
+                "value": "decision"
+              }
+            ]
+          }
+        ],
         "meta": {
-          "pageRoute": "/crm/task/result_schema_item",
-          "addText": "添加结果",
-          "drag": "sort",
-          "itemName": "任务结果",
-          "valueFormat": "json",
+          "api": "/front/route/option",
+          "type": "service",
+          "use": "crm.setting.OptionService.LoadDecisionResultFieldOptions",
+          "formLayout": "horizontal",
+          "parentField": "parent_id",
+          "rootValue": 0,
+          "valueField": "id",
+          "labelField": "name",
+          "leafField": "leaf",
+          "placeholder": [
+            "选择客户或资产",
+            "选择资料模板",
+            "选择条件字段"
+          ],
+          "searchPlaceholder": [
+            "搜索分类...",
+            "搜索模板...",
+            "搜索字段..."
+          ],
+          "controlClassName": "min-w-[12rem]",
           "hiddenWhen": [
             {
               "path": "form.task_type",
@@ -333,6 +442,37 @@
           "formLayout": "horizontal",
           "placeholder": "不自动流转"
         }
+      },
+      {
+        "type": "form-cascader",
+        "name": "显示条件",
+        "value": "form.visible_condition_path",
+        "mode": "form",
+        "placeholder": "不限制显示条件",
+        "meta": {
+          "api": "/front/route/option",
+          "type": "service",
+          "use": "crm.setting.OptionService.LoadTaskVisibleConditionOptions",
+          "formLayout": "horizontal",
+          "parentField": "parent_id",
+          "rootValue": 0,
+          "valueField": "id",
+          "labelField": "name",
+          "leafField": "leaf",
+          "placeholder": [
+            "选择客户或资产",
+            "选择资料模板",
+            "选择字段",
+            "选择值"
+          ],
+          "searchPlaceholder": [
+            "搜索分类...",
+            "搜索模板...",
+            "搜索字段...",
+            "搜索值..."
+          ],
+          "controlClassName": "min-w-[12rem]"
+        }
       }
     ]
   },
@@ -349,10 +489,13 @@
         "form_id",
         "assign_mode",
         "assign_department_ids",
+        "collaboration_items",
+        "collaboration_complete_mode",
         "booking_resource_cate_id",
         "booking_need_confirm",
         "script_id",
-        "result_schema_json"
+        "decision_result_field_path",
+        "visible_condition_path"
       ],
       "service": "crm.setting.CrmHook.BuildTaskForm",
       "id": "",
@@ -366,10 +509,13 @@
       "form_id": "",
       "assign_mode": "staff",
       "assign_department_ids": [],
+      "collaboration_items": [],
+      "collaboration_complete_mode": "all",
       "booking_resource_cate_id": 1,
       "booking_need_confirm": 0,
       "script_id": "",
-      "result_schema_json": []
+      "decision_result_field_path": [],
+      "visible_condition_path": []
     }
   },
   "state": {},

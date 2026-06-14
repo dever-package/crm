@@ -42,13 +42,13 @@ func (CrmHook) ProviderBeforeSaveDataField(c *server.Context, params []any) any 
 	if statEnabled {
 		fieldKey := effectiveCrmDataFieldKey(record, existing)
 		if fieldKey == "" {
-			panicCrmField("form.field_key", "进入统计的字段必须填写字段编码。")
+			panicCrmField("form.field_key", "条件字段必须填写字段编码。")
 		}
 		if !validDataFieldStatKey(fieldKey) {
 			panicCrmField("form.field_key", "字段编码只能包含字母、数字、下划线、点和短横线。")
 		}
 		if duplicatedCrmDataFieldKey(c, fieldKey, util.ToUint64(record["id"])) {
-			panicCrmField("form.field_key", "该字段编码已被其他统计字段使用。")
+			panicCrmField("form.field_key", "该字段编码已被其他条件字段使用。")
 		}
 	}
 	if shouldNormalizeCrmField(record, "field_type", partial) && util.ToStringTrimmed(record["field_type"]) == "" {

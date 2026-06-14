@@ -73,3 +73,12 @@ func (Work) PostExecute(c *server.Context) error {
 	data, err := workService.Execute(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
 	return crmJSON(c, data, err)
 }
+
+func (Work) PostAiFill(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.AIFill(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}

@@ -8,17 +8,30 @@ const (
 )
 
 const (
-	TaskTypeCreate     = "create"
-	TaskTypeForm       = "form"
-	TaskTypeAssign     = "assign"
-	TaskTypeDecision   = "decision"
-	TaskTypeBooking    = "booking"
-	TaskTypeSystemRule = "system_rule"
+	TaskTypeCreate      = "create"
+	TaskTypeForm        = "form"
+	TaskTypeAssign      = "assign"
+	TaskTypeCollaborate = "collaborate"
+	TaskTypeDecision    = "decision"
+	TaskTypeBooking     = "booking"
+	TaskTypeSystemRule  = "system_rule"
 )
 
 const (
 	TaskAssignModeStaff      = "staff"
 	TaskAssignModeDepartment = "department"
+)
+
+const (
+	WorkTodoStatusPending  = "pending"
+	WorkTodoStatusDone     = "done"
+	WorkTodoStatusCanceled = "canceled"
+)
+
+const (
+	CollaborationCompleteAll    = "all"
+	CollaborationCompleteAny    = "any"
+	CollaborationCompleteManual = "manual"
 )
 
 const (
@@ -33,13 +46,6 @@ const (
 	TaskTriggerManual     = "manual"
 	TaskTriggerAfterTask  = "after_task"
 	TaskTriggerStageEnter = "on_stage_enter"
-)
-
-const (
-	ScriptUsageTaskRule   = "task_rule"
-	ScriptUsageTransition = "transition"
-	ScriptUsageFieldCalc  = "field_calc"
-	ScriptUsageValidation = "validation"
 )
 
 const (
@@ -99,16 +105,9 @@ var customerGenderOptions = []map[string]any{
 	{"id": "unknown", "value": "未知"},
 }
 
-var scriptUsageOptions = []map[string]any{
-	{"id": ScriptUsageTaskRule, "value": "任务规则"},
-	{"id": ScriptUsageTransition, "value": "流转判断"},
-	{"id": ScriptUsageFieldCalc, "value": "字段计算"},
-	{"id": ScriptUsageValidation, "value": "数据校验"},
-}
-
 var dataFieldStatTypeOptions = []map[string]any{
-	{"id": DataFieldStatTypeDimension, "value": "维度"},
-	{"id": DataFieldStatTypeMetric, "value": "指标"},
+	{"id": DataFieldStatTypeDimension, "value": "分类"},
+	{"id": DataFieldStatTypeMetric, "value": "数值"},
 	{"id": DataFieldStatTypeAmount, "value": "金额"},
 	{"id": DataFieldStatTypeTime, "value": "时间"},
 	{"id": DataFieldStatTypeStatus, "value": "状态"},
@@ -124,8 +123,15 @@ var taskTypeOptions = []map[string]any{
 	{"id": TaskTypeCreate, "value": "创建资料"},
 	{"id": TaskTypeForm, "value": "填写资料"},
 	{"id": TaskTypeAssign, "value": "分配"},
+	{"id": TaskTypeCollaborate, "value": "协作任务"},
 	{"id": TaskTypeDecision, "value": "决策"},
 	{"id": TaskTypeBooking, "value": "资源预定"},
+}
+
+var workTodoStatusOptions = []map[string]any{
+	{"id": WorkTodoStatusPending, "value": "待处理"},
+	{"id": WorkTodoStatusDone, "value": "已完成"},
+	{"id": WorkTodoStatusCanceled, "value": "已取消"},
 }
 
 var resourceBookingStatusOptions = []map[string]any{
@@ -302,7 +308,7 @@ var ruleScriptCateRelation = orm.Relation{
 var ruleScriptRelation = orm.Relation{
 	Field:      "script_id",
 	Option:     "crm.NewRuleScriptModel",
-	OptionKeys: []string{"name", "usage"},
+	OptionKeys: []string{"name"},
 }
 
 var resourceCateRelation = orm.Relation{
@@ -320,7 +326,7 @@ var resourceRelation = orm.Relation{
 var matchScriptRelation = orm.Relation{
 	Field:      "match_script_id",
 	Option:     "crm.NewRuleScriptModel",
-	OptionKeys: []string{"name", "usage"},
+	OptionKeys: []string{"name"},
 }
 
 var formFieldDataFieldRelation = orm.Relation{

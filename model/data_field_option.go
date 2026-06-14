@@ -3,7 +3,7 @@ package model
 import "github.com/shemic/dever/orm"
 
 type DataFieldOption struct {
-	ID          uint64 `dorm:"primaryKey;autoIncrement;comment:字段选项ID"`
+	ID          uint64 `dorm:"primaryKey;autoIncrement;comment:可选项ID"`
 	DataFieldID uint64 `dorm:"type:bigint;not null;default:0;comment:数据字段"`
 	Name        string `dorm:"type:varchar(128);not null;comment:选项名"`
 	Value       string `dorm:"type:varchar(255);not null;comment:选项值"`
@@ -22,7 +22,7 @@ var dataFieldOptionFieldRelation = orm.Relation{
 }
 
 func NewDataFieldOptionModel() *orm.Model[DataFieldOption] {
-	return orm.LoadModel[DataFieldOption]("字段选项", "crm_data_field_option", orm.ModelConfig{
+	return orm.LoadModel[DataFieldOption]("可选项", "crm_data_field_option", orm.ModelConfig{
 		Index:     DataFieldOptionIndex{},
 		Order:     "sort asc,id asc",
 		Database:  "default",

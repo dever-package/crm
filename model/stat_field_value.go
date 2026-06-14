@@ -15,8 +15,8 @@ type StatFieldValue struct {
 	FieldKey       string    `dorm:"type:varchar(128);not null;comment:字段编码"`
 	FieldName      string    `dorm:"type:varchar(128);not null;comment:字段名称"`
 	FieldType      string    `dorm:"type:varchar(32);not null;default:'text';comment:字段类型"`
-	StatType       string    `dorm:"type:varchar(32);not null;default:'dimension';comment:统计类型"`
-	StatGroup      string    `dorm:"type:varchar(64);not null;default:'';comment:统计分组"`
+	StatType       string    `dorm:"type:varchar(32);not null;default:'dimension';comment:条件值类型"`
+	StatGroup      string    `dorm:"type:varchar(64);not null;default:'';comment:条件分组"`
 	ValueText      string    `dorm:"type:text;not null;default:'';comment:文本值"`
 	ValueNumber    float64   `dorm:"type:double precision;not null;default:0;comment:数值"`
 	ValueDate      time.Time `dorm:"comment:时间值"`

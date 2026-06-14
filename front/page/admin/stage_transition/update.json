@@ -93,7 +93,7 @@
         "name": "匹配脚本",
         "value": "form.script_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewRuleScriptModel&filterField=status&filterValue=1&labelField=name&searchFields=name,entry&order=sort asc,id asc&pageSize=200",
+        "option": "/front/route/option?type=model&use=crm.NewRuleScriptModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
         "meta": {
           "formLayout": "vertical"
         }

@@ -16,14 +16,11 @@ func (Script) PostValidate(c *server.Context) error {
 		return c.Error(err)
 	}
 	data, err := ruleService.Validate(c.Context(), crmservice.ScriptValidateRequest{
-		Language:        textFromBody(body, "language"),
 		Script:          textFromBody(body, "script"),
-		Entry:           textFromBody(body, "entry"),
 		Input:           body["input"],
 		Config:          body["config"],
 		Expected:        body["expected"],
 		CompareExpected: boolFromBody(body, "compare_expected", "compareExpected"),
-		TimeoutMS:       int(uint64FromBody(body, "timeout_ms", "timeoutMS")),
 	})
 	return crmJSON(c, data, err)
 }

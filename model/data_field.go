@@ -13,9 +13,9 @@ type DataField struct {
 	FieldKey       string    `dorm:"type:varchar(128);not null;default:'';comment:字段编码"`
 	FieldType      string    `dorm:"type:varchar(32);not null;default:'text';comment:字段类型"`
 	DefaultValue   string    `dorm:"type:text;not null;default:'';comment:默认值"`
-	StatEnabled    bool      `dorm:"not null;default:false;comment:进入统计"`
-	StatType       string    `dorm:"type:varchar(32);not null;default:'dimension';comment:统计类型"`
-	StatGroup      string    `dorm:"type:varchar(64);not null;default:'';comment:统计分组"`
+	StatEnabled    bool      `dorm:"not null;default:false;comment:条件字段"`
+	StatType       string    `dorm:"type:varchar(32);not null;default:'dimension';comment:条件值类型"`
+	StatGroup      string    `dorm:"type:varchar(64);not null;default:'';comment:条件分组"`
 	Sort           int       `dorm:"type:int;not null;default:100;comment:排序"`
 	Status         int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
 	CreatedAt      time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`

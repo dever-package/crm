@@ -23,8 +23,10 @@
     "dialog-shell": [
       {
         "type": "form-input",
+        "name": "选项名",
         "value": "form.name",
         "mode": "form",
+        "info": "给配置人员和业务人员看的显示名称，例如 T1、已通过、需补充资料。",
         "validate": [
           {
             "type": "required",
@@ -37,8 +39,10 @@
       },
       {
         "type": "form-input",
+        "name": "选项值",
         "value": "form.value",
         "mode": "form",
+        "info": "系统用于流程判断、任务显示条件、脚本写入、AI填写匹配的真实值；建议使用稳定编码，例如 t1、approved、need_more_info。",
         "validate": [
           {
             "type": "required",

@@ -85,9 +85,10 @@
       },
       {
         "type": "form-switch",
-        "name": "进入统计",
+        "name": "条件字段",
         "value": "form.stat_enabled",
         "mode": "form",
+        "info": "开启后会把该字段值同步为可查询条件，可用于工作台任务显示、流程判断、脚本计算结果写入后的匹配，也可继续用于统计分析。",
         "meta": {
           "formLayout": "horizontal",
           "trueValue": true,
@@ -97,9 +98,11 @@
       },
       {
         "type": "form-radio",
+        "name": "条件值类型",
         "value": "form.stat_type",
         "mode": "form",
         "option": "option.stat_type",
+        "info": "用于说明该条件字段的值怎么被理解和索引：分类适合标签、来源、T节点等枚举值；数值/金额适合可计算数字；时间适合日期时间；状态适合流程状态；文本适合普通文字。",
         "meta": {
           "formLayout": "horizontal",
           "controlClassName": "max-w-[360px]",
@@ -114,9 +117,11 @@
       },
       {
         "type": "form-input",
+        "name": "条件分组",
         "value": "form.stat_group",
         "mode": "form",
         "placeholder": "例如 线索、资产、司法、PM、财务",
+        "info": "用于把条件字段按业务归类，方便后台筛选和统计展示；不参与任务显示、流程判断或脚本匹配本身。",
         "meta": {
           "formLayout": "horizontal",
           "hiddenWhen": [
@@ -130,9 +135,10 @@
       },
       {
         "type": "form-array",
+        "name": "可选项",
         "value": "form.options",
         "mode": "form",
-        "info": "维护单选、多选、下拉、多选下拉字段的可选项。",
+        "info": "维护单选、多选、下拉、多选下拉字段的可选项。选项值是流程判断、任务显示条件、AI填写和自动决策匹配时使用的真实值，建议使用稳定编码，例如 t1、t2、approved。",
         "meta": {
           "formLayout": "horizontal",
           "pageRoute": "/crm/data_field_option/update",

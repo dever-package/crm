@@ -1,0 +1,102 @@
+{
+  "page": {
+    "parent": "crm/task/update",
+    "type": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "name": "子任务名称",
+        "value": "form.name",
+        "mode": "form",
+        "placeholder": "例如：NPL首呼",
+        "validate": [
+          {
+            "type": "required",
+            "message": "子任务名称不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "目标部门",
+        "value": "form.department_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "目标部门不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "处理人员",
+        "value": "form.staff_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewStaffModel&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id asc&pageSize=200",
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "不选则派给部门负责人"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "处理资料模板",
+        "value": "form.form_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewFormModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "完成子任务时需要填写的资料"
+        }
+      },
+      {
+        "type": "form-switch",
+        "name": "必做",
+        "value": "form.required",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "trueValue": true,
+          "falseValue": false
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "name": "",
+      "department_id": "",
+      "staff_id": "",
+      "form_id": "",
+      "required": true,
+      "sort": 100
+    }
+  },
+  "state": {},
+  "action": {}
+}

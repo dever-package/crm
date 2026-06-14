@@ -33,7 +33,7 @@ type StatEventIndex struct {
 	AssetTime      struct{} `index:"asset_id,event_at,id"`
 	StageTime      struct{} `index:"stage_code,event_at,id"`
 	TransitionTime struct{} `index:"from_stage_code,to_stage_code,event_at,id"`
-	TaskResult     struct{} `index:"task_id,result_value,event_at,id"`
+	TaskValue      struct{} `index:"task_id,result_value,event_at,id"`
 	OperatorTime   struct{} `index:"operator_staff_id,event_at,id"`
 }
 
