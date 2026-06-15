@@ -25,8 +25,8 @@ const DefaultAssetStatusID uint64 = 1
 var assetStatusSeed = []map[string]any{
 	{
 		"id":     DefaultAssetStatusID,
-		"code":   "default",
-		"name":   "默认状态",
+		"code":   "normal",
+		"name":   "正常",
 		"status": StatusEnabled,
 		"sort":   100,
 	},

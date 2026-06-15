@@ -11,14 +11,16 @@ type Staff struct {
 	Name         string    `dorm:"type:varchar(64);not null;comment:姓名"`
 	DepartmentID uint64    `dorm:"type:bigint;not null;default:0;comment:部门"`
 	StaffType    string    `dorm:"type:varchar(32);not null;default:'employee';comment:人员类型"`
-	Phone        string    `dorm:"type:varchar(32);not null;comment:手机号"`
+	Phone        string    `dorm:"type:varchar(32);not null;default:'';comment:手机号"`
+	FeishuOpenID string    `dorm:"type:varchar(128);not null;default:'';comment:飞书OpenID"`
 	Password     string    `dorm:"type:varchar(128);not null;default:'';comment:密码"`
 	Status       int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
 	CreatedAt    time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
 }
 
 type StaffIndex struct {
-	Phone            struct{} `unique:"phone"`
+	Phone            struct{} `index:"phone,id"`
+	FeishuOpenID     struct{} `index:"feishu_open_id,id"`
 	NameStatus       struct{} `index:"name,status,id"`
 	TypeStatus       struct{} `index:"staff_type,status,id"`
 	DepartmentStatus struct{} `index:"department_id,status,id"`

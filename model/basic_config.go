@@ -14,6 +14,8 @@ const (
 type BasicConfig struct {
 	ID                 uint64    `dorm:"primaryKey;autoIncrement;comment:配置ID"`
 	CustomerCodePrefix string    `dorm:"type:varchar(32);not null;default:'';comment:客户编号前缀"`
+	FeishuAppID        string    `dorm:"type:varchar(128);not null;default:'';comment:飞书AppID"`
+	FeishuAppSecret    string    `dorm:"type:varchar(255);not null;default:'';comment:飞书AppSecret"`
 	CreatedAt          time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
 	UpdatedAt          time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
 }

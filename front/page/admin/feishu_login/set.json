@@ -1,0 +1,97 @@
+{
+  "page": {
+    "name": "飞书登录配置",
+    "icon": "log-in",
+    "parent": "crm-org-manage",
+    "sort": 4,
+    "auth": [
+      {
+        "key": "crm/feishu_login/set",
+        "name": "飞书登录配置"
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header"
+      },
+      "page-main": {
+        "type": "main",
+        "children": {
+          "form-shell": {
+            "type": "container",
+            "className": "max-w-3xl"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "form-shell": [
+      {
+        "type": "form-input",
+        "name": "飞书 AppID",
+        "value": "form.feishu_app_id",
+        "mode": "form",
+        "placeholder": "cli_xxx",
+        "validate": [
+          {
+            "type": "required",
+            "message": "飞书 AppID 不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "controlClassName": "max-w-[420px]"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "飞书 AppSecret",
+        "value": "form.feishu_app_secret",
+        "mode": "form",
+        "placeholder": "请输入飞书应用 AppSecret",
+        "validate": [
+          {
+            "type": "required",
+            "message": "飞书 AppSecret 不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "inputType": "password",
+          "controlClassName": "max-w-[420px]"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_model": "crm.NewBasicConfigModel",
+      "id": 1,
+      "feishu_app_id": "",
+      "feishu_app_secret": ""
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "use": "crm.NewBasicConfigModel",
+      "upsert": true,
+      "params": "form",
+      "before": {
+        "type": "service",
+        "use": "crm.setting.CrmHook.BeforeSaveBasicConfig"
+      }
+    }
+  }
+}

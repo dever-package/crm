@@ -57,10 +57,14 @@
         "name": "处理人员",
         "value": "form.staff_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewStaffModel&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id asc&pageSize=200",
+        "placeholder": "不选择人员",
+        "option": "/front/route/option?type=model&use=crm.NewStaffModel&parentField=department_id&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id asc&pageSize=200",
         "meta": {
           "formLayout": "horizontal",
-          "placeholder": "不选则派给部门负责人"
+          "placeholder": "不选择人员",
+          "optionParams": {
+            "parentId": "form.department_id"
+          }
         }
       },
       {

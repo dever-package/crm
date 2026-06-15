@@ -80,7 +80,7 @@
             },
             {
               "name": "任务类型",
-              "value": "task_type",
+              "value": "task_type_name",
               "type": "show-tag"
             },
             {
@@ -90,7 +90,7 @@
             },
             {
               "name": "结果",
-              "value": "result_value",
+              "value": "result_value_name",
               "type": "show-base"
             },
             {
@@ -122,6 +122,7 @@
       "page": 1,
       "pageSize": 20,
       "total": 0,
+      "service": "crm.setting.CrmHook.BuildOperationLogRows",
       "searchFields": [
         "title",
         "content",

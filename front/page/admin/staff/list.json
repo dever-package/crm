@@ -152,6 +152,11 @@
               "name": "手机号"
             },
             {
+              "value": "feishu_open_id",
+              "type": "show-base",
+              "name": "飞书 OpenID"
+            },
+            {
               "value": "staff_type_name",
               "type": "show-tag",
               "name": "类型"
@@ -280,7 +285,8 @@
       "service": "crm.setting.CrmHook.BuildStaffRows",
       "searchFields": [
         "name",
-        "phone"
+        "phone",
+        "feishu_open_id"
       ],
       "filterFields": [
         "department_id"

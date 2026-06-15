@@ -25,8 +25,8 @@ const DefaultCustomerChannelID uint64 = 1
 var customerChannelSeed = []map[string]any{
 	{
 		"id":     DefaultCustomerChannelID,
-		"code":   "default",
-		"name":   "默认渠道",
+		"code":   "douyin",
+		"name":   "抖音",
 		"status": StatusEnabled,
 		"sort":   100,
 	},

@@ -38,6 +38,29 @@ func isPartialCrmRecord(record map[string]any) bool {
 	}
 }
 
+func isPartialOrInlineCrmRecord(record map[string]any, inlineFields ...string) bool {
+	if isPartialCrmRecord(record) {
+		return true
+	}
+	if util.ToUint64(record["id"]) == 0 {
+		return false
+	}
+	allowed := map[string]bool{
+		"id":         true,
+		"_partial":   true,
+		"updated_at": true,
+	}
+	for _, field := range inlineFields {
+		allowed[field] = true
+	}
+	for field := range record {
+		if !allowed[field] {
+			return false
+		}
+	}
+	return true
+}
+
 func trimCrmStringField(record map[string]any, field string, partial bool) {
 	if partial {
 		if _, exists := record[field]; !exists {

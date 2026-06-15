@@ -48,6 +48,15 @@ const (
 	TaskTriggerStageEnter = "on_stage_enter"
 )
 
+func TaskTypeSupportsAutoTrigger(taskType string) bool {
+	switch taskType {
+	case TaskTypeAssign, TaskTypeCollaborate, TaskTypeDecision:
+		return true
+	default:
+		return false
+	}
+}
+
 const (
 	StageOwnerKeep            = "keep"
 	StageOwnerAssign          = "assign"

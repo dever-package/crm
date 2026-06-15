@@ -47,6 +47,29 @@ func taskTypeName(value any) string {
 	}
 }
 
+func operationResultName(value any) string {
+	switch util.ToStringTrimmed(value) {
+	case "":
+		return ""
+	case "success":
+		return "成功"
+	case "auto_failed":
+		return "自动执行失败"
+	case crmmodel.ResourceBookingStatusPending:
+		return "待确认"
+	case crmmodel.ResourceBookingStatusReserved:
+		return "已预定"
+	case crmmodel.ResourceBookingStatusCanceled:
+		return "已取消"
+	case crmmodel.ResourceBookingStatusRejected:
+		return "已拒绝"
+	case crmmodel.ResourceBookingStatusDone:
+		return "已完成"
+	default:
+		return util.ToStringTrimmed(value)
+	}
+}
+
 func taskTriggerTypeName(value any) string {
 	switch util.ToStringTrimmed(value) {
 	case crmmodel.TaskTriggerAfterTask:
@@ -76,7 +99,7 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	if len(record) == 0 {
 		return record
 	}
-	partial := isPartialCrmRecord(record)
+	partial := isPartialOrInlineCrmRecord(record, "status", "sort")
 	trimCrmStringField(record, "name", partial)
 	trimCrmStringField(record, "task_type", partial)
 	trimCrmStringField(record, "trigger_type", partial)
@@ -101,6 +124,7 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	if shouldNormalizeCrmField(record, "trigger_type", partial) && util.ToStringTrimmed(record["trigger_type"]) == "" {
 		record["trigger_type"] = crmmodel.TaskTriggerManual
 	}
+	normalizeTaskAutoTriggerSupport(contextFromServer(c), record, partial)
 	normalizeTaskTriggerConfig(record, partial)
 	normalizeTaskTypeConfig(contextFromServer(c), record, partial)
 	ensureTaskFormExists(contextFromServer(c), record, partial)
@@ -162,6 +186,21 @@ func normalizeTaskTriggerConfig(record map[string]any, partial bool) {
 	}
 }
 
+func normalizeTaskAutoTriggerSupport(ctx context.Context, record map[string]any, partial bool) {
+	if !shouldNormalizeCrmField(record, "trigger_type", partial) && !shouldNormalizeCrmField(record, "task_type", partial) {
+		return
+	}
+	if effectiveTaskTriggerType(ctx, record, partial) == crmmodel.TaskTriggerManual {
+		return
+	}
+	taskType := effectiveTaskType(ctx, record, partial)
+	if crmmodel.TaskTypeSupportsAutoTrigger(taskType) {
+		return
+	}
+	record["trigger_type"] = crmmodel.TaskTriggerManual
+	record["trigger_task_id"] = uint64(0)
+}
+
 func normalizeTaskTypeConfig(ctx context.Context, record map[string]any, partial bool) {
 	if !shouldNormalizeTaskConfig(record, partial) {
 		return
@@ -193,23 +232,32 @@ func normalizeTaskTypeConfig(ctx context.Context, record map[string]any, partial
 		if len(departmentIDs) == 0 {
 			panicCrmField("form.assign_department_ids", "可选部门不能为空。")
 		}
-		record["config_json"] = encodeTaskConfig(mergedTaskConfig(record, map[string]any{
-			"assign_mode":           assignMode,
-			"assign_department_ids": departmentIDs,
-			"next_stage_code":       util.ToStringTrimmed(record["next_stage_code"]),
-		}))
+		autoAssignEnabled := effectiveTaskTriggerType(ctx, record, partial) != crmmodel.TaskTriggerManual
+		autoDepartmentID, autoStaffID := normalizeTaskAutoAssignTarget(ctx, record, assignMode, departmentIDs, partial)
+		assignConfig := map[string]any{
+			"assign_mode":               assignMode,
+			"assign_department_ids":     departmentIDs,
+			"auto_assign_department_id": autoDepartmentID,
+			"auto_assign_staff_id":      autoStaffID,
+			"next_stage_code":           util.ToStringTrimmed(record["next_stage_code"]),
+		}
+		if !autoAssignEnabled {
+			assignConfig["auto_assign_department_id"] = nil
+			assignConfig["auto_assign_staff_id"] = nil
+		}
+		record["config_json"] = encodeTaskConfig(mergedTaskConfig(record, assignConfig))
 		record["form_id"] = uint64(0)
 	case crmmodel.TaskTypeCollaborate:
 		record["script_id"] = uint64(0)
 		record["form_id"] = uint64(0)
-		items := normalizeTaskCollaborationItems(ctx, record["collaboration_items"], partial)
+		items := effectiveTaskCollaborationItems(ctx, record, partial)
 		if !partial && len(items) == 0 {
 			panicCrmField("form.collaboration_items", "协作任务必须配置子任务。")
 		}
-		completeMode := normalizeTaskCollaborationCompleteMode(record["collaboration_complete_mode"])
+		ensureAutoTaskCollaborationStaff(items, effectiveTaskTriggerType(ctx, record, partial))
 		record["config_json"] = encodeTaskConfig(mergedTaskConfig(record, map[string]any{
 			"collaboration_items":         items,
-			"collaboration_complete_mode": completeMode,
+			"collaboration_complete_mode": effectiveTaskCollaborationCompleteMode(ctx, record, partial),
 			"next_stage_code":             util.ToStringTrimmed(record["next_stage_code"]),
 		}))
 	case crmmodel.TaskTypeBooking:
@@ -310,6 +358,8 @@ func shouldNormalizeTaskConfig(record map[string]any, partial bool) bool {
 		"form_id",
 		"assign_mode",
 		"assign_department_ids",
+		"auto_assign_department_id",
+		"auto_assign_staff_id",
 		"collaboration_items",
 		"collaboration_complete_mode",
 		"next_stage_code",
@@ -355,6 +405,21 @@ func mergedTaskConfig(record map[string]any, updates map[string]any) map[string]
 	return config
 }
 
+func currentTaskConfigValue(ctx context.Context, record map[string]any, key string) any {
+	if value := recordTaskConfigValue(record, key); value != nil {
+		return value
+	}
+	if current := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); current != nil {
+		return decodeTaskConfig(current.ConfigJSON)[key]
+	}
+	return nil
+}
+
+func recordTaskConfigValue(record map[string]any, key string) any {
+	config := decodeTaskConfig(record["config_json"])
+	return config[key]
+}
+
 func mergeTaskConfigField(record map[string]any, key string, value any) {
 	record["config_json"] = encodeTaskConfig(mergedTaskConfig(record, map[string]any{key: value}))
 }
@@ -373,9 +438,9 @@ func normalizeTaskVisibleWhen(ctx context.Context, record map[string]any, partia
 		!shouldNormalizeCrmField(record, "visible_value", partial) {
 		return
 	}
-	fieldID, value := taskVisibleConditionFromPath(record["visible_condition_path"])
+	fieldID, value := conditionFieldAndValueFromPath(record["visible_condition_path"])
 	if fieldID == 0 {
-		fieldID = visibleDataFieldID(record["visible_field_path"])
+		fieldID = conditionDataFieldID(record["visible_field_path"])
 		value = util.ToStringTrimmed(record["visible_value"])
 	}
 	if fieldID == 0 {
@@ -384,23 +449,14 @@ func normalizeTaskVisibleWhen(ctx context.Context, record map[string]any, partia
 		}))
 		return
 	}
-	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-		"id":           fieldID,
-		"stat_enabled": true,
-		"status":       crmmodel.StatusEnabled,
-	})
+	field := requireConditionDataField(ctx, fieldID, "form.visible_condition_path", "显示条件字段")
 	if field == nil {
 		panicCrmField("form.visible_condition_path", "显示条件字段不存在、未开启条件字段或已停用。")
 	}
 	if value == "" {
 		panicCrmField("form.visible_condition_path", "显示条件值不能为空。")
 	}
-	if taskVisibleFieldHasOptions(field.FieldType) && crmmodel.NewDataFieldOptionModel().Find(ctx, map[string]any{
-		"data_field_id": field.ID,
-		"value":         value,
-	}) == nil {
-		panicCrmField("form.visible_condition_path", "显示条件值不属于该字段的可选项。")
-	}
+	requireConditionDataFieldOption(ctx, field, value, "form.visible_condition_path", "显示条件值")
 	record["config_json"] = encodeTaskConfig(mergedTaskConfig(record, map[string]any{
 		"visible_when": map[string]any{
 			"data_field_id": field.ID,
@@ -410,7 +466,7 @@ func normalizeTaskVisibleWhen(ctx context.Context, record map[string]any, partia
 	}))
 }
 
-func taskVisibleConditionFromPath(value any) (uint64, string) {
+func conditionFieldAndValueFromPath(value any) (uint64, string) {
 	for _, item := range collectPathItems(value) {
 		fieldID, optionValue, ok := parseTaskVisibleValueSource(item)
 		if ok {
@@ -420,7 +476,7 @@ func taskVisibleConditionFromPath(value any) (uint64, string) {
 	return 0, ""
 }
 
-func visibleDataFieldID(value any) uint64 {
+func conditionDataFieldID(value any) uint64 {
 	for _, item := range collectPathItems(value) {
 		if strings.HasPrefix(item, collectFieldSourceDataPrefix) {
 			return util.ToUint64(strings.TrimPrefix(item, collectFieldSourceDataPrefix))
@@ -429,13 +485,70 @@ func visibleDataFieldID(value any) uint64 {
 	return util.ToUint64(value)
 }
 
-func taskVisibleFieldHasOptions(fieldType string) bool {
+func conditionFieldHasOptions(fieldType string) bool {
 	switch strings.TrimSpace(fieldType) {
 	case "radio", "select":
 		return true
 	default:
 		return false
 	}
+}
+
+func requireConditionDataField(ctx context.Context, fieldID uint64, formPath string, label string) *crmmodel.DataField {
+	if fieldID == 0 {
+		return nil
+	}
+	field := conditionDataField(ctx, fieldID)
+	if field == nil {
+		panicCrmField(formPath, fmt.Sprintf("%s不存在、未开启条件字段或已停用。", label))
+	}
+	return field
+}
+
+func conditionDataField(ctx context.Context, fieldID uint64) *crmmodel.DataField {
+	if fieldID == 0 {
+		return nil
+	}
+	return crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+		"id":           fieldID,
+		"stat_enabled": true,
+		"status":       crmmodel.StatusEnabled,
+	})
+}
+
+func requireConditionDataFieldOption(ctx context.Context, field *crmmodel.DataField, value string, formPath string, label string) {
+	if field == nil || !conditionFieldHasOptions(field.FieldType) || strings.TrimSpace(value) == "" {
+		return
+	}
+	if crmmodel.NewDataFieldOptionModel().Find(ctx, map[string]any{
+		"data_field_id": field.ID,
+		"value":         value,
+	}) == nil {
+		panicCrmField(formPath, fmt.Sprintf("%s不属于该字段的可选项。", label))
+	}
+}
+
+func conditionFieldPath(ctx context.Context, fieldID uint64, value string, includeValue bool) []any {
+	if fieldID == 0 {
+		return []any{}
+	}
+	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID})
+	if field == nil {
+		return []any{}
+	}
+	template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{"id": field.DataTemplateID})
+	if template == nil {
+		return []any{}
+	}
+	path := []any{
+		fmt.Sprintf("cate:%d", template.CateID),
+		collectDataTemplateSource(template.ID),
+		fmt.Sprintf("%s%d", collectFieldSourceDataPrefix, field.ID),
+	}
+	if includeValue {
+		path = append(path, taskVisibleValueSource(field.ID, value))
+	}
+	return path
 }
 
 func (CrmHook) ProviderAfterSaveTask(_ *server.Context, _ []any) any {
@@ -466,6 +579,8 @@ func applyTaskConfigForm(ctx context.Context, record map[string]any) {
 	}
 	record["assign_mode"] = assignMode
 	record["assign_department_ids"] = normalizeTaskAssignDepartmentIDs(config["assign_department_ids"])
+	record["auto_assign_department_id"] = optionalTaskConfigID(config["auto_assign_department_id"])
+	record["auto_assign_staff_id"] = optionalTaskConfigID(config["auto_assign_staff_id"])
 	record["collaboration_items"] = normalizeTaskCollaborationItems(nil, config["collaboration_items"], true)
 	record["collaboration_complete_mode"] = normalizeTaskCollaborationCompleteMode(config["collaboration_complete_mode"])
 	resourceCateID := util.ToUint64(config["resource_cate_id"])
@@ -479,7 +594,7 @@ func applyTaskConfigForm(ctx context.Context, record map[string]any) {
 }
 
 func normalizeDecisionResultField(ctx context.Context, record map[string]any, partial bool) uint64 {
-	fieldID := visibleDataFieldID(record["decision_result_field_path"])
+	fieldID := conditionDataFieldID(record["decision_result_field_path"])
 	if partial && fieldID == 0 && !shouldNormalizeCrmField(record, "decision_result_field_path", partial) {
 		config := decodeTaskConfig(record["config_json"])
 		if len(config) == 0 {
@@ -492,18 +607,11 @@ func normalizeDecisionResultField(ctx context.Context, record map[string]any, pa
 	if fieldID == 0 {
 		panicCrmField("form.decision_result_field_path", "决策任务必须选择结果写入字段。")
 	}
-	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-		"id":           fieldID,
-		"stat_enabled": true,
-		"status":       crmmodel.StatusEnabled,
-	})
-	if field == nil {
-		panicCrmField("form.decision_result_field_path", "结果写入字段不存在、未开启条件字段或已停用。")
-	}
+	field := requireConditionDataField(ctx, fieldID, "form.decision_result_field_path", "结果写入字段")
 	if strings.TrimSpace(field.FieldKey) == "" {
 		panicCrmField("form.decision_result_field_path", "结果写入字段必须配置字段编码。")
 	}
-	if !taskVisibleFieldHasOptions(field.FieldType) {
+	if !conditionFieldHasOptions(field.FieldType) {
 		panicCrmField("form.decision_result_field_path", "结果写入字段必须是单选或下拉字段。")
 	}
 	if crmmodel.NewDataFieldOptionModel().Count(ctx, map[string]any{"data_field_id": field.ID}) == 0 {
@@ -518,21 +626,7 @@ func applyDecisionResultFieldForm(ctx context.Context, record map[string]any, co
 		record["decision_result_field_path"] = []any{}
 		return
 	}
-	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID})
-	if field == nil {
-		record["decision_result_field_path"] = []any{}
-		return
-	}
-	template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{"id": field.DataTemplateID})
-	if template == nil {
-		record["decision_result_field_path"] = []any{}
-		return
-	}
-	record["decision_result_field_path"] = []any{
-		fmt.Sprintf("cate:%d", template.CateID),
-		collectDataTemplateSource(template.ID),
-		fmt.Sprintf("%s%d", collectFieldSourceDataPrefix, field.ID),
-	}
+	record["decision_result_field_path"] = conditionFieldPath(ctx, fieldID, "", false)
 }
 
 func applyTaskVisibleWhenForm(ctx context.Context, record map[string]any, config map[string]any) {
@@ -542,23 +636,8 @@ func applyTaskVisibleWhenForm(ctx context.Context, record map[string]any, config
 		record["visible_condition_path"] = []any{}
 		return
 	}
-	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID})
-	if field == nil {
-		record["visible_condition_path"] = []any{}
-		return
-	}
-	template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{"id": field.DataTemplateID})
-	if template == nil {
-		record["visible_condition_path"] = []any{}
-		return
-	}
 	value := util.ToStringTrimmed(visibleWhen["value"])
-	record["visible_condition_path"] = []any{
-		fmt.Sprintf("cate:%d", template.CateID),
-		collectDataTemplateSource(template.ID),
-		fmt.Sprintf("%s%d", collectFieldSourceDataPrefix, field.ID),
-		taskVisibleValueSource(field.ID, value),
-	}
+	record["visible_condition_path"] = conditionFieldPath(ctx, fieldID, value, true)
 }
 
 func taskConfigObject(value any) map[string]any {
@@ -583,6 +662,90 @@ func normalizeTaskAssignDepartmentIDs(value any) []uint64 {
 	return result
 }
 
+func optionalTaskConfigID(value any) any {
+	id := util.ToUint64(value)
+	if id == 0 {
+		return ""
+	}
+	return id
+}
+
+func normalizeTaskAutoAssignTarget(ctx context.Context, record map[string]any, assignMode string, allowedDepartmentIDs []uint64, partial bool) (uint64, uint64) {
+	if effectiveTaskTriggerType(ctx, record, partial) == crmmodel.TaskTriggerManual {
+		return 0, 0
+	}
+	departmentID := util.ToUint64(record["auto_assign_department_id"])
+	staffID := util.ToUint64(record["auto_assign_staff_id"])
+	if assignMode == crmmodel.TaskAssignModeDepartment {
+		staffID = 0
+	}
+	if partial && departmentID == 0 && !shouldNormalizeCrmField(record, "auto_assign_department_id", partial) {
+		if current := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); current != nil {
+			config := decodeTaskConfig(current.ConfigJSON)
+			departmentID = util.ToUint64(config["auto_assign_department_id"])
+			if staffID == 0 && !shouldNormalizeCrmField(record, "auto_assign_staff_id", partial) {
+				staffID = util.ToUint64(config["auto_assign_staff_id"])
+			}
+		}
+	}
+	if departmentID == 0 {
+		panicCrmField("form.auto_assign_department_id", "自动触发的分配任务必须选择自动分配部门。")
+	}
+	if !containsUint64(allowedDepartmentIDs, departmentID) {
+		panicCrmField("form.auto_assign_department_id", "自动分配部门必须在可选部门范围内。")
+	}
+	department := crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": departmentID, "status": crmmodel.StatusEnabled})
+	if department == nil {
+		panicCrmField("form.auto_assign_department_id", "自动分配部门不存在或已停用。")
+	}
+	if staffID > 0 {
+		staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": staffID, "status": crmmodel.StatusEnabled})
+		if staff == nil {
+			panicCrmField("form.auto_assign_staff_id", "自动分配人员不存在或已停用。")
+		}
+		if staff.DepartmentID != departmentID {
+			panicCrmField("form.auto_assign_staff_id", "自动分配人员不属于自动分配部门。")
+		}
+		return departmentID, staffID
+	}
+	if taskDepartmentLeaderStaffID(ctx, department) == 0 {
+		panicCrmField("form.auto_assign_staff_id", "未选择自动分配人员时，自动分配部门必须配置负责人。")
+	}
+	return departmentID, 0
+}
+
+func taskDepartmentLeaderStaffID(ctx context.Context, department *crmmodel.Department) uint64 {
+	if department == nil || department.ID == 0 {
+		return 0
+	}
+	if department.LeaderStaffID > 0 {
+		if staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
+			"id":            department.LeaderStaffID,
+			"department_id": department.ID,
+			"status":        crmmodel.StatusEnabled,
+		}); staff != nil {
+			return staff.ID
+		}
+	}
+	if staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
+		"department_id": department.ID,
+		"staff_type":    crmmodel.StaffTypeLeader,
+		"status":        crmmodel.StatusEnabled,
+	}); staff != nil {
+		return staff.ID
+	}
+	return 0
+}
+
+func containsUint64(values []uint64, target uint64) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeTaskCollaborationCompleteMode(value any) string {
 	switch util.ToStringTrimmed(value) {
 	case crmmodel.CollaborationCompleteAny:
@@ -591,6 +754,31 @@ func normalizeTaskCollaborationCompleteMode(value any) string {
 		return crmmodel.CollaborationCompleteManual
 	default:
 		return crmmodel.CollaborationCompleteAll
+	}
+}
+
+func effectiveTaskCollaborationItems(ctx context.Context, record map[string]any, partial bool) []map[string]any {
+	if shouldNormalizeCrmField(record, "collaboration_items", partial) {
+		return normalizeTaskCollaborationItems(ctx, record["collaboration_items"], partial)
+	}
+	return normalizeTaskCollaborationItems(ctx, currentTaskConfigValue(ctx, record, "collaboration_items"), true)
+}
+
+func effectiveTaskCollaborationCompleteMode(ctx context.Context, record map[string]any, partial bool) string {
+	if shouldNormalizeCrmField(record, "collaboration_complete_mode", partial) {
+		return normalizeTaskCollaborationCompleteMode(record["collaboration_complete_mode"])
+	}
+	return normalizeTaskCollaborationCompleteMode(currentTaskConfigValue(ctx, record, "collaboration_complete_mode"))
+}
+
+func ensureAutoTaskCollaborationStaff(items []map[string]any, triggerType string) {
+	if triggerType == "" || triggerType == crmmodel.TaskTriggerManual {
+		return
+	}
+	for _, item := range items {
+		if util.ToUint64(item["staff_id"]) == 0 {
+			panicCrmField("form.collaboration_items", "自动触发的协作任务必须为每个子任务指定处理人员。")
+		}
 	}
 }
 
@@ -627,21 +815,33 @@ func normalizeTaskCollaborationItems(ctx context.Context, value any, partial boo
 		if formID > 0 && ctx != nil && crmmodel.NewFormModel().Find(ctx, map[string]any{"id": formID, "status": crmmodel.StatusEnabled}) == nil {
 			panicCrmField("form.collaboration_items", "协作子任务资料模板不存在或已停用。")
 		}
-		key := name + ":" + util.ToString(departmentID) + ":" + util.ToString(staffID)
-		if seen[key] {
+		sortValue := taskConfigSort(row["sort"], index)
+		itemKey := taskCollaborationItemKey(name, departmentID, formID, sortValue)
+		seenKey := itemKey + ":" + util.ToString(staffID)
+		if seen[seenKey] {
 			continue
 		}
-		seen[key] = true
+		seen[seenKey] = true
 		result = append(result, map[string]any{
+			"key":           itemKey,
 			"name":          name,
 			"department_id": departmentID,
 			"staff_id":      staffID,
 			"form_id":       formID,
 			"required":      taskConfigBoolDefault(row["required"], true),
-			"sort":          taskConfigSort(row["sort"], index),
+			"sort":          sortValue,
 		})
 	}
 	return result
+}
+
+func taskCollaborationItemKey(name string, departmentID uint64, formID uint64, sort int) string {
+	return strings.Join([]string{
+		util.ToString(sort),
+		util.ToString(departmentID),
+		util.ToString(formID),
+		name,
+	}, ":")
 }
 
 func firstTaskConfigValue(row map[string]any, keys ...string) any {

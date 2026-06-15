@@ -94,8 +94,6 @@
           "emptyText": "暂无阶段。",
           "queryKey": "stage_id",
           "labelField": "name",
-          "statusField": "code",
-          "statusDisplay": "badge",
           "createButton": {
             "name": "新增阶段",
             "icon": "plus",

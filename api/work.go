@@ -19,6 +19,20 @@ func (Work) PostLogin(c *server.Context) error {
 	return crmJSON(c, data, err)
 }
 
+func (Work) GetFeishuConfig(c *server.Context) error {
+	data, err := workService.FeishuConfig(c.Context())
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostFeishuLogin(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.FeishuLogin(c.Context(), body)
+	return crmJSON(c, data, err)
+}
+
 func (Work) GetMe(c *server.Context) error {
 	data, err := workService.Me(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
 	return crmJSON(c, data, err)

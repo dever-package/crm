@@ -26,7 +26,7 @@ type Customer struct {
 
 type CustomerIndex struct {
 	Code        struct{} `unique:"code"`
-	Phone       struct{} `unique:"phone"`
+	Phone       struct{} `index:"phone,id"`
 	SourceLevel struct{} `index:"source_id,channel_id,level_id,id"`
 	Creator     struct{} `index:"created_by_staff_id,id"`
 }

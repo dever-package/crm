@@ -108,6 +108,10 @@ func mapListFromAny(value any) []map[string]any {
 }
 
 func stringListFromJSON(value any) []string {
+	return stringListFromAny(value)
+}
+
+func stringListFromAny(value any) []string {
 	switch typed := value.(type) {
 	case []string:
 		return typed

@@ -25,8 +25,8 @@ const DefaultCustomerLevelID uint64 = 1
 var customerLevelSeed = []map[string]any{
 	{
 		"id":     DefaultCustomerLevelID,
-		"code":   "default",
-		"name":   "默认等级",
+		"code":   "normal",
+		"name":   "普通",
 		"status": StatusEnabled,
 		"sort":   100,
 	},

@@ -7,24 +7,24 @@ import (
 )
 
 type WorkTodo struct {
-	ID                      uint64    `dorm:"primaryKey;autoIncrement;comment:协作待办ID"`
-	CustomerID              uint64    `dorm:"type:bigint;not null;comment:客户"`
-	AssetID                 uint64    `dorm:"type:bigint;not null;default:0;comment:客户资产"`
-	SourceTaskID            uint64    `dorm:"type:bigint;not null;default:0;comment:来源任务"`
-	ParentOperationLogID    uint64    `dorm:"type:bigint;not null;default:0;comment:派单操作记录"`
-	SubTaskName             string    `dorm:"type:varchar(128);not null;default:'';comment:子任务名称"`
-	FormID                  uint64    `dorm:"type:bigint;not null;default:0;comment:处理资料模板"`
-	AssigneeDepartmentID    uint64    `dorm:"type:bigint;not null;default:0;comment:处理部门"`
-	AssigneeStaffID         uint64    `dorm:"type:bigint;not null;default:0;comment:处理人员"`
-	Required                bool      `dorm:"not null;default:true;comment:是否必做"`
-	Sort                    int       `dorm:"type:int;not null;default:100;comment:排序"`
-	Status                  string    `dorm:"type:varchar(32);not null;default:'pending';comment:状态"`
-	AssignedAt              time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:派单时间"`
-	CompletedAt             time.Time `dorm:"comment:完成时间"`
-	CompletedOperationLogID uint64    `dorm:"type:bigint;not null;default:0;comment:完成操作记录"`
-	CreatedByStaffID        uint64    `dorm:"type:bigint;not null;default:0;comment:创建人员"`
-	CreatedAt               time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
-	UpdatedAt               time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
+	ID                      uint64     `dorm:"primaryKey;autoIncrement;comment:协作待办ID"`
+	CustomerID              uint64     `dorm:"type:bigint;not null;comment:客户"`
+	AssetID                 uint64     `dorm:"type:bigint;not null;default:0;comment:客户资产"`
+	SourceTaskID            uint64     `dorm:"type:bigint;not null;default:0;comment:来源任务"`
+	ParentOperationLogID    uint64     `dorm:"type:bigint;not null;default:0;comment:派单操作记录"`
+	SubTaskName             string     `dorm:"type:varchar(128);not null;default:'';comment:子任务名称"`
+	FormID                  uint64     `dorm:"type:bigint;not null;default:0;comment:处理资料模板"`
+	AssigneeDepartmentID    uint64     `dorm:"type:bigint;not null;default:0;comment:处理部门"`
+	AssigneeStaffID         uint64     `dorm:"type:bigint;not null;default:0;comment:处理人员"`
+	Required                bool       `dorm:"not null;default:true;comment:是否必做"`
+	Sort                    int        `dorm:"type:int;not null;default:100;comment:排序"`
+	Status                  string     `dorm:"type:varchar(32);not null;default:'pending';comment:状态"`
+	AssignedAt              time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:派单时间"`
+	CompletedAt             *time.Time `dorm:"null;comment:完成时间"`
+	CompletedOperationLogID uint64     `dorm:"type:bigint;not null;default:0;comment:完成操作记录"`
+	CreatedByStaffID        uint64     `dorm:"type:bigint;not null;default:0;comment:创建人员"`
+	CreatedAt               time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
+	UpdatedAt               time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
 }
 
 type WorkTodoIndex struct {

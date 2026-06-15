@@ -144,6 +144,7 @@
           "pageRoute": "/crm/data_field_option/update",
           "addText": "添加选项",
           "drag": "sort",
+          "hiddenCondition": "all",
           "hiddenWhen": [
             {
               "path": "form.field_type",

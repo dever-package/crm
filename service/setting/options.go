@@ -77,6 +77,14 @@ func (OptionService) ProviderLoadFormFieldCascaderOptions(c *server.Context, par
 }
 
 func (OptionService) ProviderLoadTaskVisibleConditionOptions(c *server.Context, params []any) any {
+	return loadConditionFieldOptions(c, params)
+}
+
+func (OptionService) ProviderLoadConditionFieldOptions(c *server.Context, params []any) any {
+	return loadConditionFieldOptions(c, params)
+}
+
+func loadConditionFieldOptions(c *server.Context, params []any) any {
 	ctx := context.Background()
 	if c != nil {
 		ctx = c.Context()
@@ -291,7 +299,7 @@ func taskVisibleFieldOptions(ctx context.Context, templateID uint64) []map[strin
 	options := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		fieldID := util.ToUint64(row["id"])
-		if !taskVisibleFieldHasOptions(util.ToStringTrimmed(row["field_type"])) ||
+		if !conditionFieldHasOptions(util.ToStringTrimmed(row["field_type"])) ||
 			crmmodel.NewDataFieldOptionModel().Count(ctx, map[string]any{"data_field_id": fieldID}) == 0 {
 			continue
 		}
@@ -334,7 +342,7 @@ func decisionResultFieldOptions(ctx context.Context, templateID uint64) []map[st
 	for _, row := range rows {
 		fieldID := util.ToUint64(row["id"])
 		fieldKey := util.ToStringTrimmed(row["field_key"])
-		if fieldKey == "" || !taskVisibleFieldHasOptions(util.ToStringTrimmed(row["field_type"])) ||
+		if fieldKey == "" || !conditionFieldHasOptions(util.ToStringTrimmed(row["field_type"])) ||
 			crmmodel.NewDataFieldOptionModel().Count(ctx, map[string]any{"data_field_id": fieldID}) == 0 {
 			continue
 		}

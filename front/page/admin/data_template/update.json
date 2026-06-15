@@ -83,6 +83,7 @@
         "name",
         "fields"
       ],
+      "service": "crm.setting.CrmHook.BuildDataTemplateForm",
       "id": "",
       "cate_id": 1,
       "name": "",

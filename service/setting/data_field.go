@@ -15,6 +15,7 @@ var dataFieldOptionTypes = map[string]struct{}{
 	"checkbox":     {},
 	"select":       {},
 	"multi_select": {},
+	"boolean":      {},
 }
 
 func (CrmHook) ProviderBeforeSaveDataField(c *server.Context, params []any) any {
@@ -22,7 +23,7 @@ func (CrmHook) ProviderBeforeSaveDataField(c *server.Context, params []any) any 
 	if len(record) == 0 {
 		return record
 	}
-	partial := isPartialCrmRecord(record)
+	partial := isPartialOrInlineCrmRecord(record, "stat_enabled", "status", "sort")
 	existing := existingCrmDataField(c, util.ToUint64(record["id"]))
 	trimCrmStringField(record, "name", partial)
 	trimCrmStringField(record, "field_key", partial)
@@ -57,18 +58,110 @@ func (CrmHook) ProviderBeforeSaveDataField(c *server.Context, params []any) any 
 	if shouldNormalizeCrmField(record, "stat_type", partial) && util.ToStringTrimmed(record["stat_type"]) == "" {
 		record["stat_type"] = crmmodel.DataFieldStatTypeDimension
 	}
-	if shouldNormalizeCrmField(record, "options", partial) && !isDataFieldOptionType(util.ToStringTrimmed(record["field_type"])) {
-		delete(record, "options")
+	ctx := context.Background()
+	if c != nil {
+		ctx = c.Context()
 	}
+	normalizeCrmDataFieldOptions(ctx, record, existing, partial)
 	defaultCrmBool(record, "stat_enabled", false, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
 	return record
 }
 
+type crmDataFieldOptionInput struct {
+	name  string
+	value string
+	sort  int
+}
+
 func isDataFieldOptionType(fieldType string) bool {
 	_, ok := dataFieldOptionTypes[fieldType]
 	return ok
+}
+
+func normalizeCrmDataFieldOptions(ctx context.Context, record map[string]any, existing *crmmodel.DataField, partial bool) {
+	_, hasOptions := record["options"]
+	fieldTypeChanged := shouldNormalizeCrmField(record, "field_type", partial)
+	fieldType := effectiveCrmDataFieldType(record, existing)
+	if !hasOptions && !(fieldTypeChanged && !isDataFieldOptionType(fieldType)) {
+		return
+	}
+	fieldID := util.ToUint64(record["id"])
+	if !isDataFieldOptionType(fieldType) {
+		if fieldID > 0 {
+			crmmodel.NewDataFieldOptionModel().Delete(ctx, map[string]any{"data_field_id": fieldID})
+		}
+		delete(record, "options")
+		return
+	}
+	if fieldID == 0 || !hasOptions {
+		if hasOptions {
+			record["options"] = normalizeCrmDataFieldOptionRecords(record["options"])
+		}
+		return
+	}
+	syncCrmDataFieldOptions(ctx, fieldID, record["options"])
+	delete(record, "options")
+}
+
+func syncCrmDataFieldOptions(ctx context.Context, fieldID uint64, rawOptions any) {
+	records := normalizeCrmDataFieldOptionRecords(rawOptions)
+	model := crmmodel.NewDataFieldOptionModel()
+	model.Delete(ctx, map[string]any{"data_field_id": fieldID})
+	for _, record := range records {
+		option := util.CloneMap(record)
+		option["data_field_id"] = fieldID
+		model.Insert(ctx, option)
+	}
+}
+
+func normalizeCrmDataFieldOptionRecords(rawOptions any) []map[string]any {
+	inputs := normalizeCrmDataFieldOptionInputs(rawOptions)
+	records := make([]map[string]any, 0, len(inputs))
+	for _, input := range inputs {
+		records = append(records, map[string]any{
+			"name":  input.name,
+			"value": input.value,
+			"sort":  input.sort,
+		})
+	}
+	return records
+}
+
+func normalizeCrmDataFieldOptionInputs(rawOptions any) []crmDataFieldOptionInput {
+	rows := formFieldRows(rawOptions)
+	inputs := make([]crmDataFieldOptionInput, 0, len(rows))
+	seenValues := map[string]bool{}
+	for index, row := range rows {
+		if blankCrmDataFieldOptionRow(row) {
+			continue
+		}
+		name := util.ToStringTrimmed(row["name"])
+		value := util.ToStringTrimmed(row["value"])
+		if name == "" {
+			panicCrmField("form.options", "选项名不能为空。")
+		}
+		if value == "" {
+			panicCrmField("form.options", "选项值不能为空。")
+		}
+		if seenValues[value] {
+			panicCrmField("form.options", "选项值不能重复。")
+		}
+		seenValues[value] = true
+		inputs = append(inputs, crmDataFieldOptionInput{
+			name:  name,
+			value: value,
+			sort:  util.ToIntDefault(row["sort"], (index+1)*10),
+		})
+	}
+	return inputs
+}
+
+func blankCrmDataFieldOptionRow(row map[string]any) bool {
+	return util.ToUint64(row["id"]) == 0 &&
+		util.ToStringTrimmed(row["name"]) == "" &&
+		util.ToStringTrimmed(row["value"]) == ""
 }
 
 func existingCrmDataField(c *server.Context, id uint64) *crmmodel.DataField {
@@ -97,6 +190,16 @@ func effectiveCrmDataFieldKey(record map[string]any, existing *crmmodel.DataFiel
 		return ""
 	}
 	return strings.TrimSpace(existing.FieldKey)
+}
+
+func effectiveCrmDataFieldType(record map[string]any, existing *crmmodel.DataField) string {
+	if _, ok := record["field_type"]; ok {
+		return util.ToStringTrimmed(record["field_type"])
+	}
+	if existing == nil {
+		return ""
+	}
+	return strings.TrimSpace(existing.FieldType)
 }
 
 func duplicatedCrmDataFieldKey(c *server.Context, fieldKey string, currentID uint64) bool {

@@ -25,8 +25,8 @@ const DefaultCustomerSourceID uint64 = 1
 var customerSourceSeed = []map[string]any{
 	{
 		"id":     DefaultCustomerSourceID,
-		"code":   "default",
-		"name":   "默认来源",
+		"code":   "ad_feed",
+		"name":   "信息流投放",
 		"status": StatusEnabled,
 		"sort":   100,
 	},

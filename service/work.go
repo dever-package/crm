@@ -1,9 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,6 +15,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	deverjwt "github.com/shemic/dever/auth/jwt"
 	"github.com/shemic/dever/config"
+	"github.com/shemic/dever/orm"
 
 	agentmodel "my/package/bot/model/agent"
 	agentservice "my/package/bot/service/agent"
@@ -24,7 +28,10 @@ import (
 const (
 	workSiteKey              = "work"
 	workAuthProvider         = "crm_work"
+	feishuAPIBase            = "https://open.feishu.cn/open-apis"
+	feishuRequestTimeout     = 10 * time.Second
 	workResultSuccess        = "success"
+	workResultAutoFailed     = "auto_failed"
 	workCustomerModeAll      = "all"
 	workCustomerModePending  = "pending"
 	workCustomerModeDone     = "done"
@@ -40,12 +47,36 @@ type WorkStaffSession struct {
 	ID           uint64
 	Name         string
 	Phone        string
+	FeishuOpenID string
 	DepartmentID uint64
 }
 
 type workExecutionRuntime struct {
 	depth int
 	seen  map[string]bool
+}
+
+type feishuAppAccessTokenResponse struct {
+	Code           int    `json:"code"`
+	Msg            string `json:"msg"`
+	AppAccessToken string `json:"app_access_token"`
+}
+
+type feishuAccessTokenResponse struct {
+	Code int                  `json:"code"`
+	Msg  string               `json:"msg"`
+	Data feishuIdentityResult `json:"data"`
+}
+
+type feishuIdentityResult struct {
+	OpenID    string `json:"open_id"`
+	UnionID   string `json:"union_id"`
+	UserID    string `json:"user_id"`
+	Name      string `json:"name"`
+	EnName    string `json:"en_name"`
+	Mobile    string `json:"mobile"`
+	Email     string `json:"email"`
+	AvatarURL string `json:"avatar_url"`
 }
 
 func NewWorkService() WorkService {
@@ -74,6 +105,141 @@ func (WorkService) Login(ctx context.Context, payload map[string]any) (map[strin
 		"token": token,
 		"user":  workStaffPayload(staff, expiredAt),
 	}, nil
+}
+
+func (WorkService) FeishuConfig(ctx context.Context) (map[string]any, error) {
+	config := currentWorkFeishuConfig(ctx)
+	return map[string]any{
+		"enabled": config.FeishuAppID != "" && config.FeishuAppSecret != "",
+		"app_id":  config.FeishuAppID,
+		"appId":   config.FeishuAppID,
+	}, nil
+}
+
+func (WorkService) FeishuLogin(ctx context.Context, payload map[string]any) (map[string]any, error) {
+	code := firstText(payload, "code")
+	if code == "" {
+		return nil, fmt.Errorf("飞书授权码不能为空")
+	}
+	identity, err := fetchWorkFeishuIdentity(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+	openID := strings.TrimSpace(identity.OpenID)
+	if openID == "" {
+		return nil, fmt.Errorf("飞书未返回 open_id")
+	}
+	staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
+		"feishu_open_id": openID,
+		"status":         crmmodel.StatusEnabled,
+	})
+	if staff == nil {
+		return nil, fmt.Errorf("飞书账号未绑定人员，请管理员在人员管理中配置 OpenID：%s", openID)
+	}
+	expiredAt := time.Now().Add(7 * 24 * time.Hour)
+	token, err := createWorkToken(staff, expiredAt)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"token": token,
+		"user":  workStaffPayload(staff, expiredAt),
+	}, nil
+}
+
+func currentWorkFeishuConfig(ctx context.Context) crmmodel.BasicConfig {
+	return CurrentBasicConfig(ctx)
+}
+
+func fetchWorkFeishuIdentity(ctx context.Context, code string) (feishuIdentityResult, error) {
+	appAccessToken, err := fetchWorkFeishuAppAccessToken(ctx)
+	if err != nil {
+		return feishuIdentityResult{}, err
+	}
+	var payload feishuAccessTokenResponse
+	if err := postFeishuJSON(ctx, "/authen/v1/access_token", map[string]any{
+		"grant_type": "authorization_code",
+		"code":       code,
+	}, appAccessToken, &payload); err != nil {
+		return feishuIdentityResult{}, err
+	}
+	if payload.Code != 0 {
+		return feishuIdentityResult{}, fmt.Errorf("飞书身份换取失败：%s", fallbackFeishuMessage(payload.Msg))
+	}
+	if strings.TrimSpace(payload.Data.OpenID) == "" {
+		return feishuIdentityResult{}, fmt.Errorf("飞书未返回用户身份信息")
+	}
+	return payload.Data, nil
+}
+
+func fetchWorkFeishuAppAccessToken(ctx context.Context) (string, error) {
+	config := currentWorkFeishuConfig(ctx)
+	appID := strings.TrimSpace(config.FeishuAppID)
+	appSecret := strings.TrimSpace(config.FeishuAppSecret)
+	if appID == "" || appSecret == "" {
+		return "", fmt.Errorf("请先配置飞书 AppID 和 AppSecret")
+	}
+	var payload feishuAppAccessTokenResponse
+	if err := postFeishuJSON(ctx, "/auth/v3/app_access_token/internal", map[string]any{
+		"app_id":     appID,
+		"app_secret": appSecret,
+	}, "", &payload); err != nil {
+		return "", err
+	}
+	if payload.Code != 0 {
+		return "", fmt.Errorf("飞书 app_access_token 获取失败：%s", fallbackFeishuMessage(payload.Msg))
+	}
+	if strings.TrimSpace(payload.AppAccessToken) == "" {
+		return "", fmt.Errorf("飞书未返回 app_access_token")
+	}
+	return payload.AppAccessToken, nil
+}
+
+func postFeishuJSON(ctx context.Context, path string, body any, bearerToken string, target any) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, feishuRequestTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, feishuAPIBase+path, bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	if strings.TrimSpace(bearerToken) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(bearerToken))
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("飞书接口请求失败：%w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("读取飞书接口响应失败：%w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("飞书接口请求失败：%d", resp.StatusCode)
+	}
+	if err := json.Unmarshal(respBody, target); err != nil {
+		return fmt.Errorf("解析飞书接口响应失败：%w", err)
+	}
+	return nil
+}
+
+func fallbackFeishuMessage(message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "未知错误"
+	}
+	return message
 }
 
 func (WorkService) Me(_ context.Context, staff *WorkStaffSession) (map[string]any, error) {
@@ -188,11 +354,21 @@ func (WorkService) Options(ctx context.Context, staff *WorkStaffSession) (map[st
 	return map[string]any{
 		"departments": workDepartmentOptions(ctx),
 		"staffs":      workStaffOptions(ctx),
+		"forms":       workFormOptions(ctx),
 	}, nil
 }
 
 func (WorkService) Execute(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
-	return executeWorkTask(ctx, staff, payload, newWorkExecutionRuntime())
+	var result map[string]any
+	err := orm.Transaction(ctx, func(txCtx context.Context) error {
+		var executeErr error
+		result, executeErr = executeWorkTask(txCtx, staff, payload, newWorkExecutionRuntime())
+		return executeErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (WorkService) AIFill(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
@@ -212,13 +388,17 @@ func (WorkService) AIFill(ctx context.Context, staff *WorkStaffSession, payload 
 	if task == nil {
 		return nil, fmt.Errorf("当前人员无权执行该任务")
 	}
-	fields := workTaskAIFields(ctx, task)
+	formID, err := workAIFillFormID(ctx, staff, task, customerID, assetID, payload)
+	if err != nil {
+		return nil, err
+	}
+	fields := workAIFieldsForForm(ctx, formID)
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("当前任务没有可 AI 填写的字段")
 	}
 	result, err := agentservice.NewService().RunInternal(ctx, agentservice.InternalRunRequest{
 		AgentID: agentmodel.FrontAssistantAgentID,
-		Input:   workAIFillInput(ctx, staff, task, fields, customerID, assetID, payload),
+		Input:   workAIFillInput(ctx, staff, task, formID, fields, customerID, assetID, payload),
 		Options: map[string]any{
 			"max_steps": 1,
 		},
@@ -306,11 +486,35 @@ type workAIFillField struct {
 	Options   []map[string]any
 }
 
-func workTaskAIFields(ctx context.Context, task *crmmodel.Task) []workAIFillField {
-	if task == nil || task.FormID == 0 {
+func workAIFillFormID(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, customerID uint64, assetID uint64, payload map[string]any) (uint64, error) {
+	if task == nil {
+		return 0, nil
+	}
+	todoID := firstUint64(payload, "todo_id", "todoId")
+	if todoID == 0 {
+		return task.FormID, nil
+	}
+	todo := crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
+		"id":     todoID,
+		"status": crmmodel.WorkTodoStatusPending,
+	})
+	if todo == nil {
+		return 0, fmt.Errorf("协作待办不存在或已完成")
+	}
+	if todo.CustomerID != customerID || todo.AssetID != assetID {
+		return 0, fmt.Errorf("协作待办不属于当前客户资产")
+	}
+	if !canOperateWorkTodo(staff, todo) {
+		return 0, fmt.Errorf("当前人员无权完成该协作待办")
+	}
+	return todo.FormID, nil
+}
+
+func workAIFieldsForForm(ctx context.Context, formID uint64) []workAIFillField {
+	if formID == 0 {
 		return nil
 	}
-	form := crmmodel.NewFormModel().Find(ctx, map[string]any{"id": task.FormID, "status": crmmodel.StatusEnabled})
+	form := crmmodel.NewFormModel().Find(ctx, map[string]any{"id": formID, "status": crmmodel.StatusEnabled})
 	if form == nil {
 		return nil
 	}
@@ -353,8 +557,8 @@ func workAIFillFieldIsUpload(fieldType string) bool {
 	}
 }
 
-func workAIFillInput(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, fields []workAIFillField, customerID uint64, assetID uint64, payload map[string]any) map[string]any {
-	context := workAIFillContext(ctx, staff, task, fields, customerID, assetID, payload)
+func workAIFillInput(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, formID uint64, fields []workAIFillField, customerID uint64, assetID uint64, payload map[string]any) map[string]any {
+	context := workAIFillContext(ctx, staff, task, formID, fields, customerID, assetID, payload)
 	return map[string]any{
 		"text": "请根据 CRM 工作台上下文补全当前任务表单。只输出 ```front-action fenced JSON，type 必须是 patch_form，values 只包含 fields 中存在的 key；不要保存、提交或执行任何业务动作。",
 		"task": map[string]any{
@@ -367,7 +571,7 @@ func workAIFillInput(ctx context.Context, staff *WorkStaffSession, task *crmmode
 	}
 }
 
-func workAIFillContext(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, fields []workAIFillField, customerID uint64, assetID uint64, payload map[string]any) map[string]any {
+func workAIFillContext(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, formID uint64, fields []workAIFillField, customerID uint64, assetID uint64, payload map[string]any) map[string]any {
 	customer := map[string]any{}
 	if customerID > 0 {
 		customer = crmmodel.NewCustomerModel().FindMap(ctx, map[string]any{"id": customerID})
@@ -385,7 +589,7 @@ func workAIFillContext(ctx context.Context, staff *WorkStaffSession, task *crmmo
 			"id":        task.ID,
 			"name":      task.Name,
 			"task_type": task.TaskType,
-			"form_id":   task.FormID,
+			"form_id":   formID,
 		},
 		"fields":         workAIFillFieldPayloads(fields),
 		"current_values": mapFromAny(payload["values"]),
@@ -812,6 +1016,7 @@ func CurrentWorkStaff(ctx context.Context) *WorkStaffSession {
 		ID:           staff.ID,
 		Name:         staff.Name,
 		Phone:        staff.Phone,
+		FeishuOpenID: staff.FeishuOpenID,
 		DepartmentID: staff.DepartmentID,
 	}
 }
@@ -847,11 +1052,12 @@ func createWorkToken(staff *crmmodel.Staff, expiredAt time.Time) (string, error)
 
 func workStaffPayload(staff *crmmodel.Staff, expiredAt time.Time) map[string]any {
 	return map[string]any{
-		"id":            staff.ID,
-		"name":          staff.Name,
-		"phone":         staff.Phone,
-		"department_id": staff.DepartmentID,
-		"exp":           expiredAt.UnixMilli(),
+		"id":             staff.ID,
+		"name":           staff.Name,
+		"phone":          staff.Phone,
+		"feishu_open_id": staff.FeishuOpenID,
+		"department_id":  staff.DepartmentID,
+		"exp":            expiredAt.UnixMilli(),
 	}
 }
 
@@ -2252,9 +2458,20 @@ func attachWorkTaskForm(ctx context.Context, task map[string]any) {
 	if formID == 0 {
 		return
 	}
-	form := crmmodel.NewFormModel().FindMap(ctx, map[string]any{"id": formID, "status": crmmodel.StatusEnabled})
+	form := workFormPayload(ctx, formID)
 	if len(form) == 0 {
 		return
+	}
+	task["form"] = form
+}
+
+func workFormPayload(ctx context.Context, formID uint64) map[string]any {
+	if formID == 0 {
+		return nil
+	}
+	form := crmmodel.NewFormModel().FindMap(ctx, map[string]any{"id": formID, "status": crmmodel.StatusEnabled})
+	if len(form) == 0 {
+		return nil
 	}
 	fields := crmmodel.NewFormFieldModel().SelectMap(ctx, map[string]any{
 		"form_id": formID,
@@ -2264,7 +2481,7 @@ func attachWorkTaskForm(ctx context.Context, task map[string]any) {
 		attachWorkFormFieldOptions(ctx, field)
 	}
 	form["fields"] = fields
-	task["form"] = form
+	return form
 }
 
 func attachWorkTaskConfig(ctx context.Context, task map[string]any) {
@@ -2276,7 +2493,9 @@ func attachWorkTaskConfig(ctx context.Context, task map[string]any) {
 		task["assign_department_ids"] = uint64ListFromAny(config["assign_department_ids"])
 	case crmmodel.TaskTypeCollaborate:
 		config := mapFromAny(task["config_json"])
-		task["collaboration_items"] = mapsFromAny(config["collaboration_items"])
+		items := mapsFromAny(config["collaboration_items"])
+		attachWorkCollaborationItemForms(ctx, items)
+		task["collaboration_items"] = items
 		task["collaboration_complete_mode"] = normalizeWorkCollaborationCompleteMode(inputText(config["collaboration_complete_mode"]))
 	case crmmodel.TaskTypeDecision:
 		config := mapFromAny(task["config_json"])
@@ -2293,6 +2512,17 @@ func attachWorkTaskConfig(ctx context.Context, task map[string]any) {
 		task["booking_resource_cate_id"] = resourceCateID
 		task["booking_need_confirm"] = booleanFromAny(config["need_confirm"])
 		task["form"] = workBookingForm(ctx, resourceCateID)
+	}
+}
+
+func attachWorkCollaborationItemForms(ctx context.Context, items []map[string]any) {
+	for _, item := range items {
+		form := workFormPayload(ctx, inputUint64(item["form_id"]))
+		if len(form) == 0 {
+			continue
+		}
+		item["form"] = form
+		item["fields"] = form["fields"]
 	}
 }
 
@@ -2441,13 +2671,16 @@ func workResourceOptions(ctx context.Context, resourceCateID uint64) []map[strin
 }
 
 func executeCreateCustomerTask(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, values map[string]any, runtime *workExecutionRuntime) (map[string]any, error) {
-	formInput, err := collectWorkFormInput(ctx, task, values)
+	formInput, err := collectWorkCreateFormInput(ctx, task, values)
 	if err != nil {
 		return nil, err
 	}
 	customerRecord := defaultWorkCustomerRecord(staff)
 	for key, value := range formInput.customerFields {
 		customerRecord[key] = value
+	}
+	if err := validateWorkCustomerContact(customerRecord); err != nil {
+		return nil, err
 	}
 	if duplicateField := duplicatedWorkCustomerField(ctx, customerRecord); duplicateField != "" {
 		return nil, fmt.Errorf("%s", duplicateWorkCustomerFieldMessage(duplicateField))
@@ -2466,8 +2699,9 @@ func executeCreateCustomerTask(ctx context.Context, staff *WorkStaffSession, tas
 	}
 	insertWorkCustomerMember(ctx, staff, customerID)
 	insertWorkCustomerStage(ctx, staff, customerID, 0, operationID, task.ID)
-	applyWorkStageTransition(ctx, staff, customerID, 0, currentWorkCustomerStage(ctx, customerID, 0), task, operationID, workResultSuccess)
-	runWorkAutoTriggers(ctx, staff, customerID, 0, task, workResultSuccess, runtime)
+	fromState := currentWorkCustomerStage(ctx, customerID, 0)
+	transitionStageCode := applyWorkStageTransition(ctx, staff, customerID, 0, fromState, task, operationID, workResultSuccess)
+	runWorkAutoTriggers(ctx, staff, customerID, 0, task, workResultSuccess, workEnteredStageCode(true, fromState, transitionStageCode), runtime)
 	return map[string]any{
 		"customer_id": customerID,
 		"saved":       true,
@@ -2483,24 +2717,25 @@ func executeEditFormTask(ctx context.Context, staff *WorkStaffSession, task *crm
 	if err != nil {
 		return nil, err
 	}
-	if formInputHasAssetValues(formInput) && assetID == 0 {
-		assetID, err = createWorkCustomerAsset(ctx, customerID, formInput)
-		if err != nil {
-			return nil, err
-		}
-		fromState = currentWorkCustomerStage(ctx, customerID, assetID)
+	var createdAsset bool
+	assetID, createdAsset, err = ensureWorkFormAsset(ctx, customerID, assetID, formInput)
+	if err != nil {
+		return nil, err
 	}
 	if err := saveWorkFormInput(ctx, customerID, assetID, formInput); err != nil {
 		return nil, err
 	}
-	operationID := insertWorkOperationLog(ctx, staff, task, customerID, assetID, values)
+	resultValue := workFormTaskResultValue(task, formInput)
+	operationID := insertWorkOperationLogWithResult(ctx, staff, task, customerID, assetID, fromState, values, resultValue)
 	saveWorkFormDataRecords(ctx, customerID, assetID, task.ID, operationID, formInput)
-	applyWorkStageTransition(ctx, staff, customerID, assetID, fromState, task, operationID, workResultSuccess)
-	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, workResultSuccess, runtime)
+	fromState = ensureCreatedWorkAssetStage(ctx, staff, customerID, assetID, operationID, task.ID, createdAsset, fromState)
+	transitionStageCode := applyWorkStageTransition(ctx, staff, customerID, assetID, fromState, task, operationID, resultValue)
+	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, resultValue, workEnteredStageCode(createdAsset, fromState, transitionStageCode), runtime)
 	return map[string]any{
-		"customer_id": customerID,
-		"asset_id":    assetID,
-		"saved":       true,
+		"customer_id":  customerID,
+		"asset_id":     assetID,
+		"result_value": resultValue,
+		"saved":        true,
 	}, nil
 }
 
@@ -2518,13 +2753,11 @@ func executeAssignCustomerTask(ctx context.Context, staff *WorkStaffSession, tas
 	if err != nil {
 		return nil, err
 	}
-	createdAsset := false
-	if assetID == 0 && formInputHasAssetValues(formInput) {
-		assetID, err = createWorkCustomerAsset(ctx, customerID, formInput)
-		if err != nil {
-			return nil, err
-		}
-		createdAsset = true
+	fromState := currentWorkCustomerStage(ctx, customerID, assetID)
+	var createdAsset bool
+	assetID, createdAsset, err = ensureWorkFormAsset(ctx, customerID, assetID, formInput)
+	if err != nil {
+		return nil, err
 	}
 	if err := saveWorkFormInput(ctx, customerID, assetID, formInput); err != nil {
 		return nil, err
@@ -2534,14 +2767,11 @@ func executeAssignCustomerTask(ctx context.Context, staff *WorkStaffSession, tas
 	logValues["staff_id"] = targetStaffID
 	operationID := insertWorkOperationLog(ctx, staff, task, customerID, assetID, logValues)
 	saveWorkFormDataRecords(ctx, customerID, assetID, task.ID, operationID, formInput)
-	if createdAsset {
-		insertWorkCustomerStage(ctx, staff, customerID, assetID, operationID, task.ID)
-		fromState = currentWorkCustomerStage(ctx, customerID, assetID)
-	}
+	fromState = ensureCreatedWorkAssetStage(ctx, staff, customerID, assetID, operationID, task.ID, createdAsset, fromState)
 	updateWorkCustomerOwner(ctx, customerID, assetID, targetDepartmentID, targetStaffID, operationID)
 	upsertWorkAssigneeMember(ctx, customerID, assetID, targetDepartmentID, targetStaffID)
-	applyWorkStageTransitionWithOwner(ctx, staff, customerID, assetID, fromState, task, operationID, workResultSuccess, targetDepartmentID, targetStaffID)
-	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, workResultSuccess, runtime)
+	transitionStageCode := applyWorkStageTransitionWithOwner(ctx, staff, customerID, assetID, fromState, task, operationID, workResultSuccess, targetDepartmentID, targetStaffID)
+	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, workResultSuccess, workEnteredStageCode(createdAsset, fromState, transitionStageCode), runtime)
 	return map[string]any{
 		"customer_id": customerID,
 		"asset_id":    assetID,
@@ -2569,13 +2799,14 @@ func executeCollaborateCustomerTask(ctx context.Context, staff *WorkStaffSession
 	if err != nil {
 		return nil, err
 	}
-	createdAsset := false
-	if assetID == 0 && formInputHasAssetValues(formInput) {
-		assetID, err = createWorkCustomerAsset(ctx, customerID, formInput)
-		if err != nil {
-			return nil, err
-		}
-		createdAsset = true
+	collaborationFormInput, err := collectWorkCollaborationFormInput(ctx, targets, values)
+	if err != nil {
+		return nil, err
+	}
+	formInput = mergeWorkFormInput(formInput, collaborationFormInput)
+	assetID, createdAsset, err := ensureWorkFormAsset(ctx, customerID, assetID, formInput)
+	if err != nil {
+		return nil, err
 	}
 	if err := saveWorkFormInput(ctx, customerID, assetID, formInput); err != nil {
 		return nil, err
@@ -2584,11 +2815,10 @@ func executeCollaborateCustomerTask(ctx context.Context, staff *WorkStaffSession
 	logValues["todo_count"] = len(targets)
 	operationID := insertWorkOperationLog(ctx, staff, task, customerID, assetID, logValues)
 	saveWorkFormDataRecords(ctx, customerID, assetID, task.ID, operationID, formInput)
-	if createdAsset {
-		insertWorkCustomerStage(ctx, staff, customerID, assetID, operationID, task.ID)
-	}
+	fromState := ensureCreatedWorkAssetStage(ctx, staff, customerID, assetID, operationID, task.ID, createdAsset, nil)
 	todos := createWorkCollaborationTodos(ctx, staff, task, customerID, assetID, operationID, targets)
 	updateWorkCustomerStageOperation(ctx, customerID, assetID, operationID)
+	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, workResultSuccess, workEnteredStageCode(createdAsset, fromState, ""), runtime)
 	return map[string]any{
 		"customer_id": customerID,
 		"asset_id":    assetID,
@@ -2615,8 +2845,8 @@ func executeDecisionCustomerTask(ctx context.Context, staff *WorkStaffSession, t
 	if err := writeWorkDecisionResult(ctx, customerID, task, operationID, resultTarget, result.Value); err != nil {
 		return nil, err
 	}
-	applyWorkStageTransition(ctx, staff, customerID, assetID, fromState, task, operationID, result.Value)
-	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, result.Value, runtime)
+	transitionStageCode := applyWorkStageTransition(ctx, staff, customerID, assetID, fromState, task, operationID, result.Value)
+	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, result.Value, transitionStageCode, runtime)
 	return map[string]any{
 		"customer_id":  customerID,
 		"result_value": result.Value,
@@ -2657,8 +2887,8 @@ func executeBookingCustomerTask(ctx context.Context, staff *WorkStaffSession, ta
 	}
 	operationID := insertWorkOperationLogWithResult(ctx, staff, task, customerID, assetID, fromState, values, resultValue)
 	bookingID := insertWorkResourceBooking(ctx, staff, task, customerID, assetID, operationID, fromState, bookingInput, bookingStatus)
-	applyWorkStageTransition(ctx, staff, customerID, assetID, fromState, task, operationID, resultValue)
-	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, resultValue, runtime)
+	transitionStageCode := applyWorkStageTransition(ctx, staff, customerID, assetID, fromState, task, operationID, resultValue)
+	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, resultValue, transitionStageCode, runtime)
 	return map[string]any{
 		"customer_id":    customerID,
 		"booking_id":     bookingID,
@@ -2928,6 +3158,7 @@ func resolveWorkAssignTarget(ctx context.Context, assignMode string, allowedDepa
 }
 
 type workCollaborationTodoTarget struct {
+	Key          string
 	Name         string
 	DepartmentID uint64
 	StaffID      uint64
@@ -2971,14 +3202,19 @@ func createWorkCollaborationTodos(ctx context.Context, staff *WorkStaffSession, 
 }
 
 func workCollaborationTargets(ctx context.Context, task *crmmodel.Task, values map[string]any) ([]workCollaborationTodoTarget, error) {
-	rawTargets := mapsFromAny(firstWorkValue(values, "collaboration_targets", "collaborationTargets"))
-	if len(rawTargets) == 0 {
-		config := mapFromAny(task.ConfigJSON)
-		rawTargets = mapsFromAny(config["collaboration_items"])
+	configTargets := configuredWorkCollaborationTargets(task)
+	rawTargets := configTargets
+	if len(rawTargets) > 0 {
+		rawTargets = mergeSubmittedWorkCollaborationStaff(rawTargets, mapsFromAny(firstWorkValue(values, "collaboration_targets", "collaborationTargets")))
+	} else {
+		rawTargets = mapsFromAny(firstWorkValue(values, "collaboration_targets", "collaborationTargets"))
 	}
 	result := make([]workCollaborationTodoTarget, 0, len(rawTargets))
 	seen := map[string]bool{}
 	for _, raw := range rawTargets {
+		if workCollaborationTargetIsBlank(raw) {
+			continue
+		}
 		target, err := normalizeWorkCollaborationTarget(ctx, raw)
 		if err != nil {
 			return nil, err
@@ -3005,8 +3241,63 @@ func workCollaborationTargets(ctx context.Context, task *crmmodel.Task, values m
 	return result, nil
 }
 
+func configuredWorkCollaborationTargets(task *crmmodel.Task) []map[string]any {
+	if task == nil {
+		return nil
+	}
+	config := mapFromAny(task.ConfigJSON)
+	return mapsFromAny(config["collaboration_items"])
+}
+
+func mergeSubmittedWorkCollaborationStaff(configTargets []map[string]any, submittedTargets []map[string]any) []map[string]any {
+	result := make([]map[string]any, 0, len(configTargets))
+	submittedByKey := submittedWorkCollaborationTargetsByKey(submittedTargets)
+	for index, configTarget := range configTargets {
+		target := copyMap(configTarget)
+		if inputUint64(firstWorkValue(configTarget, "staff_id", "assignee_staff_id")) == 0 {
+			submittedTarget := submittedWorkCollaborationTarget(configTarget, submittedByKey, submittedTargets, index)
+			submittedStaffID := inputUint64(firstWorkValue(submittedTarget, "staff_id", "assignee_staff_id"))
+			if submittedStaffID > 0 {
+				target["staff_id"] = submittedStaffID
+			}
+		}
+		result = append(result, target)
+	}
+	return result
+}
+
+func submittedWorkCollaborationTargetsByKey(targets []map[string]any) map[string]map[string]any {
+	result := make(map[string]map[string]any, len(targets))
+	for _, target := range targets {
+		key := inputText(firstWorkValue(target, "key", "target_key", "targetKey"))
+		if key != "" {
+			result[key] = target
+		}
+	}
+	return result
+}
+
+func submittedWorkCollaborationTarget(configTarget map[string]any, submittedByKey map[string]map[string]any, submittedTargets []map[string]any, index int) map[string]any {
+	key := inputText(firstWorkValue(configTarget, "key", "target_key", "targetKey"))
+	if key != "" {
+		if submittedTarget, ok := submittedByKey[key]; ok {
+			return submittedTarget
+		}
+	}
+	if index < len(submittedTargets) {
+		return submittedTargets[index]
+	}
+	return nil
+}
+
+func workCollaborationTargetIsBlank(raw map[string]any) bool {
+	return inputUint64(firstWorkValue(raw, "department_id", "assignee_department_id")) == 0 &&
+		inputUint64(firstWorkValue(raw, "staff_id", "assignee_staff_id")) == 0
+}
+
 func normalizeWorkCollaborationTarget(ctx context.Context, raw map[string]any) (workCollaborationTodoTarget, error) {
 	target := workCollaborationTodoTarget{
+		Key:          inputText(firstWorkValue(raw, "key", "target_key", "targetKey")),
 		Name:         inputText(firstWorkValue(raw, "name", "task_name", "sub_task_name")),
 		DepartmentID: inputUint64(firstWorkValue(raw, "department_id", "assignee_department_id")),
 		StaffID:      inputUint64(firstWorkValue(raw, "staff_id", "assignee_staff_id")),
@@ -3028,21 +3319,80 @@ func normalizeWorkCollaborationTarget(ctx context.Context, raw map[string]any) (
 		return target, fmt.Errorf("协作子任务目标部门不存在或已停用")
 	}
 	if target.StaffID == 0 {
-		target.StaffID = workDepartmentLeaderStaffID(ctx, department)
+		return target, fmt.Errorf("协作子任务处理人员不能为空")
 	}
-	if target.StaffID > 0 {
-		staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": target.StaffID, "status": crmmodel.StatusEnabled})
-		if staff == nil {
-			return target, fmt.Errorf("协作子任务处理人员不存在或已停用")
-		}
-		if staff.DepartmentID != target.DepartmentID {
-			return target, fmt.Errorf("协作子任务处理人员不属于目标部门")
-		}
+	staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": target.StaffID, "status": crmmodel.StatusEnabled})
+	if staff == nil {
+		return target, fmt.Errorf("协作子任务处理人员不存在或已停用")
+	}
+	if staff.DepartmentID != target.DepartmentID {
+		return target, fmt.Errorf("协作子任务处理人员不属于目标部门")
 	}
 	if target.FormID > 0 && crmmodel.NewFormModel().Find(ctx, map[string]any{"id": target.FormID, "status": crmmodel.StatusEnabled}) == nil {
 		return target, fmt.Errorf("协作子任务资料模板不存在或已停用")
 	}
 	return target, nil
+}
+
+func collectWorkCollaborationFormInput(ctx context.Context, targets []workCollaborationTodoTarget, values map[string]any) (*workFormInput, error) {
+	result := emptyWorkFormInput()
+	for _, target := range targets {
+		if target.FormID == 0 {
+			continue
+		}
+		formValues := workCollaborationTargetFormValues(values, target)
+		if len(formValues) == 0 {
+			continue
+		}
+		formInput, err := collectOptionalWorkFormInputForForm(ctx, target.FormID, formValues)
+		if err != nil {
+			return nil, err
+		}
+		result = mergeWorkFormInput(result, formInput)
+	}
+	return result, nil
+}
+
+func workCollaborationTargetFormValues(values map[string]any, target workCollaborationTodoTarget) map[string]any {
+	prefix := workCollaborationTargetFormPrefix(target)
+	if prefix == "" {
+		return nil
+	}
+	result := map[string]any{}
+	for key, value := range values {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		fieldKey := strings.TrimPrefix(key, prefix)
+		if fieldKey == "" {
+			continue
+		}
+		result[fieldKey] = value
+	}
+	return result
+}
+
+func workCollaborationTargetFormPrefix(target workCollaborationTodoTarget) string {
+	key := target.Key
+	if key == "" {
+		key = workCollaborationTargetFallbackKey(target)
+	}
+	if key == "" {
+		return ""
+	}
+	return "collaboration_form:" + key + ":"
+}
+
+func workCollaborationTargetFallbackKey(target workCollaborationTodoTarget) string {
+	if target.Name == "" && target.DepartmentID == 0 && target.FormID == 0 && target.Sort == 0 {
+		return ""
+	}
+	return strings.Join([]string{
+		strconv.Itoa(target.Sort),
+		strconv.FormatUint(target.DepartmentID, 10),
+		strconv.FormatUint(target.FormID, 10),
+		target.Name,
+	}, ":")
 }
 
 func firstWorkValue(row map[string]any, keys ...string) any {
@@ -3093,8 +3443,8 @@ func completeWorkTodo(ctx context.Context, staff *WorkStaffSession, task *crmmod
 	})
 	if workCollaborationShouldFlow(ctx, task, todo) {
 		fromState := currentWorkCustomerStage(ctx, customerID, assetID)
-		applyWorkStageTransitionWithOwner(ctx, staff, customerID, assetID, fromState, task, operationID, workResultSuccess, 0, 0)
-		runWorkAutoTriggers(ctx, staff, customerID, assetID, task, workResultSuccess, runtime)
+		transitionStageCode := applyWorkStageTransitionWithOwner(ctx, staff, customerID, assetID, fromState, task, operationID, workResultSuccess, 0, 0)
+		runWorkAutoTriggers(ctx, staff, customerID, assetID, task, workResultSuccess, transitionStageCode, runtime)
 	}
 	return map[string]any{
 		"customer_id": customerID,
@@ -3244,6 +3594,11 @@ type workFormInput struct {
 	assetDataRecords    map[uint64]map[string]any
 }
 
+type workFormInputOptions struct {
+	allowEmptyCustomerContactFields bool
+	optionalValuesOnly              bool
+}
+
 func collectWorkFormInput(ctx context.Context, task *crmmodel.Task, values map[string]any) (*workFormInput, error) {
 	if task == nil {
 		return nil, fmt.Errorf("任务不能为空")
@@ -3251,7 +3606,16 @@ func collectWorkFormInput(ctx context.Context, task *crmmodel.Task, values map[s
 	return collectWorkFormInputByFormID(ctx, task.FormID, values)
 }
 
-func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map[string]any) (*workFormInput, error) {
+func collectWorkCreateFormInput(ctx context.Context, task *crmmodel.Task, values map[string]any) (*workFormInput, error) {
+	if task == nil {
+		return nil, fmt.Errorf("任务不能为空")
+	}
+	return collectWorkFormInputByFormID(ctx, task.FormID, values, workFormInputOptions{
+		allowEmptyCustomerContactFields: true,
+	})
+}
+
+func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map[string]any, options ...workFormInputOptions) (*workFormInput, error) {
 	if formID == 0 {
 		return nil, fmt.Errorf("任务未配置有效资料模板")
 	}
@@ -3269,13 +3633,23 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 		customerDataRecords: map[uint64]map[string]any{},
 		assetDataRecords:    map[uint64]map[string]any{},
 	}
+	inputOptions := workFormInputOptions{}
+	if len(options) > 0 {
+		inputOptions = options[0]
+	}
 	for _, field := range fields {
 		if field == nil {
 			continue
 		}
-		value := values[workFieldInputKey(field)]
+		key := workFieldInputKey(field)
+		value, exists := values[key]
+		if inputOptions.optionalValuesOnly && (!exists || emptyWorkFieldValue(value)) {
+			continue
+		}
 		if field.Required && emptyWorkFieldValue(value) {
-			return nil, fmt.Errorf("%s不能为空", field.Name)
+			if !inputOptions.allowEmptyCustomerContactFields || !isWorkCustomerContactField(field) {
+				return nil, fmt.Errorf("%s不能为空", field.Name)
+			}
 		}
 		if field.MainField != "" {
 			if isWorkAssetMainField(field) {
@@ -3301,6 +3675,12 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 
 func collectWorkFormInputForForm(ctx context.Context, formID uint64, values map[string]any) (*workFormInput, error) {
 	return collectWorkFormInputByFormID(ctx, formID, values)
+}
+
+func collectOptionalWorkFormInputForForm(ctx context.Context, formID uint64, values map[string]any) (*workFormInput, error) {
+	return collectWorkFormInputByFormID(ctx, formID, values, workFormInputOptions{
+		optionalValuesOnly: true,
+	})
 }
 
 func collectOptionalWorkFormInput(ctx context.Context, task *crmmodel.Task, values map[string]any) (*workFormInput, error) {
@@ -3348,8 +3728,84 @@ func mergeWorkFormRecordMap(target map[uint64]map[string]any, source map[uint64]
 	}
 }
 
+func workFormTaskResultValue(task *crmmodel.Task, formInput *workFormInput) string {
+	config := mapFromAny(task.ConfigJSON)
+	fieldID := inputUint64(config["result_field_id"])
+	if fieldID == 0 {
+		return workResultSuccess
+	}
+	actual := workFormInputDataFieldValue(formInput, fieldID)
+	if emptyWorkFieldValue(actual) {
+		return "empty"
+	}
+	if workFormResultAllowed(actual, config["success_values"]) {
+		return workResultSuccess
+	}
+	return inputText(actual)
+}
+
+func workFormInputDataFieldValue(formInput *workFormInput, fieldID uint64) any {
+	if formInput == nil || fieldID == 0 {
+		return nil
+	}
+	fieldKey := fmt.Sprintf("%d", fieldID)
+	for _, records := range []map[uint64]map[string]any{formInput.customerDataRecords, formInput.assetDataRecords} {
+		for _, record := range records {
+			if value, exists := record[fieldKey]; exists {
+				return value
+			}
+		}
+	}
+	return nil
+}
+
+func workFormResultAllowed(actual any, expected any) bool {
+	allowed := stringListFromAny(expected)
+	if len(allowed) == 0 {
+		return inputText(actual) == workResultSuccess
+	}
+	for _, value := range allowed {
+		if valuesEqual(actual, value) {
+			return true
+		}
+	}
+	return false
+}
+
 func formInputHasAssetValues(formInput *workFormInput) bool {
 	return formInput != nil && (len(formInput.assetFields) > 0 || len(formInput.assetDataRecords) > 0)
+}
+
+func ensureWorkFormAsset(ctx context.Context, customerID uint64, assetID uint64, formInput *workFormInput) (uint64, bool, error) {
+	if assetID > 0 || !formInputHasAssetValues(formInput) {
+		return assetID, false, nil
+	}
+	createdAssetID, err := createWorkCustomerAsset(ctx, customerID, formInput)
+	if err != nil {
+		return 0, false, err
+	}
+	return createdAssetID, true, nil
+}
+
+func ensureCreatedWorkAssetStage(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, operationID uint64, taskID uint64, createdAsset bool, fallback *crmmodel.CustomerStage) *crmmodel.CustomerStage {
+	if !createdAsset {
+		return fallback
+	}
+	insertWorkCustomerStage(ctx, staff, customerID, assetID, operationID, taskID)
+	if state := currentWorkCustomerStage(ctx, customerID, assetID); state != nil {
+		return state
+	}
+	return fallback
+}
+
+func workEnteredStageCode(createdStage bool, state *crmmodel.CustomerStage, transitionStageCode string) string {
+	if transitionStageCode != "" {
+		return transitionStageCode
+	}
+	if createdStage && state != nil {
+		return state.CurrentStageCode
+	}
+	return ""
 }
 
 func saveWorkFormInput(ctx context.Context, customerID uint64, assetID uint64, formInput *workFormInput) error {
@@ -3488,6 +3944,13 @@ func duplicatedWorkCustomerField(ctx context.Context, record map[string]any) str
 	return ""
 }
 
+func validateWorkCustomerContact(record map[string]any) error {
+	if inputText(record["phone"]) != "" || inputText(record["wechat"]) != "" {
+		return nil
+	}
+	return fmt.Errorf("手机号和微信号至少填写一个")
+}
+
 func duplicateWorkCustomerFieldMessage(field string) string {
 	switch field {
 	case "phone":
@@ -3550,31 +4013,115 @@ func isWorkAssetTemplateField(field *crmmodel.FormField) bool {
 	return field != nil && field.DataTemplateCateID == crmmodel.CustomerAssetDataTemplateCateID
 }
 
-func runWorkAutoTriggers(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, sourceTask *crmmodel.Task, resultValue string, runtime *workExecutionRuntime) {
+func isWorkCustomerContactField(field *crmmodel.FormField) bool {
+	if field == nil || isWorkAssetTemplateField(field) {
+		return false
+	}
+	switch field.MainField {
+	case "phone", "wechat":
+		return true
+	default:
+		return false
+	}
+}
+
+func runWorkAutoTriggers(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, sourceTask *crmmodel.Task, resultValue string, enteredStageCode string, runtime *workExecutionRuntime) {
 	if staff == nil || sourceTask == nil || customerID == 0 || runtime == nil || runtime.depth >= maxWorkAutoTriggerDepth {
 		return
 	}
 	for _, task := range workAfterTaskTriggers(ctx, sourceTask.ID) {
 		executeAutoWorkTask(ctx, staff, customerID, assetID, task, runtime)
 	}
-	state := currentWorkCustomerStage(ctx, customerID, assetID)
-	if state == nil {
+	if enteredStageCode == "" {
 		return
 	}
-	for _, task := range workStageEnterTriggers(ctx, state) {
+	for _, task := range workStageEnterTriggers(ctx, enteredStageCode) {
 		executeAutoWorkTask(ctx, staff, customerID, assetID, task, runtime)
 	}
 }
 
 func executeAutoWorkTask(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, task *crmmodel.Task, runtime *workExecutionRuntime) {
-	if task == nil || task.TaskType != crmmodel.TaskTypeDecision || task.ScriptID == 0 {
+	if task == nil || !crmmodel.TaskTypeSupportsAutoTrigger(task.TaskType) {
+		return
+	}
+	if workAutoTaskAlreadySucceeded(ctx, customerID, assetID, task.ID) {
 		return
 	}
 	if !beginWorkTaskExecution(runtime, customerID, assetID, task.ID) {
 		return
 	}
 	defer endWorkTaskExecution(runtime, customerID, assetID, task.ID)
-	_, _ = executeDecisionCustomerTask(ctx, staff, task, customerID, assetID, map[string]any{}, runtime)
+	if _, err := executeAutoWorkTaskByType(ctx, staff, customerID, assetID, task, runtime); err != nil {
+		insertWorkAutoTaskFailureLog(ctx, staff, task, customerID, assetID, err)
+	}
+}
+
+func workAutoTaskAlreadySucceeded(ctx context.Context, customerID uint64, assetID uint64, taskID uint64) bool {
+	if customerID == 0 || taskID == 0 {
+		return false
+	}
+	operation := crmmodel.NewOperationLogModel().Find(ctx, map[string]any{
+		"customer_id": customerID,
+		"asset_id":    assetID,
+		"task_id":     taskID,
+	})
+	return operation != nil && operation.ResultValue != workResultAutoFailed
+}
+
+func executeAutoWorkTaskByType(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, task *crmmodel.Task, runtime *workExecutionRuntime) (map[string]any, error) {
+	switch task.TaskType {
+	case crmmodel.TaskTypeDecision:
+		if task.ScriptID == 0 {
+			return nil, fmt.Errorf("自动决策任务必须配置脚本规则")
+		}
+		return executeDecisionCustomerTask(ctx, staff, task, customerID, assetID, map[string]any{}, runtime)
+	case crmmodel.TaskTypeAssign:
+		values, err := workAutoAssignValues(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		return executeAssignCustomerTask(ctx, staff, task, customerID, assetID, values, runtime)
+	case crmmodel.TaskTypeCollaborate:
+		return executeCollaborateCustomerTask(ctx, staff, task, customerID, assetID, map[string]any{}, runtime)
+	default:
+		return nil, fmt.Errorf("任务动作不支持自动触发")
+	}
+}
+
+func workAutoAssignValues(ctx context.Context, task *crmmodel.Task) (map[string]any, error) {
+	if task == nil {
+		return nil, fmt.Errorf("任务不存在")
+	}
+	config := mapFromAny(task.ConfigJSON)
+	departmentID := inputUint64(config["auto_assign_department_id"])
+	staffID := inputUint64(config["auto_assign_staff_id"])
+	if normalizeWorkAssignMode(inputText(config["assign_mode"])) == crmmodel.TaskAssignModeDepartment {
+		staffID = 0
+	}
+	if departmentID == 0 {
+		return nil, fmt.Errorf("自动分配任务必须配置自动分配部门")
+	}
+	department := crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": departmentID, "status": crmmodel.StatusEnabled})
+	if department == nil {
+		return nil, fmt.Errorf("自动分配部门不存在或已停用")
+	}
+	allowedDepartmentIDs := uint64ListFromAny(config["assign_department_ids"])
+	if len(allowedDepartmentIDs) > 0 && !uint64SetContains(allowedDepartmentIDs, departmentID) {
+		return nil, fmt.Errorf("自动分配部门不在当前任务可选范围内")
+	}
+	if staffID > 0 {
+		staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": staffID, "status": crmmodel.StatusEnabled})
+		if staff == nil {
+			return nil, fmt.Errorf("自动分配人员不存在或已停用")
+		}
+		if staff.DepartmentID != departmentID {
+			return nil, fmt.Errorf("自动分配人员不属于自动分配部门")
+		}
+	}
+	return map[string]any{
+		"department_id": departmentID,
+		"staff_id":      staffID,
+	}, nil
 }
 
 func workAfterTaskTriggers(ctx context.Context, taskID uint64) []*crmmodel.Task {
@@ -3588,9 +4135,12 @@ func workAfterTaskTriggers(ctx context.Context, taskID uint64) []*crmmodel.Task 
 	})
 }
 
-func workStageEnterTriggers(ctx context.Context, state *crmmodel.CustomerStage) []*crmmodel.Task {
+func workStageEnterTriggers(ctx context.Context, stageCode string) []*crmmodel.Task {
+	if stageCode == "" {
+		return nil
+	}
 	stage := crmmodel.NewStageModel().Find(ctx, map[string]any{
-		"code":   state.CurrentStageCode,
+		"code":   stageCode,
 		"status": crmmodel.StatusEnabled,
 	})
 	if stage == nil {
@@ -3681,8 +4231,24 @@ func workDecisionInput(ctx context.Context, staff *WorkStaffSession, task *crmmo
 		"current": map[string]any{
 			"stage_code": workCurrentStageCode(state),
 			"asset_id":   assetID,
+			"asset":      workDecisionCurrentAsset(ctx, customerID, assetID),
 		},
 	}
+}
+
+func workDecisionCurrentAsset(ctx context.Context, customerID uint64, assetID uint64) map[string]any {
+	if customerID == 0 || assetID == 0 {
+		return map[string]any{}
+	}
+	asset := crmmodel.NewCustomerAssetModel().FindMap(ctx, map[string]any{
+		"id":          assetID,
+		"customer_id": customerID,
+	})
+	if len(asset) == 0 {
+		return map[string]any{}
+	}
+	asset["fields"] = workAssetFieldValues(ctx, customerID, assetID)
+	return asset
 }
 
 func workCurrentStageCode(state *crmmodel.CustomerStage) string {
@@ -3757,6 +4323,38 @@ func insertWorkOperationLogRecord(ctx context.Context, staff *WorkStaffSession, 
 	}))
 	syncWorkTaskStatEvent(ctx, staff, task, customerID, assetID, statusCode, operationID, resultValue, now)
 	return operationID
+}
+
+func insertWorkAutoTaskFailureLog(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, customerID uint64, assetID uint64, cause error) uint64 {
+	if staff == nil || task == nil || cause == nil {
+		return 0
+	}
+	state := currentWorkCustomerStage(ctx, customerID, assetID)
+	stageCode := ""
+	if state != nil {
+		stageCode = state.CurrentStageCode
+	}
+	now := time.Now()
+	message := cause.Error()
+	return uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
+		"customer_id":  customerID,
+		"asset_id":     assetID,
+		"task_id":      task.ID,
+		"task_type":    task.TaskType,
+		"stage_code":   stageCode,
+		"result_value": workResultAutoFailed,
+		"title":        fmt.Sprintf("自动任务失败：%s", task.Name),
+		"content":      message,
+		"data_snapshot_json": jsonText(map[string]any{
+			"error":        message,
+			"task_type":    task.TaskType,
+			"trigger_type": task.TriggerType,
+			"script_id":    task.ScriptID,
+		}),
+		"operator_staff_id":      staff.ID,
+		"operator_department_id": staff.DepartmentID,
+		"created_at":             now,
+	}))
 }
 
 func saveWorkDataRecord(ctx context.Context, customerID uint64, assetID uint64, templateID uint64, taskID uint64, operationID uint64, record map[string]any) {
@@ -4179,19 +4777,19 @@ func updateWorkCustomerStageOperation(ctx context.Context, customerID uint64, as
 	})
 }
 
-func applyWorkStageTransition(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, fromState *crmmodel.CustomerStage, task *crmmodel.Task, operationID uint64, resultValue string) {
-	applyWorkStageTransitionWithOwner(ctx, staff, customerID, assetID, fromState, task, operationID, resultValue, 0, 0)
+func applyWorkStageTransition(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, fromState *crmmodel.CustomerStage, task *crmmodel.Task, operationID uint64, resultValue string) string {
+	return applyWorkStageTransitionWithOwner(ctx, staff, customerID, assetID, fromState, task, operationID, resultValue, 0, 0)
 }
 
-func applyWorkStageTransitionWithOwner(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, fromState *crmmodel.CustomerStage, task *crmmodel.Task, operationID uint64, resultValue string, assignedDepartmentID uint64, assignedStaffID uint64) {
+func applyWorkStageTransitionWithOwner(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, fromState *crmmodel.CustomerStage, task *crmmodel.Task, operationID uint64, resultValue string, assignedDepartmentID uint64, assignedStaffID uint64) string {
 	if fromState == nil || task == nil {
 		updateWorkCustomerStageOperation(ctx, customerID, assetID, operationID)
-		return
+		return ""
 	}
 	transition := findWorkStageTransition(ctx, staff, customerID, fromState, task, resultValue)
 	if transition == nil {
 		updateWorkCustomerStageOperation(ctx, customerID, assetID, operationID)
-		return
+		return ""
 	}
 	departmentID, staffID := transitionOwner(ctx, staff, fromState, transition, assignedDepartmentID, assignedStaffID)
 	now := time.Now()
@@ -4222,6 +4820,10 @@ func applyWorkStageTransitionWithOwner(ctx context.Context, staff *WorkStaffSess
 		upsertWorkAssigneeMember(ctx, customerID, assetID, departmentID, staffID)
 	}
 	syncWorkTransitionStatEvent(ctx, staff, task, customerID, assetID, fromState.CurrentStageCode, transition.ToStageCode, operationID, transitionLogID, resultValue, now)
+	if transition.ToStageCode == fromState.CurrentStageCode {
+		return ""
+	}
+	return transition.ToStageCode
 }
 
 func findWorkStageTransition(ctx context.Context, staff *WorkStaffSession, customerID uint64, fromState *crmmodel.CustomerStage, task *crmmodel.Task, resultValue string) *crmmodel.StageTransition {
@@ -4248,10 +4850,27 @@ func findWorkStageTransition(ctx context.Context, staff *WorkStaffSession, custo
 	if fallback != nil {
 		return fallback
 	}
+	if len(transitions) > 0 || workTaskResultRequiresExplicitTransition(task, resultValue) {
+		return nil
+	}
 	return defaultWorkTaskTransition(ctx, fromState, task)
 }
 
+func workTaskResultRequiresExplicitTransition(task *crmmodel.Task, resultValue string) bool {
+	if task == nil {
+		return false
+	}
+	if task.TaskType == crmmodel.TaskTypeDecision {
+		return true
+	}
+	config := mapFromAny(task.ConfigJSON)
+	return inputUint64(config["result_field_id"]) > 0 && resultValue != workResultSuccess
+}
+
 func defaultWorkTaskTransition(ctx context.Context, fromState *crmmodel.CustomerStage, task *crmmodel.Task) *crmmodel.StageTransition {
+	if task.TaskType == crmmodel.TaskTypeDecision {
+		return nil
+	}
 	nextStageCode := inputText(mapFromAny(task.ConfigJSON)["next_stage_code"])
 	if nextStageCode == "" || nextStageCode == fromState.CurrentStageCode {
 		return nil
@@ -4494,6 +5113,11 @@ func workStaffOptions(ctx context.Context) []map[string]any {
 		})
 	}
 	return result
+}
+
+func workFormOptions(ctx context.Context) []map[string]any {
+	rows := crmmodel.NewFormModel().SelectMap(ctx, map[string]any{"status": crmmodel.StatusEnabled})
+	return namedWorkOptions(rows)
 }
 
 func workFieldInputKey(field *crmmodel.FormField) string {

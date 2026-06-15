@@ -93,12 +93,9 @@
       {
         "type": "form-input",
         "value": "form.phone",
+        "placeholder": "可选，用于手机号密码登录",
         "mode": "form",
         "validate": [
-          {
-            "type": "required",
-            "message": "手机号不能为空。"
-          },
           {
             "type": "pattern",
             "pattern": "^1\\d{10}$",
@@ -115,21 +112,28 @@
         }
       },
       {
-        "type": "form-password",
-        "placeholder": "请输入登录密码",
-        "value": "form.password",
+        "type": "form-input",
+        "name": "飞书 OpenID",
+        "value": "form.feishu_open_id",
+        "placeholder": "飞书登录绑定的 open_id",
         "mode": "form",
         "validate": [
           {
-            "type": "required",
-            "message": "密码不能为空。",
-            "when": [
-              {
-                "path": "form.id",
-                "operator": "empty"
-              }
-            ]
-          },
+            "type": "model",
+            "except": "$form.id",
+            "message": "该飞书 OpenID 已绑定其他人员。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-password",
+        "placeholder": "手机号密码登录时使用",
+        "value": "form.password",
+        "mode": "form",
+        "validate": [
           {
             "type": "min",
             "min": 6,
@@ -149,6 +153,7 @@
       "department_id": 1,
       "staff_type": "employee",
       "phone": "",
+      "feishu_open_id": "",
       "password": ""
     }
   },

@@ -8,6 +8,7 @@ import (
 	"github.com/shemic/dever/util"
 
 	crmmodel "my/package/crm/model"
+	crmservice "my/package/crm/service"
 )
 
 func (CrmHook) ProviderBeforeSaveBasicConfig(_ *server.Context, params []any) any {
@@ -17,22 +18,21 @@ func (CrmHook) ProviderBeforeSaveBasicConfig(_ *server.Context, params []any) an
 	}
 
 	record["id"] = crmmodel.DefaultBasicConfigID
-	prefix := strings.TrimSpace(util.ToStringTrimmed(record["customer_code_prefix"]))
-	record["customer_code_prefix"] = prefix
+	trimBasicConfigField(record, "customer_code_prefix")
+	trimBasicConfigField(record, "feishu_app_id")
+	trimBasicConfigField(record, "feishu_app_secret")
 	return record
 }
 
+func trimBasicConfigField(record map[string]any, field string) {
+	if _, exists := record[field]; !exists {
+		return
+	}
+	record[field] = strings.TrimSpace(util.ToStringTrimmed(record[field]))
+}
+
 func currentBasicConfig(ctx context.Context) crmmodel.BasicConfig {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	config := crmmodel.NewBasicConfigModel().Find(ctx, map[string]any{
-		"id": crmmodel.DefaultBasicConfigID,
-	})
-	if config != nil {
-		return *config
-	}
-	return crmmodel.DefaultBasicConfig()
+	return crmservice.CurrentBasicConfig(ctx)
 }
 
 func customerCodePrefix(ctx context.Context) string {

@@ -99,13 +99,45 @@
         }
       },
       {
+        "type": "form-cascader",
+        "name": "条件字段",
+        "value": "form.condition_path",
+        "mode": "form",
+        "placeholder": "不限制条件字段",
+        "meta": {
+          "api": "/front/route/option",
+          "type": "service",
+          "use": "crm.setting.OptionService.LoadConditionFieldOptions",
+          "formLayout": "vertical",
+          "parentField": "parent_id",
+          "rootValue": 0,
+          "valueField": "id",
+          "labelField": "name",
+          "leafField": "leaf",
+          "placeholder": [
+            "选择客户或资产",
+            "选择资料模板",
+            "选择字段",
+            "选择值"
+          ],
+          "searchPlaceholder": [
+            "搜索分类...",
+            "搜索模板...",
+            "搜索字段...",
+            "搜索值..."
+          ],
+          "controlClassName": "min-w-[12rem]"
+        }
+      },
+      {
         "type": "form-textarea",
-        "name": "条件JSON",
+        "name": "高级条件JSON",
         "value": "form.condition_json",
         "mode": "form",
-        "placeholder": "例如：{\"field\":\"customer.channel_id\",\"operator\":\"equals\",\"value\":\"1\"}",
+        "placeholder": "选择条件字段会自动生成。也可手写：{\"field\":\"customer.fields.audit_status\",\"operator\":\"equals\",\"value\":\"T1\"}",
         "meta": {
-          "formLayout": "vertical"
+          "formLayout": "vertical",
+          "rows": 4
         }
       },
       {
@@ -148,17 +180,20 @@
         "task_id",
         "result_value",
         "script_id",
+        "condition_path",
         "condition_json",
         "owner_mode",
         "to_department_id",
         "to_staff_id"
       ],
+      "service": "crm.setting.CrmHook.BuildStageTransitionForm",
       "id": "",
       "from_stage_code": "",
       "to_stage_code": "",
       "task_id": "",
       "result_value": "",
       "script_id": "",
+      "condition_path": [],
       "condition_json": "{}",
       "owner_mode": "keep",
       "to_department_id": "",

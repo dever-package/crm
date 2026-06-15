@@ -84,7 +84,8 @@
         }
       },
       {
-        "type": "form-radio",
+        "type": "form-textarea",
+        "name": "脚本",
         "value": "form.script",
         "mode": "form",
         "validate": [
@@ -95,7 +96,8 @@
         ],
         "meta": {
           "formLayout": "horizontal",
-          "rows": 12
+          "rows": 14,
+          "placeholder": "function evaluate(input, config) {\n  return { value: \"T1\", reason: \"命中规则\" };\n}"
         }
       },
       {

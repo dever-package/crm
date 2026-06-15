@@ -25,6 +25,11 @@ export default defineFrontPlugin({
         default: mod.ShowCrmWorkTaskForm,
       })),
     ),
+    "show-crm-work-collaboration-targets": lazyNode(() =>
+      loadWorkAuth().then((mod) => ({
+        default: mod.ShowCrmWorkCollaborationTargets,
+      })),
+    ),
     "show-crm-work-task-upload": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
         default: mod.ShowCrmWorkTaskUpload,
@@ -38,11 +43,6 @@ export default defineFrontPlugin({
     "show-crm-work-detail": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
         default: mod.ShowCrmWorkDetail,
-      })),
-    ),
-    "show-crm-work-records": lazyNode(() =>
-      loadWorkAuth().then((mod) => ({
-        default: mod.ShowCrmWorkRecords,
       })),
     ),
     "show-crm-work-record-detail": lazyNode(() =>

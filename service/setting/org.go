@@ -1,6 +1,7 @@
 package setting
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -46,7 +47,7 @@ func resolveDepartmentCode(c *server.Context, record map[string]any) string {
 	return fmt.Sprintf("dept_%d", time.Now().UnixNano())
 }
 
-func (CrmHook) ProviderBeforeSaveStaff(_ *server.Context, params []any) any {
+func (CrmHook) ProviderBeforeSaveStaff(c *server.Context, params []any) any {
 	record := cloneCrmRecord(params)
 	if len(record) == 0 {
 		return record
@@ -55,6 +56,7 @@ func (CrmHook) ProviderBeforeSaveStaff(_ *server.Context, params []any) any {
 	trimCrmStringField(record, "name", partial)
 	trimCrmStringField(record, "staff_type", partial)
 	trimCrmStringField(record, "phone", partial)
+	trimCrmStringField(record, "feishu_open_id", partial)
 	if shouldNormalizeCrmField(record, "department_id", partial) && util.ToUint64(record["department_id"]) == 0 {
 		record["department_id"] = crmmodel.DefaultDepartmentID
 	}
@@ -65,12 +67,29 @@ func (CrmHook) ProviderBeforeSaveStaff(_ *server.Context, params []any) any {
 		if util.ToStringTrimmed(record["name"]) == "" {
 			panicCrmField("form.name", "姓名不能为空。")
 		}
-		if util.ToStringTrimmed(record["phone"]) == "" {
-			panicCrmField("form.phone", "手机号不能为空。")
-		}
 	}
+	ctx := context.Background()
+	if c != nil {
+		ctx = c.Context()
+	}
+	validateStaffUniqueField(ctx, "phone", "form.phone", "该手机号已存在，请更换。", record)
+	validateStaffUniqueField(ctx, "feishu_open_id", "form.feishu_open_id", "该飞书 OpenID 已绑定其他人员。", record)
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	return record
+}
+
+func validateStaffUniqueField(ctx context.Context, field string, formPath string, message string, record map[string]any) {
+	value := util.ToStringTrimmed(record[field])
+	if value == "" {
+		return
+	}
+	filters := map[string]any{field: value}
+	if staffID := util.ToUint64(record["id"]); staffID > 0 {
+		filters["id"] = map[string]any{"!=": staffID}
+	}
+	if crmmodel.NewStaffModel().Count(ctx, filters) > 0 {
+		panicCrmField(formPath, message)
+	}
 }
 
 func (CrmHook) ProviderAfterSaveStaff(c *server.Context, params []any) any {

@@ -1,6 +1,8 @@
 package setting
 
 import (
+	"context"
+
 	"github.com/shemic/dever/server"
 	"github.com/shemic/dever/util"
 
@@ -51,6 +53,41 @@ func (CrmHook) ProviderBeforeSaveDataTemplate(_ *server.Context, params []any) a
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
 	return record
+}
+
+func (CrmHook) ProviderBuildDataTemplateForm(c *server.Context, params []any) any {
+	record := formConfigRecord(params)
+	if len(record) == 0 {
+		return record
+	}
+	attachDataTemplateFieldOptions(c, record)
+	return record
+}
+
+func attachDataTemplateFieldOptions(c *server.Context, record map[string]any) {
+	rows := formFieldRows(record["fields"])
+	if rows == nil {
+		return
+	}
+	ctx := context.Background()
+	if c != nil {
+		ctx = c.Context()
+	}
+	for _, row := range rows {
+		fieldID := util.ToUint64(row["id"])
+		if fieldID == 0 {
+			if options := formFieldRows(row["options"]); options != nil {
+				row["options"] = options
+			} else if _, exists := row["options"]; !exists {
+				row["options"] = []map[string]any{}
+			}
+			continue
+		}
+		row["options"] = crmmodel.NewDataFieldOptionModel().SelectMap(ctx, map[string]any{
+			"data_field_id": fieldID,
+		})
+	}
+	record["fields"] = rows
 }
 
 func shouldNormalizeCrmField(record map[string]any, field string, partial bool) bool {

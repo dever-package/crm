@@ -113,6 +113,8 @@
             "form.decision_result_field_path",
             "form.trigger_task_id",
             "form.assign_department_ids",
+            "form.auto_assign_department_id",
+            "form.auto_assign_staff_id",
             "form.collaboration_items",
             "form.collaboration_complete_mode",
             "form.booking_resource_cate_id",
@@ -128,6 +130,38 @@
         "option": "option.trigger_type",
         "meta": {
           "formLayout": "horizontal",
+          "optionFilter": [
+            {
+              "field": "id",
+              "path": "form.task_type",
+              "map": {
+                "assign": [
+                  "manual",
+                  "after_task",
+                  "on_stage_enter"
+                ],
+                "collaborate": [
+                  "manual",
+                  "after_task",
+                  "on_stage_enter"
+                ],
+                "decision": [
+                  "manual",
+                  "after_task",
+                  "on_stage_enter"
+                ],
+                "create": [
+                  "manual"
+                ],
+                "form": [
+                  "manual"
+                ],
+                "booking": [
+                  "manual"
+                ]
+              }
+            }
+          ],
           "clearOnChange": [
             "form.trigger_task_id"
           ]
@@ -217,6 +251,9 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "clearOnChange": [
+            "form.auto_assign_staff_id"
+          ],
           "hiddenWhen": [
             {
               "path": "form.task_type",
@@ -337,6 +374,84 @@
               "path": "form.task_type",
               "operator": "notEquals",
               "value": "assign"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "自动分配部门",
+        "value": "form.auto_assign_department_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "自动触发的分配任务必须选择自动分配部门。",
+            "when": [
+              {
+                "path": "form.task_type",
+                "operator": "equals",
+                "value": "assign"
+              },
+              {
+                "path": "form.trigger_type",
+                "operator": "notEquals",
+                "value": "manual"
+              }
+            ]
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "自动触发时分配到的部门",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "assign"
+            },
+            {
+              "path": "form.trigger_type",
+              "operator": "equals",
+              "value": "manual"
+            }
+          ],
+          "clearOnChange": [
+            "form.auto_assign_staff_id"
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "自动分配人员",
+        "value": "form.auto_assign_staff_id",
+        "mode": "form",
+        "placeholder": "不选择则使用部门负责人",
+        "option": "/front/route/option?type=model&use=crm.NewStaffModel&parentField=department_id&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id asc&pageSize=200",
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "不选择则使用部门负责人",
+          "optionParams": {
+            "parentId": "form.auto_assign_department_id"
+          },
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "assign"
+            },
+            {
+              "path": "form.trigger_type",
+              "operator": "equals",
+              "value": "manual"
+            },
+            {
+              "path": "form.assign_mode",
+              "operator": "equals",
+              "value": "department"
             }
           ]
         }
@@ -489,6 +604,8 @@
         "form_id",
         "assign_mode",
         "assign_department_ids",
+        "auto_assign_department_id",
+        "auto_assign_staff_id",
         "collaboration_items",
         "collaboration_complete_mode",
         "booking_resource_cate_id",
@@ -509,6 +626,8 @@
       "form_id": "",
       "assign_mode": "staff",
       "assign_department_ids": [],
+      "auto_assign_department_id": "",
+      "auto_assign_staff_id": "",
       "collaboration_items": [],
       "collaboration_complete_mode": "all",
       "booking_resource_cate_id": 1,
