@@ -15,6 +15,7 @@ type DataField struct {
 	DefaultValue   string    `dorm:"type:text;not null;default:'';comment:默认值"`
 	StatEnabled    bool      `dorm:"not null;default:false;comment:条件字段"`
 	StatType       string    `dorm:"type:varchar(32);not null;default:'dimension';comment:条件值类型"`
+	StatID         uint64    `dorm:"type:bigint;not null;default:0;comment:条件类型关联ID"`
 	StatGroup      string    `dorm:"type:varchar(64);not null;default:'';comment:条件分组"`
 	Sort           int       `dorm:"type:int;not null;default:100;comment:排序"`
 	Status         int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
@@ -27,6 +28,7 @@ type DataFieldIndex struct {
 	TemplateKey    struct{} `index:"data_template_id,field_key"`
 	StatKey        struct{} `index:"stat_enabled,field_key,status,id"`
 	StatGroup      struct{} `index:"stat_group,stat_type,status,id"`
+	StatRef        struct{} `index:"stat_type,stat_id,status,id"`
 	TemplateStatus struct{} `index:"data_template_id,status,sort,id"`
 	TypeStatus     struct{} `index:"field_type,status,id"`
 }
@@ -36,6 +38,12 @@ var dataFieldOptionRelation = orm.Relation{
 	Through:    "crm.NewDataFieldOptionModel",
 	OwnerField: "data_field_id",
 	Order:      "sort asc,id asc",
+}
+
+var dataFieldStatRelation = orm.Relation{
+	Field:      "stat_id",
+	Option:     "crm.NewFinanceTypeModel",
+	OptionKeys: []string{"name", "code", "direction"},
 }
 
 func NewDataFieldModel() *orm.Model[DataField] {
@@ -51,6 +59,7 @@ func NewDataFieldModel() *orm.Model[DataField] {
 		Relations: []orm.Relation{
 			dataTemplateRelation,
 			dataFieldOptionRelation,
+			dataFieldStatRelation,
 		},
 	})
 }

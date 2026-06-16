@@ -102,7 +102,7 @@
         "value": "form.stat_type",
         "mode": "form",
         "option": "option.stat_type",
-        "info": "用于说明该条件字段的值怎么被理解和索引：分类适合标签、来源、T节点等枚举值；数值/金额适合可计算数字；时间适合日期时间；状态适合流程状态；文本适合普通文字。",
+        "info": "用于说明该条件字段的值怎么被理解和索引：分类适合标签、来源、T节点等枚举值；数值/金额适合可计算数字；财务适合律师费、回款、支出等会生成财务流水的金额字段；时间适合日期时间；状态适合流程状态；文本适合普通文字。",
         "meta": {
           "formLayout": "horizontal",
           "controlClassName": "max-w-[360px]",
@@ -129,6 +129,48 @@
               "path": "form.stat_enabled",
               "operator": "notEquals",
               "value": true
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "财务类型",
+        "value": "form.stat_id",
+        "mode": "form",
+        "option": "/front/route/option?type=model&use=crm.NewFinanceTypeModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "validate": [
+          {
+            "type": "required",
+            "message": "财务类型不能为空。",
+            "when": [
+              {
+                "path": "form.stat_enabled",
+                "operator": "equals",
+                "value": true
+              },
+              {
+                "path": "form.stat_type",
+                "operator": "equals",
+                "value": "finance"
+              }
+            ]
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "选择生成流水时使用的财务类型",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.stat_enabled",
+              "operator": "notEquals",
+              "value": true
+            },
+            {
+              "path": "form.stat_type",
+              "operator": "notEquals",
+              "value": "finance"
             }
           ]
         }
@@ -180,6 +222,7 @@
       "default_value": "",
       "stat_enabled": false,
       "stat_type": "dimension",
+      "stat_id": "",
       "stat_group": "",
       "options": [],
       "status": 1,

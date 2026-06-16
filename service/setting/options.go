@@ -127,6 +127,53 @@ func (OptionService) ProviderLoadDecisionResultFieldOptions(c *server.Context, p
 	}
 }
 
+func (OptionService) ProviderLoadTaskCollaborationStaffOptions(c *server.Context, params []any) any {
+	ctx := context.Background()
+	if c != nil {
+		ctx = c.Context()
+	}
+	departmentID := optionUint64(c, params, "department_id", "departmentId", "parent_id", "parentId", "rootValue")
+	options := []map[string]any{emptyTaskCollaborationStaffOption()}
+	if departmentID == 0 {
+		return options
+	}
+	rows := crmmodel.NewStaffModel().SelectMap(ctx, map[string]any{
+		"department_id": departmentID,
+		"status":        crmmodel.StatusEnabled,
+	}, map[string]any{
+		"field": "main.id, main.name, main.phone, main.department_id, main.status",
+		"order": "main.id asc",
+	})
+	for _, row := range rows {
+		id := util.ToUint64(row["id"])
+		name := util.ToStringTrimmed(row["name"])
+		if id == 0 || name == "" {
+			continue
+		}
+		label := name
+		if phone := util.ToStringTrimmed(row["phone"]); phone != "" {
+			label += "（" + phone + "）"
+		}
+		options = append(options, map[string]any{
+			"id":            id,
+			"value":         label,
+			"name":          name,
+			"phone":         util.ToStringTrimmed(row["phone"]),
+			"department_id": departmentID,
+		})
+	}
+	return options
+}
+
+func emptyTaskCollaborationStaffOption() map[string]any {
+	return map[string]any{
+		"id":            "0",
+		"value":         "不选择人员",
+		"name":          "不选择人员",
+		"department_id": uint64(0),
+	}
+}
+
 func (OptionService) ProviderLoadFormFieldTemplateOptions(c *server.Context, params []any) any {
 	ctx := context.Background()
 	if c != nil {

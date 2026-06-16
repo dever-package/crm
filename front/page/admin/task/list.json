@@ -187,6 +187,11 @@
               "type": "show-base"
             },
             {
+              "name": "任务积分",
+              "value": "task_points",
+              "type": "show-base"
+            },
+            {
               "name": "资料模板",
               "value": "form.name",
               "type": "show-base"

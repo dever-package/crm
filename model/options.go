@@ -23,6 +23,11 @@ const (
 )
 
 const (
+	TaskCompletionSubmit = "submit"
+	TaskCompletionManual = "manual"
+)
+
+const (
 	WorkTodoStatusPending  = "pending"
 	WorkTodoStatusDone     = "done"
 	WorkTodoStatusCanceled = "canceled"
@@ -88,9 +93,24 @@ const (
 	DataFieldStatTypeDimension = "dimension"
 	DataFieldStatTypeMetric    = "metric"
 	DataFieldStatTypeAmount    = "amount"
+	DataFieldStatTypeFinance   = "finance"
 	DataFieldStatTypeTime      = "time"
 	DataFieldStatTypeStatus    = "status"
 	DataFieldStatTypeText      = "text"
+)
+
+const (
+	FinanceDirectionIncome  = "income"
+	FinanceDirectionExpense = "expense"
+)
+
+const (
+	FinanceLedgerSourceForm    = "form"
+	FinanceLedgerSourceReverse = "reverse"
+)
+
+const (
+	TaskPointLedgerSourceTaskComplete = "task_complete"
 )
 
 const (
@@ -118,9 +138,24 @@ var dataFieldStatTypeOptions = []map[string]any{
 	{"id": DataFieldStatTypeDimension, "value": "分类"},
 	{"id": DataFieldStatTypeMetric, "value": "数值"},
 	{"id": DataFieldStatTypeAmount, "value": "金额"},
+	{"id": DataFieldStatTypeFinance, "value": "财务"},
 	{"id": DataFieldStatTypeTime, "value": "时间"},
 	{"id": DataFieldStatTypeStatus, "value": "状态"},
 	{"id": DataFieldStatTypeText, "value": "文本"},
+}
+
+var financeDirectionOptions = []map[string]any{
+	{"id": FinanceDirectionIncome, "value": "收入"},
+	{"id": FinanceDirectionExpense, "value": "支出"},
+}
+
+var financeLedgerSourceOptions = []map[string]any{
+	{"id": FinanceLedgerSourceForm, "value": "表单"},
+	{"id": FinanceLedgerSourceReverse, "value": "冲正"},
+}
+
+var taskPointLedgerSourceOptions = []map[string]any{
+	{"id": TaskPointLedgerSourceTaskComplete, "value": "任务完成"},
 }
 
 var statEventTypeOptions = []map[string]any{
@@ -228,6 +263,24 @@ var taskRelation = orm.Relation{
 	Field:      "task_id",
 	Option:     "crm.NewTaskModel",
 	OptionKeys: []string{"name", "task_type"},
+}
+
+var operationLogRelation = orm.Relation{
+	Field:      "operation_log_id",
+	Option:     "crm.NewOperationLogModel",
+	OptionKeys: []string{"title", "result_value", "created_at"},
+}
+
+var todoRelation = orm.Relation{
+	Field:      "todo_id",
+	Option:     "crm.NewWorkTodoModel",
+	OptionKeys: []string{"sub_task_name", "status", "completed_at"},
+}
+
+var financeTypeRelation = orm.Relation{
+	Field:      "finance_type_id",
+	Option:     "crm.NewFinanceTypeModel",
+	OptionKeys: []string{"name", "code", "direction"},
 }
 
 var stageRelation = orm.Relation{

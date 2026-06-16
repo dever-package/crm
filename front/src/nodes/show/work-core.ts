@@ -99,6 +99,7 @@ export type WorkTask = {
   assign_department_ids?: Array<string | number> | string;
   collaboration_items?: Array<Record<string, unknown>> | string;
   collaboration_complete_mode?: string;
+  completion_mode?: string;
   form_id?: string | number;
   form?: WorkForm | null;
 };

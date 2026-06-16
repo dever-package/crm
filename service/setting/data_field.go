@@ -39,6 +39,13 @@ func (CrmHook) ProviderBeforeSaveDataField(c *server.Context, params []any) any 
 			panicCrmField("form.name", "字段名称不能为空。")
 		}
 	}
+	if shouldNormalizeCrmField(record, "field_type", partial) && util.ToStringTrimmed(record["field_type"]) == "" {
+		record["field_type"] = "text"
+	}
+	if shouldNormalizeCrmField(record, "stat_type", partial) && util.ToStringTrimmed(record["stat_type"]) == "" {
+		record["stat_type"] = crmmodel.DataFieldStatTypeDimension
+	}
+	ensureCrmFinanceDataField(c, record, existing, partial)
 	statEnabled := effectiveCrmDataFieldStatEnabled(record, existing)
 	if statEnabled {
 		fieldKey := effectiveCrmDataFieldKey(record, existing)
@@ -52,18 +59,13 @@ func (CrmHook) ProviderBeforeSaveDataField(c *server.Context, params []any) any 
 			panicCrmField("form.field_key", "该字段编码已被其他条件字段使用。")
 		}
 	}
-	if shouldNormalizeCrmField(record, "field_type", partial) && util.ToStringTrimmed(record["field_type"]) == "" {
-		record["field_type"] = "text"
-	}
-	if shouldNormalizeCrmField(record, "stat_type", partial) && util.ToStringTrimmed(record["stat_type"]) == "" {
-		record["stat_type"] = crmmodel.DataFieldStatTypeDimension
-	}
 	ctx := context.Background()
 	if c != nil {
 		ctx = c.Context()
 	}
 	normalizeCrmDataFieldOptions(ctx, record, existing, partial)
 	defaultCrmBool(record, "stat_enabled", false, partial)
+	defaultCrmInt(record, "stat_id", 0, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
 	return record
@@ -200,6 +202,71 @@ func effectiveCrmDataFieldType(record map[string]any, existing *crmmodel.DataFie
 		return ""
 	}
 	return strings.TrimSpace(existing.FieldType)
+}
+
+func effectiveCrmDataFieldStatType(record map[string]any, existing *crmmodel.DataField) string {
+	if _, ok := record["stat_type"]; ok {
+		return util.ToStringTrimmed(record["stat_type"])
+	}
+	if existing == nil {
+		return crmmodel.DataFieldStatTypeDimension
+	}
+	return strings.TrimSpace(existing.StatType)
+}
+
+func effectiveCrmDataFieldStatID(record map[string]any, existing *crmmodel.DataField) uint64 {
+	if _, ok := record["stat_id"]; ok {
+		return util.ToUint64(record["stat_id"])
+	}
+	if existing == nil {
+		return 0
+	}
+	return existing.StatID
+}
+
+func ensureCrmFinanceDataField(c *server.Context, record map[string]any, existing *crmmodel.DataField, partial bool) {
+	if !crmDataFieldFinanceConfigTouched(record, partial) {
+		return
+	}
+	statEnabled := effectiveCrmDataFieldStatEnabled(record, existing)
+	statType := effectiveCrmDataFieldStatType(record, existing)
+	if !statEnabled || statType != crmmodel.DataFieldStatTypeFinance {
+		if shouldNormalizeCrmField(record, "stat_type", partial) || effectiveCrmDataFieldStatID(record, existing) > 0 {
+			record["stat_id"] = uint64(0)
+		}
+		return
+	}
+	fieldType := effectiveCrmDataFieldType(record, existing)
+	if fieldType != "money" && fieldType != "number" {
+		panicCrmField("form.field_type", "财务类型字段必须使用金额或数字字段。")
+	}
+	statID := effectiveCrmDataFieldStatID(record, existing)
+	if statID == 0 {
+		panicCrmField("form.stat_id", "财务类型字段必须选择财务类型。")
+	}
+	ctx := context.Background()
+	if c != nil {
+		ctx = c.Context()
+	}
+	if crmmodel.NewFinanceTypeModel().Find(ctx, map[string]any{"id": statID, "status": crmmodel.StatusEnabled}) == nil {
+		panicCrmField("form.stat_id", "财务类型不存在或已停用。")
+	}
+	record["stat_id"] = statID
+	if util.ToStringTrimmed(record["stat_group"]) == "" && (existing == nil || strings.TrimSpace(existing.StatGroup) == "") {
+		record["stat_group"] = "财务"
+	}
+}
+
+func crmDataFieldFinanceConfigTouched(record map[string]any, partial bool) bool {
+	if !partial {
+		return true
+	}
+	for _, field := range []string{"field_type", "stat_enabled", "stat_type", "stat_id"} {
+		if _, ok := record[field]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func duplicatedCrmDataFieldKey(c *server.Context, fieldKey string, currentID uint64) bool {

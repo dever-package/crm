@@ -14,6 +14,8 @@ type WorkTodo struct {
 	ParentOperationLogID    uint64     `dorm:"type:bigint;not null;default:0;comment:派单操作记录"`
 	SubTaskName             string     `dorm:"type:varchar(128);not null;default:'';comment:子任务名称"`
 	FormID                  uint64     `dorm:"type:bigint;not null;default:0;comment:处理资料模板"`
+	CompletionMode          string     `dorm:"type:varchar(32);not null;default:'submit';comment:完成方式"`
+	TaskPoints              float64    `dorm:"type:double precision;not null;default:0;comment:任务积分"`
 	AssigneeDepartmentID    uint64     `dorm:"type:bigint;not null;default:0;comment:处理部门"`
 	AssigneeStaffID         uint64     `dorm:"type:bigint;not null;default:0;comment:处理人员"`
 	Required                bool       `dorm:"not null;default:true;comment:是否必做"`

@@ -1,0 +1,199 @@
+{
+  "page": {
+    "name": "财务流水",
+    "icon": "receipt-text",
+    "parent": "crm-customer-manage",
+    "sort": 5
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header"
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5",
+        "children": {
+          "toolbar-row": {
+            "type": "row",
+            "className": "flex-wrap items-center gap-3"
+          },
+          "table-row": {
+            "type": "container",
+            "className": "overflow-hidden rounded-md border bg-background"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-input",
+        "placeholder": "搜索财务类型、原始值...",
+        "value": "search.keyword",
+        "mode": "search"
+      },
+      {
+        "type": "form-select",
+        "placeholder": "任务",
+        "value": "search.task_id",
+        "mode": "search",
+        "option": "/front/route/option?type=model&use=crm.NewTaskModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=stage_id asc,sort asc,id asc&pageSize=200"
+      },
+      {
+        "type": "form-select",
+        "placeholder": "操作人",
+        "value": "search.staff_id",
+        "mode": "search",
+        "option": "/front/route/option?type=model&use=crm.NewStaffModel&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id asc&pageSize=200"
+      },
+      {
+        "type": "form-select",
+        "placeholder": "部门",
+        "value": "search.department_id",
+        "mode": "search",
+        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200"
+      },
+      {
+        "type": "form-input",
+        "placeholder": "开始时间 YYYY-MM-DD",
+        "value": "search.created_at_start",
+        "mode": "search"
+      },
+      {
+        "type": "form-input",
+        "placeholder": "结束时间 YYYY-MM-DD",
+        "value": "search.created_at_end",
+        "mode": "search"
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "searchSubmit": true
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "重置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "to": "/crm/finance_ledger/list"
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "rowKey": "id",
+          "columns": [
+            {
+              "name": "客户",
+              "value": "customer.name",
+              "type": "show-base"
+            },
+            {
+              "name": "资产",
+              "value": "asset.asset_name",
+              "type": "show-base"
+            },
+            {
+              "name": "财务类型",
+              "value": "finance_type_name",
+              "type": "show-base"
+            },
+            {
+              "name": "类型编码",
+              "value": "finance_type_code",
+              "type": "show-base"
+            },
+            {
+              "name": "方向",
+              "value": "direction",
+              "type": "show-tag"
+            },
+            {
+              "name": "来源",
+              "value": "source",
+              "type": "show-tag"
+            },
+            {
+              "name": "金额",
+              "value": "amount",
+              "type": "show-base"
+            },
+            {
+              "name": "任务",
+              "value": "task.name",
+              "type": "show-base"
+            },
+            {
+              "name": "操作人",
+              "value": "staff.name",
+              "type": "show-base"
+            },
+            {
+              "name": "创建时间",
+              "value": "created_at",
+              "type": "show-date"
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ]
+  },
+  "data": {
+    "search": {
+      "keyword": "",
+      "task_id": "",
+      "staff_id": "",
+      "department_id": "",
+      "created_at_start": "",
+      "created_at_end": ""
+    },
+    "table": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 0,
+      "searchFields": [
+        "finance_type_code",
+        "finance_type_name",
+        "raw_value"
+      ],
+      "filterFields": [
+        "task_id",
+        "staff_id",
+        "department_id",
+        {
+          "field": "created_at",
+          "type": "date-range",
+          "startKey": "created_at_start",
+          "endKey": "created_at_end"
+        }
+      ]
+    }
+  },
+  "state": {},
+  "action": {}
+}
