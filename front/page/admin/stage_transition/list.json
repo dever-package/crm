@@ -194,9 +194,7 @@
   },
   "data": {
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
       "service": "crm.setting.CrmHook.BuildStageTransitionRows",
       "searchFields": [
         "from_stage_code",

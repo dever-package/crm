@@ -55,7 +55,19 @@
         "type": "form-select",
         "value": "form.department_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewDepartmentModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "validate": [
           {
             "type": "required",
@@ -163,12 +175,10 @@
       "type": "save",
       "params": "form",
       "before": {
-        "type": "service",
-        "use": "crm.setting.CrmHook.BeforeSaveStaff"
+        "service": "crm.setting.CrmHook.BeforeSaveStaff"
       },
       "after": {
-        "type": "service",
-        "use": "crm.setting.CrmHook.AfterSaveStaff"
+        "service": "crm.setting.CrmHook.AfterSaveStaff"
       }
     }
   }

@@ -42,7 +42,11 @@
         "name": "所属阶段",
         "value": "form.stage_id",
         "mode": "form",
-        "option": "/front/route/option?type=service&use=crm.setting.OptionService.LoadStageOptions&valueField=id&labelField=display_name",
+        "option": {
+          "service": "crm.setting.OptionService.LoadStageOptions",
+          "valueField": "id",
+          "labelField": "display_name"
+        },
         "validate": [
           {
             "type": "required",
@@ -187,7 +191,18 @@
         "name": "触发任务",
         "value": "form.trigger_task_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewTaskModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewTaskModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "meta": {
           "formLayout": "horizontal",
           "placeholder": "选择哪个任务执行成功后立即触发",
@@ -205,7 +220,18 @@
         "name": "资料模板",
         "value": "form.form_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewFormModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewFormModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "meta": {
           "formLayout": "horizontal",
           "placeholder": "选择任务需要填写的资料模板",
@@ -284,7 +310,18 @@
         "name": "资源分类",
         "value": "form.booking_resource_cate_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewPublicResourceCateModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewPublicResourceCateModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "validate": [
           {
             "type": "required",
@@ -367,7 +404,19 @@
         "name": "可选部门",
         "value": "form.assign_department_ids",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewDepartmentModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "validate": [
           {
             "type": "required",
@@ -399,7 +448,19 @@
         "name": "自动分配部门",
         "value": "form.auto_assign_department_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewDepartmentModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "validate": [
           {
             "type": "required",
@@ -445,7 +506,20 @@
         "value": "form.auto_assign_staff_id",
         "mode": "form",
         "placeholder": "不选择则使用部门负责人",
-        "option": "/front/route/option?type=model&use=crm.NewStaffModel&parentField=department_id&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewStaffModel",
+          "labelField": "name",
+          "parentField": "department_id",
+          "order": "id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name",
+            "phone"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "meta": {
           "formLayout": "horizontal",
           "placeholder": "不选择则使用部门负责人",
@@ -477,7 +551,18 @@
         "name": "脚本规则",
         "value": "form.script_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewRuleScriptModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewRuleScriptModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "validate": [
           {
             "type": "required",
@@ -534,9 +619,6 @@
           }
         ],
         "meta": {
-          "api": "/front/route/option",
-          "type": "service",
-          "use": "crm.setting.OptionService.LoadDecisionResultFieldOptions",
           "formLayout": "horizontal",
           "parentField": "parent_id",
           "rootValue": 0,
@@ -560,7 +642,8 @@
               "operator": "notEquals",
               "value": "decision"
             }
-          ]
+          ],
+          "service": "crm.setting.OptionService.LoadDecisionResultFieldOptions"
         }
       },
       {
@@ -568,7 +651,11 @@
         "name": "完成后阶段",
         "value": "form.next_stage_code",
         "mode": "form",
-        "option": "/front/route/option?type=service&use=crm.setting.OptionService.LoadStageOptions&valueField=code&labelField=display_name",
+        "option": {
+          "service": "crm.setting.OptionService.LoadStageOptions",
+          "valueField": "code",
+          "labelField": "display_name"
+        },
         "info": "协作任务会在完成规则满足后流转到该阶段；若要 PM 等律师/财务完成后继续，请选择下一个 PM 阶段。普通任务则在任务完成后流转。",
         "meta": {
           "formLayout": "horizontal",
@@ -608,9 +695,6 @@
         "mode": "form",
         "placeholder": "不限制显示条件",
         "meta": {
-          "api": "/front/route/option",
-          "type": "service",
-          "use": "crm.setting.OptionService.LoadTaskVisibleConditionOptions",
           "formLayout": "horizontal",
           "parentField": "parent_id",
           "rootValue": 0,
@@ -629,7 +713,8 @@
             "搜索字段...",
             "搜索值..."
           ],
-          "controlClassName": "min-w-[12rem]"
+          "controlClassName": "min-w-[12rem]",
+          "service": "crm.setting.OptionService.LoadTaskVisibleConditionOptions"
         }
       }
     ]
@@ -690,8 +775,7 @@
       "type": "save",
       "params": "form",
       "before": {
-        "type": "service",
-        "use": "crm.setting.CrmHook.BeforeSaveTask"
+        "service": "crm.setting.CrmHook.BeforeSaveTask"
       }
     }
   }

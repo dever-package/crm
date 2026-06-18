@@ -85,7 +85,11 @@
         "type": "show-category-list",
         "id": "crm-stage-list",
         "value": "search.stage_id",
-        "option": "/front/route/option?type=service&use=crm.setting.OptionService.LoadStageOptions&valueField=id&labelField=name",
+        "option": {
+          "service": "crm.setting.OptionService.LoadStageOptions",
+          "valueField": "id",
+          "labelField": "name"
+        },
         "meta": {
           "title": "阶段列表",
           "description": "左侧选择阶段，右侧维护该阶段下的任务。",
@@ -326,9 +330,7 @@
       "keyword": ""
     },
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
       "service": "crm.setting.CrmHook.BuildTaskRows",
       "defaultFilters": {
         "stage_id": 1

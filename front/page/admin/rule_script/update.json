@@ -41,7 +41,13 @@
         "type": "form-select",
         "value": "form.cate_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewRuleScriptCateModel&filterField=status&filterValue=1&order=sort asc,id asc",
+        "option": {
+          "model": "crm.NewRuleScriptCateModel",
+          "order": "sort asc,id asc",
+          "filters": {
+            "status": "1"
+          }
+        },
         "validate": [
           {
             "type": "required",

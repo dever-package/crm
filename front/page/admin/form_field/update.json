@@ -62,9 +62,6 @@
           }
         ],
         "meta": {
-          "api": "/front/route/option",
-          "type": "service",
-          "use": "crm.setting.OptionService.LoadFormFieldCascaderOptions",
           "formLayout": "horizontal",
           "parentField": "parent_id",
           "rootValue": 0,
@@ -81,7 +78,8 @@
             "搜索表名...",
             "搜索字段..."
           ],
-          "controlClassName": "min-w-[9.5rem]"
+          "controlClassName": "min-w-[9.5rem]",
+          "service": "crm.setting.OptionService.LoadFormFieldCascaderOptions"
         }
       }
     ]
@@ -110,8 +108,7 @@
       "type": "save",
       "params": "form",
       "before": {
-        "type": "service",
-        "use": "crm.setting.CrmHook.BeforeSaveFormField"
+        "service": "crm.setting.CrmHook.BeforeSaveFormField"
       }
     }
   }

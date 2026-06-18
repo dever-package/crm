@@ -85,7 +85,17 @@
         "type": "show-category-list",
         "id": "crm-rule-script-cate",
         "value": "search.cate_id",
-        "option": "/front/route/option?type=model&use=crm.NewRuleScriptCateModel&filterField=status&filterValue=1&order=sort asc,id asc&extraFields=status,sort",
+        "option": {
+          "model": "crm.NewRuleScriptCateModel",
+          "order": "sort asc,id asc",
+          "extraFields": [
+            "status",
+            "sort"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "meta": {
           "title": "脚本分类",
           "description": "左侧选择分类，右侧维护该分类下的脚本规则。",
@@ -296,13 +306,11 @@
       "cate_id": ""
     },
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
-        "searchFields": [
-          "name",
-          "description"
-        ]
+      "searchFields": [
+        "name",
+        "description"
+      ]
     },
     "actionTarget": {
       "editCateId": "",

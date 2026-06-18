@@ -1,6 +1,6 @@
 ---
 name: dever-crm
-description: Use when 修改 Dever CRM 组件，包括客户中心、客户、客户资产、阶段任务、资料模板、财务流水、组织资源、work 前台 API、CRM front 插件、页面权限和迁移行为。
+description: Use when 修改 Dever CRM 组件，包括客户中心、客户、客户资产、阶段任务、资料模板、财务流水、组织资源、work 前台 API、CRM front 插件、页面权限和升级影响。
 version: 0.1.0
 ---
 

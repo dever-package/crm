@@ -78,7 +78,21 @@
         "type": "show-category-list",
         "id": "crm-department-list",
         "value": "search.department_id",
-        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&extraFields=status,sort",
+        "option": {
+          "model": "crm.NewDepartmentModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "searchFields": [
+            "name"
+          ],
+          "extraFields": [
+            "status",
+            "sort"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "meta": {
           "title": "部门管理",
           "description": "左侧选择部门，右侧维护该部门人员。",
@@ -279,9 +293,7 @@
       "department_id": 1
     },
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
       "service": "crm.setting.CrmHook.BuildStaffRows",
       "searchFields": [
         "name",

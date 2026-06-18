@@ -42,7 +42,18 @@
         "name": "资源分类",
         "value": "form.resource_cate_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewPublicResourceCateModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewPublicResourceCateModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "validate": [
           {
             "type": "required",
@@ -99,8 +110,7 @@
       "type": "save",
       "params": "form",
       "before": {
-        "type": "service",
-        "use": "crm.setting.CrmHook.BeforeSavePublicResource"
+        "service": "crm.setting.CrmHook.BeforeSavePublicResource"
       }
     }
   }

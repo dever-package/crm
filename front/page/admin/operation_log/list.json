@@ -119,9 +119,7 @@
   "data": {
     "search": {},
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
       "service": "crm.setting.CrmHook.BuildOperationLogRows",
       "searchFields": [
         "title",

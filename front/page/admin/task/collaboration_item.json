@@ -41,7 +41,19 @@
         "name": "目标部门",
         "value": "form.department_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewDepartmentModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "validate": [
           {
             "type": "required",
@@ -61,7 +73,11 @@
         "value": "form.staff_id",
         "mode": "form",
         "placeholder": "不选择人员",
-        "option": "/front/route/option?type=service&use=crm.setting.OptionService.LoadTaskCollaborationStaffOptions&valueField=id&labelField=value",
+        "option": {
+          "service": "crm.setting.OptionService.LoadTaskCollaborationStaffOptions",
+          "valueField": "id",
+          "labelField": "value"
+        },
         "info": "不选择人员时，手动派单需在工作台选择目标部门内的处理人员；选择人员后，工作台不可再调整。",
         "meta": {
           "formLayout": "horizontal",
@@ -76,7 +92,18 @@
         "name": "处理资料模板",
         "value": "form.form_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewFormModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewFormModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "meta": {
           "formLayout": "horizontal",
           "placeholder": "完成子任务时需要填写的资料"

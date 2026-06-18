@@ -95,8 +95,7 @@
       "type": "save",
       "params": "form",
       "before": {
-        "type": "service",
-        "use": "crm.setting.CrmHook.BeforeSaveFinanceType"
+        "service": "crm.setting.CrmHook.BeforeSaveFinanceType"
       }
     }
   }

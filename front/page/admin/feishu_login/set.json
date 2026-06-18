@@ -75,23 +75,22 @@
   },
   "data": {
     "form": {
-      "_model": "crm.NewBasicConfigModel",
       "id": 1,
       "feishu_app_id": "",
-      "feishu_app_secret": ""
+      "feishu_app_secret": "",
+      "model": "crm.NewBasicConfigModel"
     }
   },
   "state": {},
   "action": {
     "submit": {
       "type": "save",
-      "use": "crm.NewBasicConfigModel",
       "upsert": true,
       "params": "form",
       "before": {
-        "type": "service",
-        "use": "crm.setting.CrmHook.BeforeSaveBasicConfig"
-      }
+        "service": "crm.setting.CrmHook.BeforeSaveBasicConfig"
+      },
+      "model": "crm.NewBasicConfigModel"
     }
   }
 }

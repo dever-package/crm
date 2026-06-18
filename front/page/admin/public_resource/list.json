@@ -94,7 +94,21 @@
         "type": "show-category-list",
         "id": "crm-public-resource-cate",
         "value": "search.resource_cate_id",
-        "option": "/front/route/option?type=model&use=crm.NewPublicResourceCateModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&extraFields=status,sort",
+        "option": {
+          "model": "crm.NewPublicResourceCateModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "searchFields": [
+            "name"
+          ],
+          "extraFields": [
+            "status",
+            "sort"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "meta": {
           "title": "资源分类",
           "description": "左侧选择分类，右侧维护该分类下的公共资源。",
@@ -327,9 +341,7 @@
       "resourceId": ""
     },
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
       "defaultFilters": {
         "resource_cate_id": 1
       },

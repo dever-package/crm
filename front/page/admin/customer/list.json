@@ -138,7 +138,16 @@
         "placeholder": "来源",
         "value": "search.source_id",
         "mode": "search",
-        "option": "/front/route/option?type=model&use=crm.NewCustomerSourceModel&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewCustomerSourceModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ]
+        },
         "meta": {
           "searchPlaceholder": "输入来源名称搜索..."
         }
@@ -148,7 +157,16 @@
         "placeholder": "渠道",
         "value": "search.channel_id",
         "mode": "search",
-        "option": "/front/route/option?type=model&use=crm.NewCustomerChannelModel&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewCustomerChannelModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ]
+        },
         "meta": {
           "searchPlaceholder": "输入渠道名称搜索..."
         }
@@ -353,9 +371,7 @@
       "channel_id": ""
     },
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
       "service": "crm.setting.CrmHook.BuildCustomerRows",
       "searchFields": [
         "code",

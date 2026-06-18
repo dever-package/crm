@@ -91,7 +91,16 @@
         "placeholder": "资产状态",
         "value": "search.asset_status_id",
         "mode": "search",
-        "option": "/front/route/option?type=model&use=crm.NewAssetStatusModel&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewAssetStatusModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ]
+        },
         "meta": {
           "searchPlaceholder": "输入状态名称搜索..."
         }
@@ -253,9 +262,7 @@
       "asset_status_id": ""
     },
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
       "service": "crm.setting.CrmHook.BuildCustomerAssetRows",
       "searchFields": [
         "asset_no",

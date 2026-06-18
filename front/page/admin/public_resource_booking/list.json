@@ -64,7 +64,18 @@
         "placeholder": "公共资源",
         "value": "search.resource_id",
         "mode": "search",
-        "option": "/front/route/option?type=model&use=crm.NewPublicResourceModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=sort asc,id asc&pageSize=200"
+        "option": {
+          "model": "crm.NewPublicResourceModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        }
       },
       {
         "type": "form-select",
@@ -159,9 +170,7 @@
       "booking_status": ""
     },
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
       "searchFields": [
         "title",
         "remark"

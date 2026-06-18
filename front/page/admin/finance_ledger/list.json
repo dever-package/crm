@@ -46,21 +46,56 @@
         "placeholder": "任务",
         "value": "search.task_id",
         "mode": "search",
-        "option": "/front/route/option?type=model&use=crm.NewTaskModel&filterField=status&filterValue=1&labelField=name&searchFields=name&order=stage_id asc,sort asc,id asc&pageSize=200"
+        "option": {
+          "model": "crm.NewTaskModel",
+          "labelField": "name",
+          "order": "stage_id asc,sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        }
       },
       {
         "type": "form-select",
         "placeholder": "操作人",
         "value": "search.staff_id",
         "mode": "search",
-        "option": "/front/route/option?type=model&use=crm.NewStaffModel&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id asc&pageSize=200"
+        "option": {
+          "model": "crm.NewStaffModel",
+          "labelField": "name",
+          "order": "id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name",
+            "phone"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        }
       },
       {
         "type": "form-select",
         "placeholder": "部门",
         "value": "search.department_id",
         "mode": "search",
-        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200"
+        "option": {
+          "model": "crm.NewDepartmentModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        }
       },
       {
         "type": "form-input",
@@ -173,9 +208,7 @@
       "created_at_end": ""
     },
     "table": {
-      "page": 1,
       "pageSize": 20,
-      "total": 0,
       "searchFields": [
         "finance_type_code",
         "finance_type_name",

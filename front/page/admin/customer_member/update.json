@@ -41,7 +41,17 @@
         "type": "form-select",
         "value": "form.customer_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewCustomerModel&labelField=name&searchFields=name,phone,code&pageSize=200&order=id desc",
+        "option": {
+          "model": "crm.NewCustomerModel",
+          "labelField": "name",
+          "order": "id desc",
+          "pageSize": 200,
+          "searchFields": [
+            "name",
+            "phone",
+            "code"
+          ]
+        },
         "validate": [
           {
             "type": "required",
@@ -56,7 +66,16 @@
         "type": "form-select",
         "value": "form.asset_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewCustomerAssetModel&labelField=asset_name&searchFields=asset_name,asset_no&pageSize=200&order=id desc",
+        "option": {
+          "model": "crm.NewCustomerAssetModel",
+          "labelField": "asset_name",
+          "order": "id desc",
+          "pageSize": 200,
+          "searchFields": [
+            "asset_name",
+            "asset_no"
+          ]
+        },
         "meta": {
           "formLayout": "horizontal"
         }
@@ -65,7 +84,19 @@
         "type": "form-select",
         "value": "form.department_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewDepartmentModel&filterField=status&filterValue=1&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewDepartmentModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "meta": {
           "formLayout": "horizontal"
         }
@@ -74,7 +105,19 @@
         "type": "form-select",
         "value": "form.staff_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewStaffModel&filterField=status&filterValue=1&labelField=name&searchFields=name,phone&order=id desc&pageSize=200",
+        "option": {
+          "model": "crm.NewStaffModel",
+          "labelField": "name",
+          "order": "id desc",
+          "pageSize": 200,
+          "searchFields": [
+            "name",
+            "phone"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
         "meta": {
           "formLayout": "horizontal"
         }

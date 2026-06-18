@@ -100,7 +100,16 @@
         "type": "form-select",
         "value": "form.source_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewCustomerSourceModel&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewCustomerSourceModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ]
+        },
         "meta": {
           "formLayout": "horizontal"
         }
@@ -109,7 +118,16 @@
         "type": "form-select",
         "value": "form.channel_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewCustomerChannelModel&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewCustomerChannelModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ]
+        },
         "meta": {
           "formLayout": "horizontal"
         }
@@ -118,7 +136,16 @@
         "type": "form-select",
         "value": "form.level_id",
         "mode": "form",
-        "option": "/front/route/option?type=model&use=crm.NewCustomerLevelModel&labelField=name&searchFields=code,name&order=sort asc,id asc&pageSize=200",
+        "option": {
+          "model": "crm.NewCustomerLevelModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "code",
+            "name"
+          ]
+        },
         "meta": {
           "formLayout": "horizontal"
         }
@@ -163,12 +190,10 @@
       "type": "save",
       "params": "form",
       "before": {
-        "type": "service",
-        "use": "crm.setting.CrmHook.BeforeSaveCustomer"
+        "service": "crm.setting.CrmHook.BeforeSaveCustomer"
       },
       "after": {
-        "type": "service",
-        "use": "crm.setting.CrmHook.AfterSaveCustomer"
+        "service": "crm.setting.CrmHook.AfterSaveCustomer"
       }
     }
   }
