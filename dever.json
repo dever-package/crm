@@ -8,7 +8,7 @@
     "user": ">=0.1.0"
   },
   "skills": [
-    "skills/crm/SKILL.md"
+    "skills/SKILL.md"
   ],
   "front": {
     "public": [
