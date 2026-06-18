@@ -7,9 +7,9 @@ import "embed"
 //go:embed dever.json
 var ManifestFS embed.FS
 
-// PageFS 内嵌 CRM 后台页面配置。
+// PageFS 内嵌 CRM 页面配置和站点默认静态资源。
 //
-//go:embed front/page/*/*/*.json
+//go:embed front/page/*/*.json front/page/*/*/*.json front/assets
 var PageFS embed.FS
 
 // FrontFS 内嵌 CRM 前端插件静态产物。

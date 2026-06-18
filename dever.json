@@ -52,14 +52,14 @@
         ]
       },
       "work": {
-        "name": "CRM 工作台",
-        "subtitle": "客户任务工作台",
-        "description": "CRM 前台任务与协作入口",
         "api": "crm",
         "page": "work",
-        "assets": {
-          "logo": "assets/images/logo.svg",
-          "favicon": "assets/images/favicon.svg"
+        "config": {
+          "name": "CRM 工作台",
+          "subtitle": "客户任务工作台",
+          "description": "CRM 前台任务与协作入口",
+          "logo": "crm/assets/work/images/logo.svg",
+          "favicon": "crm/assets/work/images/favicon.svg"
         },
         "access": {
           "mode": "login",
