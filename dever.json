@@ -7,48 +7,86 @@
     "source": ">=0.1.0",
     "user": ">=0.1.0"
   },
-  "public": [
-    "/crm/work/login",
-    "/crm/work/feishu_login",
-    "/crm/work/feishu_config"
-  ],
   "skills": [
     "skills/crm/SKILL.md"
   ],
-  "sites": {
-    "admin": {
-      "auth": [
-        {
-          "key": "crm-center",
-          "name": "客户中心",
-          "icon": "users-round",
-          "type": 1,
-          "sort": 10,
-          "children": [
-            {
-              "key": "crm-customer-manage",
-              "name": "客户管理",
-              "icon": "contact-round",
-              "type": 1,
-              "sort": 1
-            },
-            {
-              "key": "crm-business-config",
-              "name": "业务配置",
-              "icon": "settings-2",
-              "type": 1,
-              "sort": 2
-            },
-            {
-              "key": "crm-org-manage",
-              "name": "组织管理",
-              "icon": "building-2",
-              "type": 1,
-              "sort": 3
-            }
-          ]
-        }
-      ]
+  "front": {
+    "public": [
+      "/crm/work/login",
+      "/crm/work/feishu_login",
+      "/crm/work/feishu_config"
+    ],
+    "sites": {
+      "admin": {
+        "auth": [
+          {
+            "key": "crm-center",
+            "name": "客户中心",
+            "icon": "users-round",
+            "type": 1,
+            "sort": 10,
+            "children": [
+              {
+                "key": "crm-customer-manage",
+                "name": "客户管理",
+                "icon": "contact-round",
+                "type": 1,
+                "sort": 1
+              },
+              {
+                "key": "crm-business-config",
+                "name": "业务配置",
+                "icon": "settings-2",
+                "type": 1,
+                "sort": 2
+              },
+              {
+                "key": "crm-org-manage",
+                "name": "组织管理",
+                "icon": "building-2",
+                "type": 1,
+                "sort": 3
+              }
+            ]
+          }
+        ]
+      },
+      "work": {
+        "name": "CRM 工作台",
+        "subtitle": "客户任务工作台",
+        "description": "CRM 前台任务与协作入口",
+        "api": "crm",
+        "page": "work",
+        "assets": {
+          "logo": "assets/images/logo.svg",
+          "favicon": "assets/images/favicon.svg"
+        },
+        "setting": {
+          "appearance": {
+            "theme": "light",
+            "sidebar": "floating",
+            "layout": "compact",
+            "direction": "ltr"
+          },
+          "runtime": {
+            "skin": "default",
+            "routerMode": "history",
+            "plugins": [
+              "crm"
+            ]
+          }
+        },
+        "access": {
+          "mode": "login",
+          "authProvider": "user"
+        },
+        "entry": "crm/work",
+        "public": [
+          "work/login",
+          "work/feishu_login",
+          "work/feishu_config"
+        ]
+      }
     }
   }
 }

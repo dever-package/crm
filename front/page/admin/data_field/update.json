@@ -45,11 +45,6 @@
           {
             "type": "required",
             "message": "字段名称不能为空。"
-          },
-          {
-            "type": "model",
-            "except": "$form.id",
-            "message": "该字段名称在当前模板下已存在。"
           }
         ],
         "meta": {

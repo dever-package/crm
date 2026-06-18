@@ -23,7 +23,6 @@ type Task struct {
 }
 
 type TaskIndex struct {
-	StageName     struct{} `unique:"stage_id,name"`
 	StageStatus   struct{} `index:"stage_id,status,sort,id"`
 	TypeStatus    struct{} `index:"task_type,status,sort,id"`
 	TriggerStatus struct{} `index:"trigger_type,trigger_task_id,status,id"`

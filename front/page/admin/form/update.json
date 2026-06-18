@@ -46,11 +46,6 @@
           {
             "type": "required",
             "message": "资料模板名称不能为空。"
-          },
-          {
-            "type": "model",
-            "except": "$form.id",
-            "message": "资料模板名称已存在。"
           }
         ],
         "meta": {

@@ -17,7 +17,6 @@ type Form struct {
 }
 
 type FormIndex struct {
-	Name       struct{} `unique:"name"`
 	StatusSort struct{} `index:"status,sort,id"`
 }
 

@@ -18,7 +18,6 @@ type Department struct {
 
 type DepartmentIndex struct {
 	Code        struct{} `unique:"code"`
-	Name        struct{} `unique:"name"`
 	LeaderStaff struct{} `index:"leader_staff_id,status,id"`
 	StatusSort  struct{} `index:"status,sort,id"`
 }

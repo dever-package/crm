@@ -15,7 +15,6 @@ type RuleScriptCate struct {
 }
 
 type RuleScriptCateIndex struct {
-	Name       struct{} `unique:"name"`
 	StatusSort struct{} `index:"status,sort,id"`
 }
 

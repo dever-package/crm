@@ -17,7 +17,6 @@ type DataTemplate struct {
 }
 
 type DataTemplateIndex struct {
-	CateName   struct{} `unique:"cate_id,name"`
 	CateStatus struct{} `index:"cate_id,status,sort,id"`
 }
 

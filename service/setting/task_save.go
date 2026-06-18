@@ -1,8 +1,6 @@
 package setting
 
 import (
-	"context"
-
 	"github.com/shemic/dever/server"
 	"github.com/shemic/dever/util"
 
@@ -30,7 +28,6 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 		}
 	}
 	ensureTaskNextStageExists(contextFromServer(c), record, partial)
-	ensureUniqueTaskName(contextFromServer(c), record, partial)
 	normalizeTaskVisibleWhen(contextFromServer(c), record, partial)
 	defaultCrmInt(record, "stage_id", 0, partial)
 	if shouldNormalizeCrmField(record, "task_type", partial) && util.ToStringTrimmed(record["task_type"]) == "" {
@@ -49,38 +46,6 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
 	return record
-}
-
-func ensureUniqueTaskName(ctx context.Context, record map[string]any, partial bool) {
-	taskID := util.ToUint64(record["id"])
-	stageID := util.ToUint64(record["stage_id"])
-	name := util.ToStringTrimmed(record["name"])
-
-	if partial && taskID > 0 && (stageID == 0 || name == "") {
-		if current := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": taskID}); current != nil {
-			if stageID == 0 {
-				stageID = current.StageID
-			}
-			if name == "" {
-				name = current.Name
-			}
-		}
-	}
-
-	if stageID == 0 || name == "" {
-		return
-	}
-
-	filters := map[string]any{
-		"stage_id": stageID,
-		"name":     name,
-	}
-	if taskID > 0 {
-		filters["id"] = map[string]any{"!=": taskID}
-	}
-	if crmmodel.NewTaskModel().Count(ctx, filters) > 0 {
-		panicCrmField("form.name", "当前阶段下任务名称已存在。")
-	}
 }
 
 func normalizeTaskTriggerConfig(record map[string]any, partial bool) {

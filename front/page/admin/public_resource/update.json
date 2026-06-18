@@ -62,11 +62,6 @@
           {
             "type": "required",
             "message": "资源名称不能为空。"
-          },
-          {
-            "type": "model",
-            "except": "$form.id",
-            "message": "同一分类下资源名称已存在。"
           }
         ],
         "meta": {

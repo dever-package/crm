@@ -24,7 +24,6 @@ type DataField struct {
 }
 
 type DataFieldIndex struct {
-	TemplateName   struct{} `unique:"data_template_id,name"`
 	TemplateKey    struct{} `index:"data_template_id,field_key"`
 	StatKey        struct{} `index:"stat_enabled,field_key,status,id"`
 	StatGroup      struct{} `index:"stat_group,stat_type,status,id"`

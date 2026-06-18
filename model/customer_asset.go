@@ -22,7 +22,6 @@ type CustomerAssetIndex struct {
 	AssetNo     struct{} `unique:"asset_no"`
 	CustomerSeq struct{} `index:"customer_id,asset_seq"`
 	Customer    struct{} `index:"customer_id,id"`
-	AssetName   struct{} `index:"asset_name,id"`
 	AssetStatus struct{} `index:"asset_status_id,id"`
 }
 

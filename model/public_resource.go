@@ -25,7 +25,6 @@ type PublicResource struct {
 }
 
 type PublicResourceIndex struct {
-	CateName       struct{} `unique:"resource_cate_id,name"`
 	CateStatusSort struct{} `index:"resource_cate_id,status,sort,id"`
 	OwnerStatus    struct{} `index:"owner_department_id,owner_staff_id,status,id"`
 	StatusSort     struct{} `index:"status,sort,id"`

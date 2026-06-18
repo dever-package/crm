@@ -25,7 +25,6 @@ type DataTemplateCate struct {
 }
 
 type DataTemplateCateIndex struct {
-	Name       struct{} `unique:"name"`
 	Target     struct{} `index:"target_table,id"`
 	StatusSort struct{} `index:"status,sort,id"`
 }

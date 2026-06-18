@@ -1,0 +1,19 @@
+{
+  "page": {
+    "name": "登录",
+    "type": 2
+  },
+  "layout": {
+    "type": "container"
+  },
+  "nodes": {
+    "__root__": [
+      {
+        "type": "show-crm-work-login"
+      }
+    ]
+  },
+  "data": {},
+  "state": {},
+  "action": {}
+}

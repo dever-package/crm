@@ -21,7 +21,6 @@ type Staff struct {
 type StaffIndex struct {
 	Phone            struct{} `index:"phone,id"`
 	FeishuOpenID     struct{} `index:"feishu_open_id,id"`
-	NameStatus       struct{} `index:"name,status,id"`
 	TypeStatus       struct{} `index:"staff_type,status,id"`
 	DepartmentStatus struct{} `index:"department_id,status,id"`
 }

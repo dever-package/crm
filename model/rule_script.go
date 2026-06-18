@@ -20,7 +20,6 @@ type RuleScript struct {
 
 type RuleScriptIndex struct {
 	CateStatus struct{} `index:"cate_id,status,sort,id"`
-	NameStatus struct{} `index:"name,status,id"`
 	StatusSort struct{} `index:"status,sort,id"`
 }
 
