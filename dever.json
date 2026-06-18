@@ -61,21 +61,6 @@
           "logo": "assets/images/logo.svg",
           "favicon": "assets/images/favicon.svg"
         },
-        "setting": {
-          "appearance": {
-            "theme": "light",
-            "sidebar": "floating",
-            "layout": "compact",
-            "direction": "ltr"
-          },
-          "runtime": {
-            "skin": "default",
-            "routerMode": "history",
-            "plugins": [
-              "crm"
-            ]
-          }
-        },
         "access": {
           "mode": "login",
           "authProvider": "user"
