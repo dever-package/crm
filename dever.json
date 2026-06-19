@@ -3,9 +3,7 @@
   "version": "0.1.0",
   "description": "Customer center, assets, operations, tasks, finance and organization resources",
   "depends": {
-    "front": ">=0.1.0",
-    "source": ">=0.1.0",
-    "user": ">=0.1.0"
+    "front": ">=0.1.0"
   },
   "skills": [
     "skills/SKILL.md"
