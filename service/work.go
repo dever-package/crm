@@ -16,9 +16,9 @@ import (
 	"github.com/shemic/dever/config"
 	"github.com/shemic/dever/orm"
 
-	crmmodel "my/package/crm/model"
-	frontservice "my/package/front/service"
-	uploadrepo "my/package/front/service/upload/repository"
+	crmmodel "github.com/dever-package/crm/model"
+	frontservice "github.com/dever-package/front/service"
+	uploadrepo "github.com/dever-package/front/service/upload/repository"
 )
 
 const (

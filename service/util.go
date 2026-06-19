@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	frontstream "my/package/front/service/stream"
+	frontstream "github.com/dever-package/front/service/stream"
 )
 
 func inputUint64(value any) uint64 {

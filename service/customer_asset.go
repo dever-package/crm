@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	crmmodel "my/package/crm/model"
+	crmmodel "github.com/dever-package/crm/model"
 )
 
 type CustomerAssetService struct{}

@@ -3,7 +3,7 @@ package api
 import (
 	"github.com/shemic/dever/server"
 
-	crmservice "my/package/crm/service"
+	crmservice "github.com/dever-package/crm/service"
 )
 
 type Data struct{}

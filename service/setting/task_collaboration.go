@@ -6,7 +6,7 @@ import (
 
 	"github.com/shemic/dever/util"
 
-	crmmodel "my/package/crm/model"
+	crmmodel "github.com/dever-package/crm/model"
 )
 
 func taskCollaborationItemsForForm(items []map[string]any) []map[string]any {

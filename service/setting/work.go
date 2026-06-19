@@ -4,7 +4,7 @@ import (
 	"github.com/shemic/dever/server"
 	"github.com/shemic/dever/util"
 
-	crmservice "my/package/crm/service"
+	crmservice "github.com/dever-package/crm/service"
 )
 
 func (CrmHook) ProviderLoadWorkCustomers(c *server.Context, _ []any) any {

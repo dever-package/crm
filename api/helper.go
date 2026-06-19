@@ -5,7 +5,7 @@ import (
 
 	"github.com/shemic/dever/server"
 
-	frontstream "my/package/front/service/stream"
+	frontstream "github.com/dever-package/front/service/stream"
 )
 
 func bindBody(c *server.Context) (map[string]any, error) {

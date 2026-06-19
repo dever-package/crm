@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	agentmodel "my/package/bot/model/agent"
-	agentservice "my/package/bot/service/agent"
-	crmmodel "my/package/crm/model"
+	agentmodel "github.com/dever-package/bot/model/agent"
+	agentservice "github.com/dever-package/bot/service/agent"
+	crmmodel "github.com/dever-package/crm/model"
 )
 
 func (WorkService) AIFill(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {

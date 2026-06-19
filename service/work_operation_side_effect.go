@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	crmmodel "my/package/crm/model"
+	crmmodel "github.com/dever-package/crm/model"
 )
 
 func syncWorkTaskPointLedger(ctx context.Context, staff *WorkStaffSession, completion workOperationCompletion) {

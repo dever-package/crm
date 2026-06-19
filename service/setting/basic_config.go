@@ -7,8 +7,8 @@ import (
 	"github.com/shemic/dever/server"
 	"github.com/shemic/dever/util"
 
-	crmmodel "my/package/crm/model"
-	crmservice "my/package/crm/service"
+	crmmodel "github.com/dever-package/crm/model"
+	crmservice "github.com/dever-package/crm/service"
 )
 
 func (CrmHook) ProviderBeforeSaveBasicConfig(_ *server.Context, params []any) any {

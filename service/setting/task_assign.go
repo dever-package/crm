@@ -5,7 +5,7 @@ import (
 
 	"github.com/shemic/dever/util"
 
-	crmmodel "my/package/crm/model"
+	crmmodel "github.com/dever-package/crm/model"
 )
 
 func normalizeTaskAssignDepartmentIDs(value any) []uint64 {

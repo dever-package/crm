@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	crmmodel "my/package/crm/model"
-	fronteval "my/package/front/service/eval"
+	crmmodel "github.com/dever-package/crm/model"
+	fronteval "github.com/dever-package/front/service/eval"
 )
 
 func runWorkAutoTriggers(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, sourceTask *crmmodel.Task, resultValue string, enteredStageCode string, runtime *workExecutionRuntime) {

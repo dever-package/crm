@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	crmmodel "my/package/crm/model"
+	crmmodel "github.com/dever-package/crm/model"
 )
 
 func CurrentBasicConfig(ctx context.Context) crmmodel.BasicConfig {

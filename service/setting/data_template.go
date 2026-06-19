@@ -6,7 +6,7 @@ import (
 	"github.com/shemic/dever/server"
 	"github.com/shemic/dever/util"
 
-	crmmodel "my/package/crm/model"
+	crmmodel "github.com/dever-package/crm/model"
 )
 
 func (CrmHook) ProviderBeforeSaveDataTemplateCate(_ *server.Context, params []any) any {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	crmmodel "my/package/crm/model"
-	fronteval "my/package/front/service/eval"
+	crmmodel "github.com/dever-package/crm/model"
+	fronteval "github.com/dever-package/front/service/eval"
 )
 
 type RuleService struct{}

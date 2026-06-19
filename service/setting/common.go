@@ -5,7 +5,7 @@ import (
 
 	"github.com/shemic/dever/util"
 
-	frontaction "my/package/front/service/action"
+	frontaction "github.com/dever-package/front/service/action"
 )
 
 type CrmHook struct{}
