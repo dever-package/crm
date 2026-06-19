@@ -1,6 +1,6 @@
 {
   "name": "crm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Customer center, assets, operations, tasks, finance and organization resources",
   "depends": {
     "front": ">=0.1.0"
