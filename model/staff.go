@@ -34,7 +34,7 @@ var staffSeed = []map[string]any{
 		"department_id": DefaultDepartmentID,
 		"staff_type":    StaffTypeLeader,
 		"phone":         "13800000000",
-		"password":      "123456",
+		"password":      "e10adc3949ba59abbe56e057f20f883e",
 		"status":        StatusEnabled,
 	},
 }

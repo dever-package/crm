@@ -88,11 +88,11 @@ func (WorkService) Login(ctx context.Context, payload map[string]any) (map[strin
 	if phone == "" || password == "" {
 		return nil, fmt.Errorf("手机号和密码不能为空")
 	}
-	staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
-		"phone":  phone,
-		"status": crmmodel.StatusEnabled,
-	})
-	if staff == nil || !VerifyCRMStaffPassword(staff.Password, password) {
+	staff, err := findUniqueEnabledStaffByField(ctx, "phone", phone, "手机号")
+	if err != nil {
+		return nil, err
+	}
+	if staff == nil || !verifyCRMStaffPassword(ctx, staff, password) {
 		return nil, fmt.Errorf("手机号或密码错误")
 	}
 	expiredAt := time.Now().Add(7 * 24 * time.Hour)
@@ -128,10 +128,10 @@ func (WorkService) FeishuLogin(ctx context.Context, payload map[string]any) (map
 	if openID == "" {
 		return nil, fmt.Errorf("飞书未返回 open_id")
 	}
-	staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
-		"feishu_open_id": openID,
-		"status":         crmmodel.StatusEnabled,
-	})
+	staff, err := findUniqueEnabledStaffByField(ctx, "feishu_open_id", openID, "飞书 OpenID")
+	if err != nil {
+		return nil, err
+	}
 	if staff == nil {
 		return nil, fmt.Errorf("飞书账号未绑定人员，请管理员在人员管理中配置 OpenID：%s", openID)
 	}
@@ -428,11 +428,42 @@ func CurrentWorkStaff(ctx context.Context) *WorkStaffSession {
 }
 
 func VerifyCRMStaffPassword(stored string, password string) bool {
-	if inputText(stored) == "" || inputText(password) == "" {
+	return frontservice.VerifyPassword(stored, password)
+}
+
+func findUniqueEnabledStaffByField(ctx context.Context, field string, value string, label string) (*crmmodel.Staff, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	rows := crmmodel.NewStaffModel().Select(ctx, map[string]any{
+		field:    value,
+		"status": crmmodel.StatusEnabled,
+	})
+	if len(rows) > 1 {
+		return nil, fmt.Errorf("%s 绑定了多个启用人员，请先在后台处理重复数据", label)
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return rows[0], nil
+}
+
+func verifyCRMStaffPassword(ctx context.Context, staff *crmmodel.Staff, password string) bool {
+	if staff == nil || inputText(password) == "" {
 		return false
 	}
-	hashed := frontservice.HashPlainPassword(password)
-	return stored == hashed || stored == password
+	if !frontservice.VerifyPassword(staff.Password, password) {
+		return false
+	}
+	if frontservice.PasswordNeedsUpgrade(staff.Password) {
+		if hashed, err := frontservice.HashPassword(password); err == nil {
+			crmmodel.NewStaffModel().Update(ctx, map[string]any{"id": staff.ID}, map[string]any{
+				"password": hashed,
+			})
+		}
+	}
+	return true
 }
 
 func createWorkToken(staff *crmmodel.Staff, expiredAt time.Time) (string, error) {
