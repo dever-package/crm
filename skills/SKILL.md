@@ -22,10 +22,11 @@ version: 0.1.0
 
 - 普通后台 CRUD 优先使用 `Model + package/front + page JSON`。
 - 不为客户、模板、财务、组织等普通维护页新增 CRUD wrapper API 或 Service。
+- 后台自定义 API 放 `api/admin`，URL 是 `/crm/admin/...`；work 前台 API 保持 `api/work.go`，URL 是 `/crm/work/...`。
 - 客户资产、阶段任务、任务执行、资料提交、财务流水、飞书登录、AI 填写等真实业务流程留在 `service`。
 - API 必须保持薄，只做请求解析、鉴权上下文和响应；业务编排放到 Service。
 - 不手改生成文件、编译产物或项目级菜单来补 CRM 菜单。
-- 不在 `dever.json` 写 `apiRoots`；API 扫描由 Dever 按组件自动处理。
+- `dever.json.front.sites.admin.api` 追加 `crm/admin`；`work` 站点主 API 是 `crm/work`，登录 token 必须带 `site=work` 或 `scope=crm_work`。
 - 公开接口只允许登录相关入口：`/crm/work/login`、`/crm/work/feishu_login`、`/crm/work/feishu_config`。
 - CRM 依赖 `front`、`source`、`user`，避免新增反向依赖或 import cycle。
 

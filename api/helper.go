@@ -16,6 +16,10 @@ func bindBody(c *server.Context) (map[string]any, error) {
 	return body, nil
 }
 
+func BindBody(c *server.Context) (map[string]any, error) {
+	return bindBody(c)
+}
+
 func crmJSON(c *server.Context, data any, err error) error {
 	if err != nil {
 		return c.JSONPayload(200, map[string]any{
@@ -31,8 +35,16 @@ func crmJSON(c *server.Context, data any, err error) error {
 	})
 }
 
+func WriteJSON(c *server.Context, data any, err error) error {
+	return crmJSON(c, data, err)
+}
+
 func uint64FromInput(value any) uint64 {
 	return uint64(frontstream.InputInt64(value, 0))
+}
+
+func Uint64FromInput(value any) uint64 {
+	return uint64FromInput(value)
 }
 
 func uint64FromBody(body map[string]any, keys ...string) uint64 {
@@ -44,6 +56,10 @@ func uint64FromBody(body map[string]any, keys ...string) uint64 {
 	return 0
 }
 
+func Uint64FromBody(body map[string]any, keys ...string) uint64 {
+	return uint64FromBody(body, keys...)
+}
+
 func textFromBody(body map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if text := strings.TrimSpace(frontstream.InputText(body[key])); text != "" {
@@ -51,6 +67,10 @@ func textFromBody(body map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func TextFromBody(body map[string]any, keys ...string) string {
+	return textFromBody(body, keys...)
 }
 
 func boolFromBody(body map[string]any, keys ...string) bool {
@@ -61,4 +81,8 @@ func boolFromBody(body map[string]any, keys ...string) bool {
 		}
 	}
 	return false
+}
+
+func BoolFromBody(body map[string]any, keys ...string) bool {
+	return boolFromBody(body, keys...)
 }

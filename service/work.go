@@ -404,6 +404,9 @@ func endWorkTaskExecution(runtime *workExecutionRuntime, customerID uint64, asse
 
 func CurrentWorkStaff(ctx context.Context) *WorkStaffSession {
 	claims := deverjwt.Claims(ctx)
+	if inputText(claims["site"]) != workSiteKey && inputText(claims["scope"]) != workAuthProvider {
+		return nil
+	}
 	staffID := inputUint64(claims["staff_id"])
 	if staffID == 0 {
 		staffID = inputUint64(claims["uid"])

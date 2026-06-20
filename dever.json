@@ -9,13 +9,9 @@
     "skills/SKILL.md"
   ],
   "front": {
-    "public": [
-      "/crm/work/login",
-      "/crm/work/feishu_login",
-      "/crm/work/feishu_config"
-    ],
     "sites": {
       "admin": {
+        "api": "crm/admin",
         "auth": [
           {
             "key": "crm-center",
@@ -50,7 +46,7 @@
         ]
       },
       "work": {
-        "api": "crm",
+        "api": "crm/work",
         "page": "work",
         "config": {
           "name": "CRM 工作台",
@@ -61,13 +57,13 @@
         },
         "access": {
           "mode": "login",
-          "authProvider": "user"
+          "authProvider": "crm_work"
         },
         "entry": "crm/work",
         "public": [
-          "work/login",
-          "work/feishu_login",
-          "work/feishu_config"
+          "login",
+          "feishu_login",
+          "feishu_config"
         ]
       }
     }
