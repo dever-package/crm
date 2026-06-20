@@ -16,7 +16,7 @@
           {
             "key": "crm-center",
             "name": "客户中心",
-            "icon": "users-round",
+            "icon": "handshake",
             "type": 1,
             "sort": 10,
             "children": [
