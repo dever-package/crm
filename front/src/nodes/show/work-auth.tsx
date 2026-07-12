@@ -2020,18 +2020,38 @@ const workStatsTrendSeries: Array<{
   { key: "operation_count", label: "操作记录", color: "#059669" },
 ];
 
+const workStatsPanelClass =
+  "rounded-md border border-border/70 bg-background p-4";
+
+function WorkStatsPanelHeader({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold leading-5 text-foreground">
+        {title}
+      </h3>
+      <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+        {description}
+      </p>
+    </div>
+  );
+}
+
 function WorkStatsTrendCard({ points }: { points: WorkSummaryTrendPoint[] }) {
   return (
-    <section className="rounded-lg border border-border/70 bg-background p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold leading-6">近 14 天趋势</h3>
-          <p className="text-sm leading-6 text-muted-foreground">
-            按天统计任务完成、阶段流转和操作记录。
-          </p>
-        </div>
-      </div>
-      <div className="mt-5">
+    <section
+      className={`${workStatsPanelClass} flex min-h-0 flex-col xl:h-[312px]`}
+    >
+      <WorkStatsPanelHeader
+        title="近 14 天趋势"
+        description="任务完成、阶段流转和操作记录"
+      />
+      <div className="mt-3 min-h-0 flex-1">
         {points.length === 0 ? (
           <WorkEmptyText>暂无趋势数据</WorkEmptyText>
         ) : (
@@ -2047,8 +2067,8 @@ function WorkStatsTrendChart({ points }: { points: WorkSummaryTrendPoint[] }) {
   return (
     <CrmEChart
       option={option}
-      height={310}
-      minWidth={720}
+      height={220}
+      minWidth={0}
       ariaLabel="近 14 天工作趋势"
     />
   );
@@ -2071,7 +2091,7 @@ function buildWorkStatsTrendOption(
     grid: {
       left: 8,
       right: 18,
-      top: 42,
+      top: 34,
       bottom: 8,
       containLabel: true,
     },
@@ -2081,7 +2101,7 @@ function buildWorkStatsTrendOption(
       icon: "circle",
       itemWidth: 8,
       itemHeight: 8,
-      textStyle: { color: crmChartTextColor, fontSize: 12 },
+      textStyle: { color: crmChartTextColor, fontSize: 11 },
     },
     tooltip: {
       trigger: "axis",
@@ -2113,8 +2133,8 @@ function buildWorkStatsTrendOption(
       type: "line",
       smooth: true,
       symbol: "circle",
-      symbolSize: 7,
-      lineStyle: { width: 3, color: series.color },
+      symbolSize: 5,
+      lineStyle: { width: 2, color: series.color },
       itemStyle: { color: series.color },
       emphasis: { focus: "series" },
       data: points.map((point) => workStatsTrendPointValue(point, series.key)),
@@ -2297,26 +2317,23 @@ function WorkStatsRecentOperations({
   loading: boolean;
 }) {
   return (
-    <section className="rounded-lg border border-border/70 bg-background p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold leading-6">最近操作</h3>
-          <p className="text-sm leading-6 text-muted-foreground">
-            最近 8 条由当前账号提交的任务或流转记录。
-          </p>
-        </div>
-        <TrendingUp className="h-5 w-5 shrink-0 text-muted-foreground/70" />
-      </div>
-      <div className="mt-5">
+    <section
+      className={`${workStatsPanelClass} flex min-h-0 flex-col xl:h-[312px]`}
+    >
+      <WorkStatsPanelHeader
+        title="最近操作"
+        description="当前账号最近提交的任务和流转"
+      />
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
         {loading && operations.length === 0 ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             正在加载最近操作
           </div>
         ) : operations.length === 0 ? (
           <WorkEmptyText>暂无最近操作</WorkEmptyText>
         ) : (
-          <div className="grid gap-3">
+          <div>
             {operations.map((operation, index) => (
               <WorkStatsOperationRow
                 key={workOperationTimelineKey(operation, index)}
@@ -2334,26 +2351,26 @@ function WorkStatsOperationRow({ operation }: { operation: WorkOperation }) {
   const tone = workOperationTone(operation);
   const description = workOperationDescription(operation);
   return (
-    <article className={`rounded-lg border px-4 py-3 ${tone.border}`}>
+    <article className="border-b border-border/60 py-2.5 last:border-b-0">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="min-w-0 break-words text-sm font-semibold leading-6">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="min-w-0 truncate text-xs font-medium text-foreground">
               {workOperationTitle(operation)}
             </span>
             <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium leading-5 ${tone.badge}`}
+              className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tone.badge}`}
             >
               {workOperationBadgeText(operation)}
             </span>
           </div>
           {description ? (
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
               {description}
             </p>
           ) : null}
         </div>
-        <span className="shrink-0 whitespace-nowrap text-xs leading-6 text-muted-foreground">
+        <span className="shrink-0 whitespace-nowrap text-[10px] leading-4 text-muted-foreground">
           {formatWorkDate(operation.created_at || operation.create_time)}
         </span>
       </div>
