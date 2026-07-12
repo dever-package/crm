@@ -166,27 +166,19 @@ Add one helper near the customer list helpers:
 
 ```go
 func workCustomerStageOptions(ctx context.Context) []map[string]any {
-	rows := crmmodel.NewStageModel().SelectMap(ctx, map[string]any{
+	rows := crmmodel.NewStageModel().Select(ctx, map[string]any{
 		"status": crmmodel.StatusEnabled,
-	}, map[string]any{
-		"field": "main.id,main.workflow_id,main.code,main.name,main.sort",
-		"order": "main.sort asc,main.id asc",
 	})
 	result := make([]map[string]any, 0, len(rows))
-	seen := map[string]bool{}
-	for _, row := range rows {
-		value := inputText(row["code"])
-		if value == "" {
-			value = inputText(row["name"])
-		}
-		if value == "" || seen[value] {
+	for _, stage := range rows {
+		if stage == nil || stage.ID == 0 || strings.TrimSpace(stage.Name) == "" {
 			continue
 		}
-		seen[value] = true
+		value := fmt.Sprintf("%d", stage.ID)
 		result = append(result, map[string]any{
 			"id":    value,
-			"value": inputText(row["name"]),
-			"code":  inputText(row["code"]),
+			"value": stage.Name,
+			"code":  value,
 		})
 	}
 	return result

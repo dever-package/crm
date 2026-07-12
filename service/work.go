@@ -248,17 +248,19 @@ func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, paylo
 	scope := normalizeWorkScope(staff, firstText(payload, "scope"))
 	staff = workStaffWithScope(staff, scope)
 	mode := normalizeWorkCustomerMode(firstText(payload, "mode"))
+	stageOptions := workCustomerStageOptions(ctx)
 	if !hasWorkCustomerListFilter(payload) {
 		snapshot := newWorkCustomerListSnapshot(ctx, staff)
 		list, page, pageSize, total := paginatedWorkCustomersFromSnapshot(ctx, staff, mode, payload, snapshot)
 		return map[string]any{
-			"list":         list,
-			"total":        total,
-			"page":         page,
-			"page_size":    pageSize,
-			"mode_counts":  workCustomerModeCountsFromSnapshot(snapshot, mode, total),
-			"scope":        scope,
-			"can_dispatch": staff.CanDispatch,
+			"list":          list,
+			"total":         total,
+			"page":          page,
+			"page_size":     pageSize,
+			"mode_counts":   workCustomerModeCountsFromSnapshot(snapshot, mode, total),
+			"stage_options": stageOptions,
+			"scope":         scope,
+			"can_dispatch":  staff.CanDispatch,
 		}, nil
 	}
 	customers := workCustomersByMode(ctx, staff, mode)
@@ -276,14 +278,34 @@ func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, paylo
 	list, page, pageSize, total := paginateWorkCustomerRows(customers, payload)
 	list = workCustomerListRows(list)
 	return map[string]any{
-		"list":         list,
-		"total":        total,
-		"page":         page,
-		"page_size":    pageSize,
-		"mode_counts":  modeCounts,
-		"scope":        scope,
-		"can_dispatch": staff.CanDispatch,
+		"list":          list,
+		"total":         total,
+		"page":          page,
+		"page_size":     pageSize,
+		"mode_counts":   modeCounts,
+		"stage_options": stageOptions,
+		"scope":         scope,
+		"can_dispatch":  staff.CanDispatch,
 	}, nil
+}
+
+func workCustomerStageOptions(ctx context.Context) []map[string]any {
+	rows := crmmodel.NewStageModel().Select(ctx, map[string]any{
+		"status": crmmodel.StatusEnabled,
+	})
+	result := make([]map[string]any, 0, len(rows))
+	for _, stage := range rows {
+		if stage == nil || stage.ID == 0 || strings.TrimSpace(stage.Name) == "" {
+			continue
+		}
+		value := fmt.Sprintf("%d", stage.ID)
+		result = append(result, map[string]any{
+			"id":    value,
+			"value": stage.Name,
+			"code":  value,
+		})
+	}
+	return result
 }
 
 func paginateWorkCustomerRows(rows []map[string]any, payload map[string]any) ([]map[string]any, int, int, int) {
@@ -373,11 +395,27 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 	if err != nil {
 		return nil, err
 	}
+	detailSections := workDataDetailSections(
+		ctx,
+		crmmodel.DataTemplateTargetCustomer,
+		crmmodel.CustomerDataTemplateCateID,
+		mapFromAny(customer["data_values"]),
+	)
+	if len(asset) > 0 {
+		detailSections = append(detailSections, workDataDetailSections(
+			ctx,
+			crmmodel.DataTemplateTargetCustomerAsset,
+			crmmodel.CustomerAssetDataTemplateCateID,
+			mapFromAny(asset["data_values"]),
+		)...)
+		detailSections = append(detailSections, workBusinessObjectDetailSections(ctx, asset)...)
+	}
 	result := map[string]any{
-		"customer":   customer,
-		"asset":      asset,
-		"operations": operations["list"],
-		"todos":      operations["todos"],
+		"customer":        customer,
+		"asset":           asset,
+		"operations":      operations["list"],
+		"todos":           operations["todos"],
+		"detail_sections": detailSections,
 	}
 	if assetID > 0 {
 		result["flow"] = workFlowDetail(ctx, staff, customerID, assetID)
@@ -3278,6 +3316,109 @@ func workBusinessObjectDisplayFields(ctx context.Context, values map[string]any)
 			row[metaKey] = metaValue
 		}
 		result = append(result, row)
+	}
+	return result
+}
+
+func workDataDetailSections(ctx context.Context, targetType string, cateID uint64, values map[string]any) []map[string]any {
+	if cateID == 0 {
+		return []map[string]any{}
+	}
+	templates := crmmodel.NewDataTemplateModel().Select(ctx, map[string]any{
+		"cate_id": cateID,
+		"status":  crmmodel.StatusEnabled,
+	})
+	result := make([]map[string]any, 0, len(templates))
+	for _, template := range templates {
+		if template == nil {
+			continue
+		}
+		fields := workDataDetailFields(ctx, template.ID, values)
+		if len(fields) == 0 {
+			continue
+		}
+		filled := 0
+		for _, field := range fields {
+			if !booleanFromAny(field["empty"]) {
+				filled++
+			}
+		}
+		percent := int(math.Round(float64(filled) / float64(len(fields)) * 100))
+		result = append(result, map[string]any{
+			"id":          fmt.Sprintf("%s:%d", targetType, template.ID),
+			"name":        template.Name,
+			"target_type": targetType,
+			"template_id": template.ID,
+			"filled":      filled,
+			"total":       len(fields),
+			"percent":     percent,
+			"fields":      fields,
+		})
+	}
+	return result
+}
+
+func workDataDetailFields(ctx context.Context, templateID uint64, values map[string]any) []map[string]any {
+	fields := crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
+		"data_template_id": templateID,
+		"status":           crmmodel.StatusEnabled,
+	})
+	parentNames := workDataCompletenessParentNames(ctx, fields)
+	result := make([]map[string]any, 0, len(fields))
+	for _, field := range fields {
+		if field == nil || field.FieldType == "group" {
+			continue
+		}
+		key := fmt.Sprintf("data:%d", field.ID)
+		rawValue := values[key]
+		empty := emptyWorkFieldValue(rawValue)
+		displayValue := ""
+		meta := map[string]any{}
+		if !empty {
+			displayValue, meta = workDataFieldDisplayValue(ctx, field, rawValue)
+			if displayValue == "" {
+				empty = true
+			}
+		}
+		item := map[string]any{
+			"key":        key,
+			"label":      field.Name,
+			"value":      displayValue,
+			"value_type": "text",
+			"empty":      empty,
+		}
+		if group := parentNames[field.ParentFieldID]; group != "" {
+			item["group"] = group
+		}
+		for metaKey, metaValue := range meta {
+			item[metaKey] = metaValue
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func workBusinessObjectDetailSections(ctx context.Context, asset map[string]any) []map[string]any {
+	result := []map[string]any{}
+	for _, object := range mapListFromAny(asset["business_objects"]) {
+		objectID := inputUint64(object["id"])
+		typeID := inputUint64(object["business_object_type_id"])
+		cateID := workBusinessObjectTemplateCateID(ctx, typeID)
+		if objectID == 0 || cateID == 0 {
+			continue
+		}
+		sections := workDataDetailSections(
+			ctx,
+			crmmodel.DataTemplateTargetBusinessObject,
+			cateID,
+			mapFromAny(object["data_values"]),
+		)
+		for _, section := range sections {
+			section["id"] = fmt.Sprintf("business_object:%d:%v", objectID, section["template_id"])
+			section["object_id"] = objectID
+			section["object_name"] = firstText(object, "object_name", "object_no")
+			result = append(result, section)
+		}
 	}
 	return result
 }
