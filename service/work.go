@@ -45,6 +45,7 @@ type WorkStaffSession struct {
 	FeishuOpenID string
 	DepartmentID uint64
 	CanDispatch  bool
+	ViewAll      bool
 }
 
 type feishuAppAccessTokenResponse struct {
@@ -237,23 +238,27 @@ func (WorkService) Me(_ context.Context, staff *WorkStaffSession) (map[string]an
 	if staff == nil || staff.ID == 0 {
 		return nil, fmt.Errorf("请先登录")
 	}
-	return map[string]any{"user": staff}, nil
+	return map[string]any{"user": workStaffSessionPayload(staff)}, nil
 }
 
 func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
 	if staff == nil || staff.ID == 0 {
 		return nil, fmt.Errorf("请先登录")
 	}
+	scope := normalizeWorkScope(staff, firstText(payload, "scope"))
+	staff = workStaffWithScope(staff, scope)
 	mode := normalizeWorkCustomerMode(firstText(payload, "mode"))
 	if !hasWorkCustomerListFilter(payload) {
 		snapshot := newWorkCustomerListSnapshot(ctx, staff)
 		list, page, pageSize, total := paginatedWorkCustomersFromSnapshot(ctx, staff, mode, payload, snapshot)
 		return map[string]any{
-			"list":        list,
-			"total":       total,
-			"page":        page,
-			"page_size":   pageSize,
-			"mode_counts": workCustomerModeCountsFromSnapshot(snapshot, mode, total),
+			"list":         list,
+			"total":        total,
+			"page":         page,
+			"page_size":    pageSize,
+			"mode_counts":  workCustomerModeCountsFromSnapshot(snapshot, mode, total),
+			"scope":        scope,
+			"can_dispatch": staff.CanDispatch,
 		}, nil
 	}
 	customers := workCustomersByMode(ctx, staff, mode)
@@ -271,11 +276,13 @@ func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, paylo
 	list, page, pageSize, total := paginateWorkCustomerRows(customers, payload)
 	list = workCustomerListRows(list)
 	return map[string]any{
-		"list":        list,
-		"total":       total,
-		"page":        page,
-		"page_size":   pageSize,
-		"mode_counts": modeCounts,
+		"list":         list,
+		"total":        total,
+		"page":         page,
+		"page_size":    pageSize,
+		"mode_counts":  modeCounts,
+		"scope":        scope,
+		"can_dispatch": staff.CanDispatch,
 	}, nil
 }
 
@@ -330,14 +337,18 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 	if staff == nil || staff.ID == 0 {
 		return nil, fmt.Errorf("请先登录")
 	}
+	viewStaff := staff
+	if staff.CanDispatch {
+		viewStaff = workStaffWithScope(staff, "all")
+	}
 	customerID := firstUint64(payload, "customer_id", "customerId")
 	if customerID == 0 {
 		return nil, fmt.Errorf("请选择客户")
 	}
-	if !canViewWorkCustomer(ctx, staff, customerID) {
+	if !canViewWorkCustomer(ctx, viewStaff, customerID) {
 		return nil, fmt.Errorf("无权查看该客户")
 	}
-	customer := workCustomerRow(ctx, staff, customerID)
+	customer := workCustomerRow(ctx, viewStaff, customerID)
 	if len(customer) == 0 {
 		return nil, fmt.Errorf("客户不存在")
 	}
@@ -345,7 +356,7 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 	assetID := firstUint64(payload, "asset_id", "assetId")
 	asset := map[string]any(nil)
 	if assetID > 0 {
-		if !canViewWorkAsset(ctx, staff, customerID, assetID) {
+		if !canViewWorkAsset(ctx, viewStaff, customerID, assetID) {
 			return nil, fmt.Errorf("无权查看该资产")
 		}
 		asset = workCustomerRowAsset(customer, assetID)
@@ -358,16 +369,20 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 	if assetID > 0 {
 		operationPayload["asset_id"] = assetID
 	}
-	operations, err := (WorkService{}).Operations(ctx, staff, operationPayload)
+	operations, err := (WorkService{}).Operations(ctx, viewStaff, operationPayload)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{
+	result := map[string]any{
 		"customer":   customer,
 		"asset":      asset,
 		"operations": operations["list"],
 		"todos":      operations["todos"],
-	}, nil
+	}
+	if assetID > 0 {
+		result["flow"] = workFlowDetail(ctx, staff, customerID, assetID)
+	}
+	return result, nil
 }
 
 func (WorkService) Operations(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
@@ -563,8 +578,39 @@ func workStaffPayload(staff *crmmodel.Staff, expiredAt time.Time) map[string]any
 		"phone":          staff.Phone,
 		"feishu_open_id": staff.FeishuOpenID,
 		"department_id":  staff.DepartmentID,
+		"can_dispatch":   staff.CanDispatch,
 		"exp":            expiredAt.UnixMilli(),
 	}
+}
+
+func workStaffSessionPayload(staff *WorkStaffSession) map[string]any {
+	if staff == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"id":             staff.ID,
+		"name":           staff.Name,
+		"phone":          staff.Phone,
+		"feishu_open_id": staff.FeishuOpenID,
+		"department_id":  staff.DepartmentID,
+		"can_dispatch":   staff.CanDispatch,
+	}
+}
+
+func normalizeWorkScope(staff *WorkStaffSession, scope string) string {
+	if staff != nil && staff.CanDispatch && strings.TrimSpace(scope) == "all" {
+		return "all"
+	}
+	return "mine"
+}
+
+func workStaffWithScope(staff *WorkStaffSession, scope string) *WorkStaffSession {
+	if staff == nil {
+		return nil
+	}
+	copy := *staff
+	copy.ViewAll = staff.CanDispatch && scope == "all"
+	return &copy
 }
 
 func visibleWorkCustomers(ctx context.Context, staff *WorkStaffSession) []map[string]any {
@@ -589,6 +635,14 @@ func visibleWorkCustomerIDs(ctx context.Context, staff *WorkStaffSession) []uint
 		}
 		seen[customerID] = true
 		rows = append(rows, customerID)
+	}
+	if staff.CanDispatch && staff.ViewAll {
+		for _, customer := range crmmodel.NewCustomerModel().Select(ctx, map[string]any{}) {
+			if customer != nil {
+				appendID(customer.ID)
+			}
+		}
+		return rows
 	}
 	members := crmmodel.NewCustomerMemberModel().Select(ctx, map[string]any{
 		"staff_id": staff.ID,
@@ -624,14 +678,6 @@ func visibleWorkCustomerIDs(ctx context.Context, staff *WorkStaffSession) []uint
 			continue
 		}
 		appendID(state.CustomerID)
-	}
-	if staff.DepartmentID > 0 {
-		for _, state := range crmmodel.NewCustomerStageModel().Select(ctx, map[string]any{"owner_department_id": staff.DepartmentID}) {
-			if state == nil {
-				continue
-			}
-			appendID(state.CustomerID)
-		}
 	}
 	for _, todo := range crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{"status": crmmodel.WorkTodoStatusPending}) {
 		if todo != nil && canOperateWorkTodo(staff, todo) {
@@ -1189,11 +1235,13 @@ func workPendingTargetsForCustomerIDs(ctx context.Context, staff *WorkStaffSessi
 		if customerID == 0 {
 			continue
 		}
-		if len(workPendingTargetTasks(ctx, staff, customerID, 0)) > 0 {
+		customerProgress := currentWorkCustomerStage(ctx, customerID, 0)
+		if canManageWorkProgress(staff, customerProgress) || len(workPendingTargetTasks(ctx, staff, customerID, 0)) > 0 {
 			targets = append(targets, workPendingTarget{customerID: customerID})
 		}
 		for _, assetID := range workSummaryVisibleAssetIDs(ctx, staff, customerID) {
-			if len(workPendingTargetTasks(ctx, staff, customerID, assetID)) == 0 {
+			progress := currentWorkCustomerStage(ctx, customerID, assetID)
+			if !canManageWorkProgress(staff, progress) && len(workPendingTargetTasks(ctx, staff, customerID, assetID)) == 0 {
 				continue
 			}
 			targets = append(targets, workPendingTarget{
@@ -1203,6 +1251,13 @@ func workPendingTargetsForCustomerIDs(ctx context.Context, staff *WorkStaffSessi
 		}
 	}
 	return targets
+}
+
+func canManageWorkProgress(staff *WorkStaffSession, progress *crmmodel.CustomerStage) bool {
+	if staff == nil || progress == nil || progress.Status != crmmodel.ProgressStatusActive {
+		return false
+	}
+	return progress.OwnerStaffID == staff.ID || staff.CanDispatch && staff.ViewAll
 }
 
 func workPendingTargetTasks(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) []map[string]any {
@@ -1367,11 +1422,11 @@ func sortWorkRowsByPendingTasks(rows []map[string]any) {
 }
 
 func workRowHasPendingTasks(row map[string]any) bool {
-	if len(mapListFromAny(row["row_tasks"])) > 0 {
+	if len(mapListFromAny(row["row_tasks"])) > 0 || inputText(row["progress_status"]) == crmmodel.ProgressStatusActive {
 		return true
 	}
 	for _, asset := range mapListFromAny(row["assets"]) {
-		if len(mapListFromAny(asset["row_tasks"])) > 0 {
+		if len(mapListFromAny(asset["row_tasks"])) > 0 || inputText(asset["progress_status"]) == crmmodel.ProgressStatusActive {
 			return true
 		}
 	}
@@ -1717,22 +1772,22 @@ func doneWorkCustomerTargets(ctx context.Context, staff *WorkStaffSession) []don
 	}
 	targetIndexes := map[uint64]int{}
 	targets := make([]doneWorkCustomerTarget, 0)
-	for _, progress := range crmmodel.NewCustomerStageModel().Select(ctx, map[string]any{
-		"status": crmmodel.ProgressStatusCompleted,
-	}) {
-		if progress == nil || progress.CustomerID == 0 || progress.AssetID == 0 {
-			continue
+	for _, status := range []string{crmmodel.ProgressStatusCompleted, crmmodel.ProgressStatusTerminated} {
+		for _, progress := range crmmodel.NewCustomerStageModel().Select(ctx, map[string]any{"status": status}) {
+			if progress == nil || progress.CustomerID == 0 || progress.AssetID == 0 {
+				continue
+			}
+			if !canViewWorkAsset(ctx, staff, progress.CustomerID, progress.AssetID) {
+				continue
+			}
+			index, exists := targetIndexes[progress.CustomerID]
+			if !exists {
+				index = len(targets)
+				targetIndexes[progress.CustomerID] = index
+				targets = append(targets, doneWorkCustomerTarget{customerID: progress.CustomerID})
+			}
+			targets[index].assetIDs = append(targets[index].assetIDs, progress.AssetID)
 		}
-		if !canViewWorkAsset(ctx, staff, progress.CustomerID, progress.AssetID) {
-			continue
-		}
-		index, exists := targetIndexes[progress.CustomerID]
-		if !exists {
-			index = len(targets)
-			targetIndexes[progress.CustomerID] = index
-			targets = append(targets, doneWorkCustomerTarget{customerID: progress.CustomerID})
-		}
-		targets[index].assetIDs = append(targets[index].assetIDs, progress.AssetID)
 	}
 	return targets
 }
@@ -1843,7 +1898,7 @@ func workRowWithPendingTasks(row map[string]any) (map[string]any, bool) {
 	rowTasks := mapListFromAny(row["row_tasks"])
 	assets := mapListFromAny(row["assets"])
 	pendingAssets := workAssetsWithPendingTasks(assets)
-	if len(rowTasks) == 0 && len(pendingAssets) == 0 {
+	if len(rowTasks) == 0 && inputText(row["progress_status"]) != crmmodel.ProgressStatusActive && len(pendingAssets) == 0 {
 		return nil, false
 	}
 	pendingRow := copyMap(row)
@@ -1859,7 +1914,7 @@ func workAssetsWithPendingTasks(assets []map[string]any) []map[string]any {
 	}
 	result := make([]map[string]any, 0, len(assets))
 	for _, asset := range assets {
-		if len(mapListFromAny(asset["row_tasks"])) > 0 {
+		if len(mapListFromAny(asset["row_tasks"])) > 0 || inputText(asset["progress_status"]) == crmmodel.ProgressStatusActive {
 			result = append(result, asset)
 		}
 	}
@@ -1869,6 +1924,9 @@ func workAssetsWithPendingTasks(assets []map[string]any) []map[string]any {
 func canViewWorkCustomer(ctx context.Context, staff *WorkStaffSession, customerID uint64) bool {
 	if staff == nil || staff.ID == 0 || customerID == 0 {
 		return false
+	}
+	if staff.CanDispatch && staff.ViewAll {
+		return crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}) != nil
 	}
 	if crmmodel.NewOperationLogModel().Find(ctx, map[string]any{
 		"customer_id":       customerID,
@@ -1885,26 +1943,10 @@ func canViewWorkCustomer(ctx context.Context, staff *WorkStaffSession, customerI
 	}) != nil {
 		return true
 	}
-	if staff.DepartmentID > 0 {
-		if crmmodel.NewCustomerStageModel().Find(ctx, map[string]any{
-			"customer_id":         customerID,
-			"owner_department_id": staff.DepartmentID,
-		}) != nil {
-			return true
-		}
-	}
 	if crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
 		"customer_id":       customerID,
 		"assignee_staff_id": staff.ID,
 		"status":            crmmodel.WorkTodoStatusPending,
-	}) != nil {
-		return true
-	}
-	if staff.DepartmentID > 0 && crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
-		"customer_id":            customerID,
-		"assignee_department_id": staff.DepartmentID,
-		"assignee_staff_id":      uint64(0),
-		"status":                 crmmodel.WorkTodoStatusPending,
 	}) != nil {
 		return true
 	}
@@ -1936,6 +1978,12 @@ func canViewWorkAsset(ctx context.Context, staff *WorkStaffSession, customerID u
 	if staff == nil || customerID == 0 || assetID == 0 {
 		return false
 	}
+	if staff.CanDispatch && staff.ViewAll {
+		return crmmodel.NewCustomerAssetModel().Find(ctx, map[string]any{
+			"id":          assetID,
+			"customer_id": customerID,
+		}) != nil
+	}
 	if crmmodel.NewOperationLogModel().Find(ctx, map[string]any{
 		"customer_id":       customerID,
 		"asset_id":          assetID,
@@ -1954,15 +2002,6 @@ func canViewWorkAsset(ctx context.Context, staff *WorkStaffSession, customerID u
 		"asset_id":          assetID,
 		"assignee_staff_id": staff.ID,
 		"status":            crmmodel.WorkTodoStatusPending,
-	}) != nil {
-		return true
-	}
-	if staff.DepartmentID > 0 && crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
-		"customer_id":            customerID,
-		"asset_id":               assetID,
-		"assignee_department_id": staff.DepartmentID,
-		"assignee_staff_id":      uint64(0),
-		"status":                 crmmodel.WorkTodoStatusPending,
 	}) != nil {
 		return true
 	}

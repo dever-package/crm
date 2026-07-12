@@ -115,7 +115,11 @@ export type WorkTask = {
   due_at?: string;
   result?: string;
   can_operate?: boolean;
+  can_assign?: boolean;
+  can_reassign?: boolean;
   unassigned?: boolean;
+  required?: boolean;
+  assignee_mode?: "stage" | "auto" | "manual" | string;
   workflow_id?: string | number;
   workflow_name?: string;
   stage_id?: string | number;
@@ -287,6 +291,52 @@ export type WorkTodo = {
   [key: string]: unknown;
 };
 
+export type WorkFlowAssignee = {
+  id?: string | number;
+  name?: string;
+  department_id?: string | number;
+  active_asset_count?: string | number;
+  pending_task_count?: string | number;
+  last_assigned_at?: string;
+};
+
+export type WorkFlowDetail = {
+  id?: string | number;
+  customer_id?: string | number;
+  asset_id?: string | number;
+  workflow_id?: string | number;
+  workflow_name?: string;
+  stage_id?: string | number;
+  stage_name?: string;
+  stage_assignment_mode?: "auto" | "manual" | string;
+  owner_department_id?: string | number;
+  owner_department_name?: string;
+  owner_staff_id?: string | number;
+  owner_staff_name?: string;
+  status?: "not_started" | "active" | "completed" | "terminated" | string;
+  started_at?: string;
+  completed_at?: string;
+  terminated_at?: string;
+  terminated_reason?: string;
+  pending_required_count?: string | number;
+  is_current_owner?: boolean;
+  can_dispatch?: boolean;
+  can_complete_stage?: boolean;
+  ready_to_complete?: boolean;
+  can_terminate?: boolean;
+  can_change_owner?: boolean;
+  tasks?: WorkTask[];
+  next_terminal?: boolean;
+  next_workflow_id?: string | number;
+  next_workflow_name?: string;
+  next_stage_id?: string | number;
+  next_stage_name?: string;
+  next_department_id?: string | number;
+  next_assignment_mode?: "auto" | "manual" | string;
+  next_owner_required?: boolean;
+  configuration_error?: string;
+};
+
 export type WorkOperationSummaryItem = {
   key?: string;
   label?: string;
@@ -341,6 +391,7 @@ export type WorkItem = {
 };
 
 export type WorkCustomerMode = "all" | "pending" | "done";
+export type WorkCustomerScope = "mine" | "all";
 
 export type WorkSearchFilters = {
   customerNo: string;
@@ -492,8 +543,8 @@ export const workCustomerModeConfig: Record<
     emptyDescription: "当前没有需要处理的客户或资产任务",
   },
   done: {
-    emptyTitle: "暂无已完成工作",
-    emptyDescription: "完成客户或资产任务后，会在这里留存记录",
+    emptyTitle: "暂无已结束业务",
+    emptyDescription: "当前没有已完成或已终止的流程",
   },
 };
 

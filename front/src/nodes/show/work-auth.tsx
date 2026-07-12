@@ -59,10 +59,12 @@ import {
   type WorkCommonOption,
   type WorkCustomer,
   type WorkCustomerMode,
+  type WorkCustomerScope,
   type WorkDataCompletenessTemplate,
   type WorkDisplayField,
   type WorkFieldOption,
   type WorkFormField,
+  type WorkFlowDetail,
   type WorkItem,
   type WorkNodeProps,
   type WorkOperation,
@@ -80,6 +82,7 @@ import {
   type WorkTaskFormState,
   type WorkTodo,
 } from "./work-core";
+import { WorkFlowActions } from "./work-flow-actions";
 import {
   buildFeishuOAuthURL,
   getFeishuAuthCode,
@@ -382,6 +385,7 @@ function workCustomerQuery(
     quickFilter: WorkQuickFilter;
     stageFilter: string;
     taskFilter: string;
+    scope: WorkCustomerScope;
   },
 ): string {
   const params = new URLSearchParams(
@@ -390,6 +394,7 @@ function workCustomerQuery(
   params.set("mode", mode);
   params.set("page", String(page));
   params.set("page_size", String(pageSize));
+  params.set("scope", workFilters.scope);
   if (workFilters.quickFilter && workFilters.quickFilter !== "all") {
     params.set("quick_filter", workFilters.quickFilter);
   }
@@ -1124,6 +1129,7 @@ type WorkDetailTargetResponse = {
   operations?: WorkOperation[];
   list?: WorkOperation[];
   todos?: WorkTodo[];
+  flow?: WorkFlowDetail | null;
 };
 
 function setWorkDetailTarget(
@@ -1326,7 +1332,7 @@ const workTopFilterOptions: Array<{
   quickFilter: WorkQuickFilter;
 }> = [
   { key: "pending", label: "待处理", mode: "pending", quickFilter: "all" },
-  { key: "done", label: "完成", mode: "done", quickFilter: "all" },
+  { key: "done", label: "已结束", mode: "done", quickFilter: "all" },
   { key: "all", label: "全部", mode: "all", quickFilter: "all" },
 ];
 
@@ -2377,6 +2383,8 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
   const [modeCounts, setModeCounts] = useState<WorkCustomerModeCounts>(
     emptyWorkCustomerModeCounts,
   );
+  const [scope, setScope] = useState<WorkCustomerScope>("mine");
+  const [canDispatch, setCanDispatch] = useState(false);
   const [pageState, setPageState] = useState<WorkCustomerPageState>({
     page: 1,
     pageSize: workCustomerPageSize,
@@ -2397,6 +2405,7 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
         quickFilter,
         stageFilter,
         taskFilter,
+        scope,
       },
     );
     if (loadingQueryRef.current === query) return;
@@ -2413,12 +2422,15 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
         page?: string | number;
         page_size?: string | number;
         mode_counts?: Partial<Record<WorkCustomerMode, string | number>>;
+        can_dispatch?: boolean;
+        scope?: WorkCustomerScope;
       }>(`/crm/work/customers${query}`);
       if (loadVersionRef.current !== version) return;
       const list = payload.list || payload.customers || payload.data || [];
       const nextCustomers = Array.isArray(list) ? list : [];
       const nextTotal = Number(payload.total) || nextCustomers.length;
       setCustomers(nextCustomers);
+      setCanDispatch(Boolean(payload.can_dispatch));
       setPageState({
         page: Number(payload.page) || page,
         pageSize: Number(payload.page_size) || workCustomerPageSize,
@@ -2438,7 +2450,7 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
         setLoading(false);
       }
     }
-  }, [activeFilters, mode, quickFilter, stageFilter, taskFilter]);
+  }, [activeFilters, mode, quickFilter, scope, stageFilter, taskFilter]);
 
   useEffect(() => {
     setCustomers([]);
@@ -2483,7 +2495,13 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
         mode={mode}
         modeCounts={modeCounts}
         taskList={taskList}
+        scope={scope}
+        canDispatch={canDispatch}
         store={store}
+        onScopeChange={(nextScope) => {
+          setCustomers([]);
+          setScope(nextScope);
+        }}
         onModeChange={(nextMode, nextQuickFilter) => {
           setMode(nextMode);
           setQuickFilter(nextQuickFilter);
@@ -2606,14 +2624,20 @@ function WorkCustomerListHeader({
   mode,
   modeCounts,
   taskList,
+  scope,
+  canDispatch,
   store,
   onModeChange,
+  onScopeChange,
 }: {
   mode: WorkCustomerMode;
   modeCounts: WorkCustomerModeCounts;
   taskList: WorkTaskListState;
+  scope: WorkCustomerScope;
+  canDispatch: boolean;
   store?: StoreLike;
   onModeChange: (mode: WorkCustomerMode, quickFilter: WorkQuickFilter) => void;
+  onScopeChange: (scope: WorkCustomerScope) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -2626,6 +2650,9 @@ function WorkCustomerListHeader({
         onChange={onModeChange}
       />
       <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        {canDispatch ? (
+          <WorkCustomerScopeToggle scope={scope} onChange={onScopeChange} />
+        ) : null}
         <ShowCrmWorkRefreshButton />
         <WorkGlobalTaskButtons
           tasks={taskList.tasks}
@@ -2634,6 +2661,36 @@ function WorkCustomerListHeader({
           align="end"
         />
       </div>
+    </div>
+  );
+}
+
+function WorkCustomerScopeToggle({
+  scope,
+  onChange,
+}: {
+  scope: WorkCustomerScope;
+  onChange: (scope: WorkCustomerScope) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-border/60 bg-muted/30 p-1 shadow-sm">
+      {([
+        ["mine", "我的"],
+        ["all", "全部"],
+      ] as const).map(([value, label]) => (
+        <button
+          type="button"
+          key={value}
+          className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+            scope === value
+              ? "bg-background text-foreground shadow-sm ring-1 ring-border/60"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => onChange(value)}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -3355,6 +3412,7 @@ function useWorkDetailData(
   const [asset, setAsset] = useState<WorkAsset | null>(initialAsset ?? null);
   const [operations, setOperations] = useState<WorkOperation[]>([]);
   const [todos, setTodos] = useState<WorkTodo[]>([]);
+  const [flow, setFlow] = useState<WorkFlowDetail | null>(null);
   const [loading, setLoading] = useState(false);
 
   const reload = useCallback(async () => {
@@ -3363,6 +3421,7 @@ function useWorkDetailData(
       setAsset(initialAssetRef.current);
       setOperations([]);
       setTodos([]);
+      setFlow(null);
       return;
     }
     setLoading(true);
@@ -3377,10 +3436,12 @@ function useWorkDetailData(
           : [];
       setOperations(list);
       setTodos(Array.isArray(data?.todos) ? data.todos : []);
+      setFlow(data?.flow ?? null);
     } catch (error) {
       toast.error(errorMessage(error, "详情加载失败"));
       setOperations([]);
       setTodos([]);
+      setFlow(null);
     } finally {
       setLoading(false);
     }
@@ -3396,6 +3457,7 @@ function useWorkDetailData(
     setAsset(initialAssetRef.current);
     setOperations([]);
     setTodos([]);
+    setFlow(null);
   }, [assetID, customerID]);
 
   useEffect(() => {
@@ -3412,7 +3474,7 @@ function useWorkDetailData(
     };
   }, [customerID, reload]);
 
-  return { customer, asset, operations, todos, loading, reload };
+  return { customer, asset, operations, todos, flow, loading, reload };
 }
 
 function WorkCustomerDetailContent({
@@ -3485,6 +3547,7 @@ function WorkAssetDetailContent({
     asset: detailAsset,
     operations,
     todos,
+    flow,
     loading: loadingDetail,
   } = useWorkDetailData(customer, asset, store);
 
@@ -3508,13 +3571,16 @@ function WorkAssetDetailContent({
             store={store}
           />
         ) : activeTab === "flow" ? (
-          <WorkDetailOverview
-            operations={operations}
-            loadingOperations={loadingDetail}
-            operationScope={operationScope}
-            onOperationScopeChange={setOperationScope}
-            store={store}
-          />
+          <div className="grid gap-5">
+            <WorkFlowActions flow={flow} loading={loadingDetail} />
+            <WorkDetailOverview
+              operations={operations}
+              loadingOperations={loadingDetail}
+              operationScope={operationScope}
+              onOperationScopeChange={setOperationScope}
+              store={store}
+            />
+          </div>
         ) : (
           <WorkCustomerMainInfo
             customer={detailCustomer}

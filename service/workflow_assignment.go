@@ -173,8 +173,7 @@ func AssignPendingWorkTodo(ctx context.Context, staff *WorkStaffSession, todoID,
 		if task == nil {
 			return fmt.Errorf("任务配置不存在")
 		}
-		isCurrentOwner := progress.OwnerStaffID == staff.ID
-		if !staff.CanDispatch && (!isCurrentOwner || task.AssigneeMode != crmmodel.TaskAssigneeManual) {
+		if !canAssignPendingTodo(staff, progress, task) {
 			return fmt.Errorf("只有当前负责人可以分配手动任务，其他改派由流程调度员处理")
 		}
 		target := enabledStaffInDepartment(txCtx, assigneeStaffID, todo.AssigneeDepartmentID)
@@ -206,6 +205,16 @@ func AssignPendingWorkTodo(ctx context.Context, staff *WorkStaffSession, todoID,
 		return nil
 	})
 	return assigned, err
+}
+
+func canAssignPendingTodo(staff *WorkStaffSession, progress *crmmodel.CustomerStage, task *crmmodel.Task) bool {
+	if staff == nil || staff.ID == 0 || progress == nil || task == nil || progress.Status != crmmodel.ProgressStatusActive {
+		return false
+	}
+	if staff.CanDispatch {
+		return true
+	}
+	return progress.OwnerStaffID == staff.ID && task.AssigneeMode == crmmodel.TaskAssigneeManual
 }
 
 func ChangeAssetStageOwner(ctx context.Context, staff *WorkStaffSession, assetID, ownerStaffID uint64) (*crmmodel.CustomerStage, error) {
