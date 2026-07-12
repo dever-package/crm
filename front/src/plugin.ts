@@ -3,7 +3,6 @@ import { defineFrontPlugin, lazyNode } from "@dever/front-plugin";
 const loadWorkAuth = () => import("./nodes/show/work-auth");
 const loadWorkLead = () => import("./nodes/show/work-lead");
 const loadWorkShell = () => import("./nodes/show/work-shell");
-const loadWorkSkin = () => import("./nodes/show/work-skin");
 const loadAdminStats = () => import("./nodes/show/admin-stats");
 
 export default defineFrontPlugin({
@@ -67,11 +66,6 @@ export default defineFrontPlugin({
     "show-crm-work-titlebar": lazyNode(() =>
       loadWorkShell().then((mod) => ({
         default: mod.ShowCrmWorkTitlebar,
-      })),
-    ),
-    "show-crm-work-skin": lazyNode(() =>
-      loadWorkSkin().then((mod) => ({
-        default: mod.ShowCrmWorkSkin,
       })),
     ),
     "show-crm-work-stats": lazyNode(() =>

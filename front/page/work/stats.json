@@ -8,11 +8,11 @@
   },
   "layout": {
     "type": "container",
-    "className": "crm-work-page crm-work-stats-page",
+    "className": "crm-body-page",
     "children": {
       "header": {
         "type": "container",
-        "className": "mb-4 flex flex-wrap items-center justify-between gap-3"
+        "className": "mb-4 flex justify-end"
       },
       "content": {
         "type": "container",
@@ -22,11 +22,6 @@
   },
   "nodes": {
     "header": [
-      {
-        "type": "show-title",
-        "name": "工作台",
-        "description": "查看当前人员的客户、资产、待办与操作概览"
-      },
       {
         "type": "show-crm-work-refresh-button"
       }

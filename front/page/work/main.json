@@ -5,55 +5,48 @@
   },
   "layout": {
     "type": "container",
-    "className": "crm-work-app",
+    "className": "crm-body-app",
     "children": {
       "sidebar": {
-        "type": "container"
+        "type": "container",
+        "className": "crm-body-sidebar-slot"
       },
-      "shell": {
-        "type": "shell-sidebar-inset",
+      "main": {
+        "type": "container",
+        "className": "crm-body-main",
         "children": {
-          "topbar": {
-            "type": "container"
-          },
-          "content": {
+          "frame": {
             "type": "container",
-            "className": "flex min-h-0 flex-1 flex-col"
+            "className": "crm-body-frame",
+            "children": {
+              "titlebar": {
+                "type": "container",
+                "className": "crm-body-titlebar-slot"
+              },
+              "content": {
+                "type": "container",
+                "className": "crm-body-content"
+              }
+            }
           }
         }
-      },
-      "assistant": {
-        "type": "container"
       }
     }
   },
   "nodes": {
-    "__root__": [
-      {
-        "type": "app-skip-to-main"
-      },
-      {
-        "type": "show-crm-work-skin"
-      }
-    ],
     "sidebar": [
       {
-        "type": "app-sidebar"
+        "type": "show-crm-work-sidebar"
       }
     ],
-    "topbar": [
+    "titlebar": [
       {
-        "type": "app-topbar"
+        "type": "show-crm-work-titlebar"
       }
     ],
     "content": [
       {
         "type": "app-outlet"
-      }
-    ],
-    "assistant": [
-      {
-        "type": "app-assistant"
       }
     ]
   },
