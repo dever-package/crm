@@ -43,12 +43,6 @@ import {
   workCustomerModeConfig,
   workRefreshEvent,
   workStoreValue,
-  workTableCellClass,
-  workTableHeadClass,
-  workTableStickyLeftCellClass,
-  workTableStickyLeftHeadClass,
-  workTableStickyRightCellClass,
-  workTableStickyRightHeadClass,
   workTaskFieldMapPath,
   workTaskActiveGroupPath,
   workTaskFormDataPath,
@@ -106,6 +100,7 @@ import {
 import { WorkFlowActions } from "./work-flow-actions";
 import {
   focusFirstWorkTaskFormError,
+  workTaskFormValueEmpty,
   workTaskLayoutMode,
   workTaskNodeFormFields,
 } from "./work-task-form";
@@ -359,10 +354,6 @@ function workItemCustomerNo(item: WorkItem): string {
   return workCustomerNo(item.customer);
 }
 
-function renderWorkItemStatus(item: WorkItem) {
-  return renderStatus(item.asset || item.customer);
-}
-
 function workSearchQuery(filters: WorkSearchFilters): string {
   const params = new URLSearchParams();
   const entries: Array<[string, string]> = [
@@ -456,40 +447,6 @@ function workCustomerModeFromNode(
   return pathname.endsWith("/work/done") || pathname.includes("/work/done/")
     ? "done"
     : "all";
-}
-
-function renderStatus(
-  target?: Pick<
-    WorkCustomer,
-    | "stage_code"
-    | "stage_name"
-    | "status_code"
-    | "status_name"
-    | "current_status_name"
-    | "current_stage_name"
-  > | null,
-) {
-  const statusName = workStatusName(target);
-  if (!statusName || statusName === "-") {
-    return <span className="text-muted-foreground">-</span>;
-  }
-  return (
-    <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium">
-      {statusName}
-    </span>
-  );
-}
-
-function renderAssetStatus(asset: WorkAsset) {
-  const statusName = textValue(asset.asset_status_name);
-  if (!statusName) {
-    return null;
-  }
-  return (
-    <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-      {statusName}
-    </span>
-  );
 }
 
 async function openRowTask(
@@ -1115,10 +1072,6 @@ function workFieldOption(option: WorkFieldOption): WorkCommonOption {
     id,
     value: workOptionLabel(option),
   };
-}
-
-function workIsRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function openWorkDetail(
@@ -2734,256 +2687,6 @@ function WorkCustomerPagination({
   );
 }
 
-function WorkTableHead({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <th className={`${workTableHeadClass} ${className}`}>{children}</th>;
-}
-
-function WorkTableCell({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <td className={`${workTableCellClass} ${className}`}>{children}</td>;
-}
-
-const workCustomerTableColumnClass =
-  "w-[20rem] min-w-[20rem] max-w-[20rem]";
-const workContactTableColumnClass =
-  "w-[15rem] min-w-[15rem] max-w-[15rem]";
-const workAssetTableColumnClass =
-  "w-[20rem] min-w-[20rem] max-w-[20rem]";
-const workStageTableColumnClass =
-  "w-[11rem] min-w-[11rem] max-w-[11rem]";
-const workActionTableColumnClass =
-  "w-[18rem] min-w-[18rem] max-w-[18rem]";
-
-function WorkTableWrappedText({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <span className={`block whitespace-normal break-all leading-5 ${className}`}>
-      {children}
-    </span>
-  );
-}
-
-function WorkTableMetaLine({
-  label,
-  value,
-}: {
-  label: string;
-  value: unknown;
-}) {
-  return (
-    <div className="flex min-w-0 gap-2 whitespace-normal leading-5">
-      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
-      <span className="min-w-0 break-all text-foreground">
-        {displayText(value)}
-      </span>
-    </div>
-  );
-}
-
-function WorkItemTableRow({
-  item,
-  store,
-}: {
-  item: WorkItem;
-  store?: StoreLike;
-}) {
-  const { customer, asset } = item;
-  const customerNo = workItemCustomerNo(item);
-  const customerName = workCustomerTitle(customer);
-  const customerWechat = displayText(customer.wechat);
-  const assetName = asset ? assetTitle(asset) : "";
-  const openDetail = () => openWorkDetail(customer, store, asset);
-
-  return (
-    <tr className="border-b border-border/60 bg-background transition-colors hover:bg-muted/25 last:border-b-0">
-      <WorkTableCell
-        className={`${workCustomerTableColumnClass} ${workTableStickyLeftCellClass} bg-inherit`}
-      >
-        <button
-          type="button"
-          className="block w-full whitespace-normal break-all text-left hover:text-primary"
-          onClick={openDetail}
-        >
-          <span className="block font-semibold leading-5 text-foreground">
-            {customerName}
-          </span>
-          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-            {customerNo}
-          </span>
-        </button>
-      </WorkTableCell>
-      <WorkTableCell className={workContactTableColumnClass}>
-        <WorkTableMetaLine label="手机" value={workCustomerPhone(customer)} />
-        <WorkTableMetaLine label="微信" value={customerWechat} />
-      </WorkTableCell>
-      <WorkTableCell className={`${workAssetTableColumnClass} font-medium`}>
-        {asset ? (
-          <>
-            <WorkTableWrappedText>{assetName}</WorkTableWrappedText>
-            <WorkTableWrappedText className="mt-1 text-xs text-muted-foreground">
-              {workItemAssetNo(item)}
-            </WorkTableWrappedText>
-          </>
-        ) : (
-          <div className="whitespace-normal rounded-md bg-muted/25 px-3 py-2 text-muted-foreground">
-            未录入房产，后续任务补充
-          </div>
-        )}
-      </WorkTableCell>
-      <WorkTableCell className={workStageTableColumnClass}>
-        <WorkItemStageCell item={item} />
-      </WorkTableCell>
-      <WorkTableCell
-        className={`${workActionTableColumnClass} ${workTableStickyRightCellClass} bg-inherit text-center`}
-      >
-        <WorkItemActions item={item} store={store} />
-      </WorkTableCell>
-    </tr>
-  );
-}
-
-function WorkItemCardList({
-  items,
-  loading,
-  emptyTitle,
-  emptyDescription,
-  store,
-}: {
-  items: WorkItem[];
-  loading: boolean;
-  emptyTitle: string;
-  emptyDescription: string;
-  store?: StoreLike;
-}) {
-  if (loading) {
-    return (
-      <WorkStatusFrame>
-        <WorkStatusState
-          compact
-          icon="loading"
-          title="正在加载"
-          description="请稍候，正在同步最新数据"
-        />
-      </WorkStatusFrame>
-    );
-  }
-  if (items.length === 0) {
-    return (
-      <WorkStatusFrame>
-        <WorkStatusState
-          compact
-          icon="empty"
-          title={emptyTitle}
-          description={emptyDescription}
-        />
-      </WorkStatusFrame>
-    );
-  }
-  return (
-    <div className="grid gap-3">
-      {items.map((item) => {
-        const { customer, asset } = item;
-        const openDetail = () => openWorkDetail(customer, store, asset);
-        return (
-          <article key={item.id} className="rounded-md border bg-background shadow-sm">
-            <div className="px-4 py-3">
-              <div className="flex min-w-0 items-center justify-between gap-3">
-                <button
-                  type="button"
-                  className="min-w-0 text-left"
-                  onClick={openDetail}
-                >
-                  <div className="truncate font-medium">
-                    {workCustomerTitle(customer)}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {[
-                      workItemCustomerNo(item),
-                      textValue(customer.phone),
-                      textValue(customer.wechat),
-                    ]
-                      .filter(Boolean)
-                      .join(" / ") || "-"}
-                  </div>
-                </button>
-              </div>
-
-              <div className="mt-3 rounded-md bg-muted/25 px-3 py-2">
-                <div className="flex min-w-0 items-center justify-between gap-3">
-                  <span className="truncate font-medium">
-                    {asset ? assetTitle(asset) : "未录入房产"}
-                  </span>
-                  <WorkItemStageCell item={item} compact />
-                </div>
-                <div className="mt-1 truncate text-xs text-muted-foreground">
-                  {asset
-                    ? `资产编号：${workItemAssetNo(item)}`
-                    : "后续任务补充房产资料"}
-                </div>
-              </div>
-
-              <div className="mt-3">
-                <WorkItemActions item={item} store={store} />
-              </div>
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-function WorkItemStageCell({
-  item,
-  compact = false,
-}: {
-  item: WorkItem;
-  compact?: boolean;
-}) {
-  const target = item.asset || item.customer;
-  const stageDays = workPositiveNumber(target.stage_days);
-  const lastOperatedAt = textValue(target.last_operated_at);
-  return (
-    <div className={compact ? "text-right" : "grid gap-1.5"}>
-      {renderWorkItemStatus(item)}
-      <div
-        className={`text-xs leading-5 text-muted-foreground ${
-          compact ? "mt-1" : ""
-        }`}
-      >
-        {stageDays > 0 ? `停留 ${stageDays} 天` : "今日进入"}
-      </div>
-      {lastOperatedAt ? (
-        <div className="text-xs leading-5 text-muted-foreground">
-          最近 {formatWorkDate(lastOperatedAt)}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function WorkStatusFrame({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-md border bg-background px-4 py-20">{children}</div>
-  );
-}
-
 function WorkStatusState({
   compact = false,
   icon,
@@ -3010,69 +2713,6 @@ function WorkStatusState({
           {description}
         </div>
       </div>
-    </div>
-  );
-}
-
-function WorkItemActions({
-  item,
-  store,
-}: {
-  item: WorkItem;
-  store?: StoreLike;
-}) {
-  const { customer, asset, tasks } = item;
-  const openDetail = () => openWorkDetail(customer, store, asset);
-
-  return (
-    <div className="mx-auto flex max-w-[15rem] flex-col items-stretch gap-2">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="justify-start border-transparent bg-transparent shadow-none hover:bg-muted/60"
-        onClick={openDetail}
-      >
-        <UserRound className="h-4 w-4" />
-        详情
-      </Button>
-      {tasks.map((task, index) =>
-        workTaskIsRule(task) ? (
-          <div
-            key={workTaskKey(task)}
-            className="flex min-w-0 items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-left text-amber-900"
-            title={textValue(task.result) || "等待资料满足核验条件"}
-          >
-            <RefreshCw className="mt-0.5 h-4 w-4 shrink-0" />
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">
-                {workTaskButtonLabel(task)}
-              </span>
-              <span className="block truncate text-xs opacity-80">
-                {textValue(task.result) || "等待资料满足核验条件"}
-              </span>
-            </span>
-          </div>
-        ) : (
-          <Button
-            type="button"
-            key={workTaskKey(task)}
-            variant={index === 0 ? "default" : "outline"}
-            size="sm"
-            className={
-              index === 0
-                ? "min-w-0 justify-start shadow-none"
-                : "min-w-0 justify-start border-transparent bg-muted/35 shadow-none hover:bg-muted/60"
-            }
-            onClick={() => openRowTask(customer, task, store, asset)}
-          >
-            <ClipboardList className="h-4 w-4" />
-            <span className="max-w-[9rem] truncate">
-              {workTaskButtonLabel(task)}
-            </span>
-          </Button>
-        ),
-      )}
     </div>
   );
 }
@@ -3675,7 +3315,7 @@ function WorkDetailOverview({
 }) {
   return (
     <div className="grid gap-5">
-      <WorkOperationCards
+      <WorkCustomerOperationTimeline
         operations={operations}
         loading={loadingOperations}
         scope={operationScope}
@@ -4154,208 +3794,6 @@ function workOverviewFinanceSummary(
   return values.length > 0 ? values.join("；") : "-";
 }
 
-function WorkDetailPanelSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="grid gap-3">
-      <h3 className="text-[15px] font-semibold leading-6">{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-function WorkContactPanelCard({ customer }: { customer: WorkCustomer }) {
-  const name = workCustomerName(customer);
-  return (
-    <div className="rounded-lg border border-border/60 bg-background p-4 shadow-sm">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-base font-semibold leading-6">
-            {name}
-          </div>
-          <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            {workCustomerNo(customer)}
-          </div>
-        </div>
-        <div className="shrink-0">
-          {renderStatus(customer)}
-        </div>
-      </div>
-      <div className="mt-4 grid gap-2 text-sm">
-        <WorkDetailMetaRow label="手机" value={workCustomerPhone(customer)} />
-        <WorkDetailMetaRow
-          label="微信"
-          value={displayText(customer.wechat)}
-        />
-        <WorkDetailMetaRow
-          label="来源"
-          value={displayText(customer.source_name || customer.source)}
-        />
-        <WorkDetailMetaRow
-          label="渠道"
-          value={displayText(customer.channel_name || customer.channel)}
-        />
-        <WorkDetailMetaRow
-          label="等级"
-          value={displayText(customer.level_name || customer.customer_level)}
-        />
-        <WorkDisplayFieldRows
-          fields={customer.display_fields}
-          excludeLabels={["手机", "手机号", "微信", "来源", "渠道", "等级"]}
-        />
-      </div>
-    </div>
-  );
-}
-
-function WorkAssetPanelCard({ asset }: { asset?: WorkAsset }) {
-  if (!asset) {
-    return (
-      <div className="rounded-lg border border-dashed border-border/70 bg-muted/10 p-4 text-sm leading-6 text-muted-foreground">
-        资产资料尚未录入，后续阶段任务会补充到该客户记录。
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-background p-4 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="break-words text-base font-semibold leading-6">
-            {assetTitle(asset)}
-          </div>
-          <div className="mt-0.5 break-all text-xs leading-5 text-muted-foreground">
-            {workAssetNo(asset)}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {renderStatus(asset)}
-          {renderAssetStatus(asset)}
-        </div>
-      </div>
-      <div className="mt-4 grid gap-2 text-sm">
-        <WorkDetailMetaRow
-          label="资产状态"
-          value={displayText(asset.asset_status_name)}
-        />
-        <WorkDetailMetaRow label="备注" value={displayText(asset.remark)} />
-        <WorkDisplayFieldRows
-          fields={asset.display_fields}
-          excludeLabels={["资产状态", "备注"]}
-        />
-      </div>
-    </div>
-  );
-}
-
-function WorkBusinessObjectPanelList({ assets }: { assets: WorkAsset[] }) {
-  const objects = assets.flatMap((asset) =>
-    Array.isArray(asset.business_objects) ? asset.business_objects : [],
-  );
-  if (objects.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed border-border/70 bg-muted/10 p-4 text-sm leading-6 text-muted-foreground">
-        暂无租赁记录。完成租赁记录创建任务后，会在这里看到租户、租期、收款和成本资料。
-      </div>
-    );
-  }
-  return (
-    <div className="grid gap-3">
-      {objects.map((object, index) => (
-        <WorkBusinessObjectPanelCard
-          key={workBusinessObjectID(object) || `business-object-${index}`}
-          object={object}
-        />
-      ))}
-    </div>
-  );
-}
-
-function WorkBusinessObjectPanelCard({
-  object,
-}: {
-  object: WorkBusinessObject;
-}) {
-  const fields = Array.isArray(object.display_fields)
-    ? object.display_fields.filter(
-        (field) =>
-          textValue(field.label) &&
-          !workDisplayFieldEmpty(field),
-      )
-    : [];
-  return (
-    <div className="rounded-lg border border-border/60 bg-background p-4 shadow-sm">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="break-words text-base font-semibold leading-6">
-            {workBusinessObjectTitle(object)}
-          </div>
-          <div className="mt-0.5 break-all text-xs leading-5 text-muted-foreground">
-            {[textValue(object.business_object_type_name), textValue(object.object_no)]
-              .filter(Boolean)
-              .join(" / ") || "-"}
-          </div>
-        </div>
-        {object.object_status ? (
-          <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-            {displayText(object.object_status)}
-          </span>
-        ) : null}
-      </div>
-      {fields.length > 0 ? (
-        <div className="mt-4 grid gap-2 text-sm">
-          {fields.map((field) => (
-            <WorkDetailMetaRow
-              key={textValue(field.key) || textValue(field.label)}
-              label={displayText(field.label)}
-              value={workDetailDisplayValue(field)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="mt-3 text-sm leading-6 text-muted-foreground">
-          已创建记录，暂无可展示资料。
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WorkDisplayFieldRows({
-  fields,
-  excludeLabels = [],
-}: {
-  fields?: WorkDisplayField[];
-  excludeLabels?: string[];
-}) {
-  const excluded = new Set(excludeLabels.map(workOverviewComparableLabel));
-  const rows = Array.isArray(fields)
-    ? fields.filter(
-        (field) =>
-          textValue(field.label) &&
-          !excluded.has(workOverviewComparableLabel(field.label)) &&
-          !workDisplayFieldEmpty(field),
-      )
-    : [];
-  if (rows.length === 0) return null;
-  return (
-    <>
-      {rows.map((field) => (
-        <WorkDetailMetaRow
-          key={textValue(field.key) || textValue(field.label)}
-          label={displayText(field.label)}
-          value={workDetailDisplayValue(field)}
-        />
-      ))}
-    </>
-  );
-}
-
 function workDetailDisplayValue(field: WorkDisplayField): string {
   if (textValue(field.value_type) === "files") {
     const files = normalizeUploadItems(field.files);
@@ -4433,15 +3871,7 @@ function WorkDetailTabs({
 
 type WorkOperationScope = "all" | "mine";
 
-const workOperationScopeOptions: Array<{
-  value: WorkOperationScope;
-  label: string;
-}> = [
-  { value: "all", label: "全部记录" },
-  { value: "mine", label: "我的记录" },
-];
-
-function WorkOperationCards({
+function WorkCustomerOperationTimeline({
   operations,
   loading,
   scope,
@@ -4493,103 +3923,6 @@ function workCustomerFlowEntryView(
     time: formatWorkDate(operation.created_at || operation.create_time),
     operation,
   };
-}
-
-function WorkOperationScopeTabs({
-  scope,
-  onScopeChange,
-}: {
-  scope: WorkOperationScope;
-  onScopeChange: (scope: WorkOperationScope) => void;
-}) {
-  return (
-    <div className="inline-flex w-fit rounded-md border border-border/70 bg-muted/20 p-1">
-      {workOperationScopeOptions.map((option) => (
-        <button
-          type="button"
-          key={option.value}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
-            scope === option.value
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-          onClick={() => onScopeChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function WorkOperationCard({
-  operation,
-  side,
-  onOpen,
-}: {
-  operation: WorkOperation;
-  side: "left" | "right";
-  onOpen: () => void;
-}) {
-  const content = workOperationDescription(operation);
-  const tone = workOperationTone(operation);
-  const stageLabel = workOperationStageLabel(operation);
-  const card = (
-    <button
-      type="button"
-      className="block w-full rounded-lg bg-muted/20 px-4 py-3 text-left transition-colors hover:bg-muted/35"
-      onClick={onOpen}
-    >
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="min-w-0 break-words text-sm font-semibold leading-6 text-foreground">
-              {workOperationTitle(operation)}
-            </span>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium leading-5 ${tone.badge}`}
-            >
-              {workOperationBadgeText(operation)}
-            </span>
-          </div>
-          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground/70">
-            {stageLabel ? <span>{stageLabel}</span> : null}
-            <span>
-              操作人：
-              {displayText(
-                operation.operator_name || operation["operator_staff.name"],
-              )}
-            </span>
-          </div>
-        </div>
-        <div className="shrink-0 whitespace-nowrap text-xs leading-6 text-muted-foreground/70">
-          {formatWorkDate(operation.created_at || operation.create_time)}
-        </div>
-      </div>
-      {content ? (
-        <p className="mt-2 text-sm leading-6 text-muted-foreground/80">
-          {content}
-        </p>
-      ) : null}
-    </button>
-  );
-
-  return (
-    <article className="relative pl-7 md:grid md:grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] md:items-start md:pl-0">
-      <span
-        className={`absolute left-0 top-4 z-10 h-3 w-3 rounded-full border-2 border-background md:left-1/2 md:-translate-x-1/2 ${tone.dot}`}
-      />
-      <div
-        className={
-          side === "left"
-            ? "md:col-start-1 md:pr-5"
-            : "md:col-start-3 md:pl-5"
-        }
-      >
-        {card}
-      </div>
-    </article>
-  );
 }
 
 function workOperationTimelineKey(
@@ -4721,42 +4054,6 @@ function workOperationTone(operation: WorkOperation): {
         dot: "bg-muted-foreground/40",
       };
   }
-}
-
-function WorkCustomerMainInfo({
-  customer,
-  asset,
-}: {
-  customer: WorkCustomer;
-  asset?: WorkAsset;
-}) {
-  const assets = asset ? [asset] : workOverviewCustomerAssets(customer);
-  return (
-    <div className="grid gap-5">
-      <WorkDetailPanelSection title="联系人">
-        <WorkContactPanelCard customer={customer} />
-      </WorkDetailPanelSection>
-      <WorkDetailPanelSection title="资产信息">
-        {assets.length > 0 ? (
-          <div className="grid gap-3">
-            {assets.map((asset, index) => (
-              <WorkAssetPanelCard
-                key={workAssetID(asset) || workAssetNo(asset) || `asset-${index}`}
-                asset={asset}
-              />
-            ))}
-          </div>
-        ) : (
-          <WorkAssetPanelCard />
-        )}
-      </WorkDetailPanelSection>
-      {assets.length > 0 ? (
-        <WorkDetailPanelSection title="租赁记录">
-          <WorkBusinessObjectPanelList assets={assets} />
-        </WorkDetailPanelSection>
-      ) : null}
-    </div>
-  );
 }
 
 function WorkEmptyText({ children }: { children: ReactNode }) {
@@ -5094,15 +4391,15 @@ function validateCurrentWorkTaskForm(
 function validateCurrentWorkTaskDomainRules(
   store: StoreLike | undefined,
 ): boolean {
-  const groupErrors = currentWorkTaskGroupFieldErrors(store);
-  if (Object.keys(groupErrors).length > 0) {
-    setCurrentWorkTaskFormErrors(store, groupErrors);
+  const requiredErrors = currentWorkTaskRequiredErrors(store);
+  if (Object.keys(requiredErrors).length > 0) {
+    setCurrentWorkTaskFormErrors(store, requiredErrors);
     return false;
   }
   return true;
 }
 
-function currentWorkTaskGroupFieldErrors(
+function currentWorkTaskRequiredErrors(
   store: StoreLike | undefined,
 ): Record<string, string> {
   const fields = workStoreValue<WorkTaskFormField[]>(
@@ -5118,17 +4415,10 @@ function currentWorkTaskGroupFieldErrors(
   const errors: Record<string, string> = {};
   for (const field of fields) {
     if (!field.required) continue;
-    if (!workTaskClientValueEmpty(values[field.formKey])) continue;
+    if (!workTaskFormValueEmpty(values[field.formKey])) continue;
     errors[`workTaskForm.${field.formKey}`] = `${field.label}不能为空。`;
   }
   return errors;
-}
-
-function workTaskClientValueEmpty(value: unknown): boolean {
-  if (value === null || value === undefined || value === "") return true;
-  if (Array.isArray(value)) return value.length === 0;
-  if (typeof value === "object") return Object.keys(value).length === 0;
-  return textValue(value) === "";
 }
 
 function collectWorkTaskSubmitValues(

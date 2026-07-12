@@ -619,18 +619,6 @@ export const workCustomerModeConfig: Record<
   },
 };
 
-export const workTableHeadClass =
-  "h-12 whitespace-nowrap px-4 text-left text-sm font-medium text-muted-foreground";
-export const workTableCellClass =
-  "min-h-14 whitespace-nowrap px-4 py-3 align-middle text-sm";
-export const workTableStickyLeftHeadClass =
-  "sticky left-0 z-30 border-r bg-muted/40";
-export const workTableStickyLeftCellClass =
-  "sticky left-0 z-20 border-r";
-export const workTableStickyRightHeadClass =
-  "sticky right-0 z-30 border-l bg-muted/40";
-export const workTableStickyRightCellClass =
-  "sticky right-0 z-20 border-l";
 export const workUploadGridColumns = "minmax(0, 1fr) 6rem 7rem";
 export const workImageExtensions = new Set([
   "png",
