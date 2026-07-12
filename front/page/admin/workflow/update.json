@@ -1,18 +1,18 @@
 {
   "page": {
-    "name": "阶段编辑",
+    "name": "流程编辑",
     "parent": "crm/workflow/list",
     "auth": [
       {
-        "key": "crm/stage/create",
-        "name": "阶段新增",
+        "key": "crm/workflow/create",
+        "name": "流程新增",
         "query": {
           "id": "empty"
         }
       },
       {
-        "key": "crm/stage/update",
-        "name": "阶段编辑",
+        "key": "crm/workflow/update",
+        "name": "流程编辑",
         "query": {
           "id": "required"
         }
@@ -38,36 +38,15 @@
     "dialog-shell": [
       {
         "type": "form-input",
-        "name": "阶段名称",
+        "name": "流程名称",
         "value": "form.name",
         "mode": "form",
         "validate": [
           {
             "type": "required",
-            "message": "阶段名称不能为空。"
+            "message": "流程名称不能为空。"
           }
         ],
-        "meta": {
-          "formLayout": "horizontal"
-        }
-      },
-      {
-        "type": "form-select",
-        "name": "默认负责部门",
-        "value": "form.owner_department_id",
-        "mode": "form",
-        "option": {
-          "model": "crm.NewDepartmentModel",
-          "labelField": "name",
-          "order": "sort asc,id asc",
-          "pageSize": 200,
-          "searchFields": [
-            "name"
-          ],
-          "filters": {
-            "status": 1
-          }
-        },
         "meta": {
           "formLayout": "horizontal"
         }
@@ -99,15 +78,11 @@
   "data": {
     "form": {
       "_fields": [
-        "workflow_id",
         "name",
-        "owner_department_id",
         "sort",
         "status"
       ],
-      "workflow_id": "",
       "name": "",
-      "owner_department_id": "",
       "sort": 100,
       "status": 2
     }
@@ -118,7 +93,7 @@
       "type": "save",
       "params": "form",
       "before": {
-        "service": "crm.setting.CrmHook.BeforeSaveStage"
+        "service": "crm.setting.CrmHook.BeforeSaveWorkflow"
       }
     }
   }

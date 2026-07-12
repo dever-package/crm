@@ -40,7 +40,7 @@ func (OptionService) ProviderLoadStageOptions(c *server.Context, params []any) a
 }
 
 func (OptionService) ProviderLoadStaffOptions(c *server.Context, params []any) any {
-	departmentID := optionUint64(c, params, "department_id", "departmentId")
+	departmentID := optionUint64(c, params, "department_id", "departmentId", "parent_id", "parentId")
 	if departmentID == 0 {
 		return []map[string]any{}
 	}

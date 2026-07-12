@@ -1,0 +1,667 @@
+{
+  "page": {
+    "name": "流程配置",
+    "icon": "route",
+    "parent": "crm-business-config",
+    "sort": 3
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header"
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5 sm:gap-6",
+        "children": {
+          "content-shell": {
+            "type": "container",
+            "className": "grid grid-cols-1 gap-4 xl:grid-cols-[minmax(13rem,0.7fr)_minmax(15rem,0.9fr)_minmax(0,2fr)]",
+            "children": {
+              "workflow-column": {
+                "type": "container",
+                "className": "min-w-0"
+              },
+              "stage-column": {
+                "type": "container",
+                "className": "min-w-0"
+              },
+              "task-column": {
+                "type": "container",
+                "className": "flex min-w-0 flex-col gap-4",
+                "children": {
+                  "task-toolbar": {
+                    "type": "row",
+                    "className": "flex-wrap items-center gap-2.5"
+                  },
+                  "task-table": {
+                    "type": "container",
+                    "className": "overflow-hidden rounded-md border bg-background"
+                  }
+                }
+              }
+            }
+          },
+          "feedback-shell": {
+            "type": "container"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page",
+        "className": "min-w-0 flex-1"
+      }
+    ],
+    "workflow-column": [
+      {
+        "type": "show-category-list",
+        "id": "crm-workflow-list",
+        "value": "search.workflow_id",
+        "option": {
+          "model": "crm.NewWorkflowModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "extraFields": [
+            "status",
+            "sort"
+          ]
+        },
+        "meta": {
+          "title": "流程",
+          "remote": true,
+          "defaultFirst": true,
+          "queryKey": "workflow_id",
+          "sortable": true,
+          "sortField": "sort",
+          "sortChangeAction": {
+            "type": "save",
+            "path": "crm/workflow/update",
+            "params": {
+              "_partial": true,
+              "id": "$row.id",
+              "sort": "$value"
+            },
+            "before": {
+              "service": "crm.setting.CrmHook.BeforeSaveWorkflow"
+            }
+          },
+          "statusField": "status",
+          "statusDisplay": "select",
+          "statusChangeAction": {
+            "type": "save",
+            "path": "crm/workflow/update",
+            "params": {
+              "_partial": true,
+              "id": "$row.id",
+              "status": "$value"
+            },
+            "before": {
+              "service": "crm.setting.CrmHook.BeforeSaveWorkflow"
+            }
+          },
+          "statusCases": [
+            {
+              "value": 1,
+              "text": "启用",
+              "tone": "success"
+            },
+            {
+              "value": 2,
+              "text": "停用",
+              "tone": "muted"
+            }
+          ],
+          "createButton": {
+            "name": "新增流程",
+            "icon": "plus",
+            "variant": "outline",
+            "size": "sm",
+            "action": {
+              "click": {
+                "type": "modal",
+                "key": "dialog.createWorkflow",
+                "value": true
+              }
+            }
+          },
+          "buttons": [
+            {
+              "icon": "square-pen",
+              "variant": "ghost",
+              "size": "sm",
+              "description": "编辑流程",
+              "action": {
+                "click": [
+                  {
+                    "type": "data",
+                    "key": "actionTarget.workflowId",
+                    "value": "$row.id"
+                  },
+                  {
+                    "type": "modal",
+                    "key": "dialog.editWorkflow",
+                    "value": true
+                  }
+                ]
+              }
+            },
+            {
+              "icon": "trash-2",
+              "variant": "ghost",
+              "size": "sm",
+              "description": "删除流程",
+              "className": "text-destructive hover:text-destructive",
+              "action": {
+                "click": [
+                  {
+                    "type": "data",
+                    "key": "actionTarget.deleteWorkflowId",
+                    "value": "$row.id"
+                  },
+                  {
+                    "type": "modal",
+                    "key": "dialog.deleteWorkflow",
+                    "value": true
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "stage-column": [
+      {
+        "type": "show-category-list",
+        "id": "crm-workflow-stage-list",
+        "value": "search.stage_id",
+        "option": {
+          "model": "crm.NewStageModel",
+          "labelField": "name",
+          "parentField": "workflow_id",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "extraFields": [
+            "workflow_id",
+            "owner_department_id",
+            "status",
+            "sort"
+          ]
+        },
+        "meta": {
+          "title": "阶段",
+          "remote": true,
+          "defaultFirst": true,
+          "queryKey": "stage_id",
+          "optionParams": {
+            "parentId": "search.workflow_id"
+          },
+          "optionReloadPaths": [
+            "search.workflow_id"
+          ],
+          "sortable": true,
+          "sortField": "sort",
+          "sortChangeAction": {
+            "type": "save",
+            "path": "crm/stage/update",
+            "params": {
+              "_partial": true,
+              "id": "$row.id",
+              "sort": "$value"
+            },
+            "before": {
+              "service": "crm.setting.CrmHook.BeforeSaveStage"
+            }
+          },
+          "statusField": "status",
+          "statusDisplay": "select",
+          "statusChangeAction": {
+            "type": "save",
+            "path": "crm/stage/update",
+            "params": {
+              "_partial": true,
+              "id": "$row.id",
+              "status": "$value"
+            },
+            "before": {
+              "service": "crm.setting.CrmHook.BeforeSaveStage"
+            }
+          },
+          "statusCases": [
+            {
+              "value": 1,
+              "text": "启用",
+              "tone": "success"
+            },
+            {
+              "value": 2,
+              "text": "停用",
+              "tone": "muted"
+            }
+          ],
+          "createButton": {
+            "name": "新增阶段",
+            "icon": "plus",
+            "variant": "outline",
+            "size": "sm",
+            "action": {
+              "click": {
+                "type": "modal",
+                "key": "dialog.createStage",
+                "value": true
+              }
+            }
+          },
+          "buttons": [
+            {
+              "icon": "square-pen",
+              "variant": "ghost",
+              "size": "sm",
+              "description": "编辑阶段",
+              "action": {
+                "click": [
+                  {
+                    "type": "data",
+                    "key": "actionTarget.stageId",
+                    "value": "$row.id"
+                  },
+                  {
+                    "type": "modal",
+                    "key": "dialog.editStage",
+                    "value": true
+                  }
+                ]
+              }
+            },
+            {
+              "icon": "trash-2",
+              "variant": "ghost",
+              "size": "sm",
+              "description": "删除阶段",
+              "className": "text-destructive hover:text-destructive",
+              "action": {
+                "click": [
+                  {
+                    "type": "data",
+                    "key": "actionTarget.deleteStageId",
+                    "value": "$row.id"
+                  },
+                  {
+                    "type": "modal",
+                    "key": "dialog.deleteStage",
+                    "value": true
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "task-toolbar": [
+      {
+        "type": "form-input",
+        "placeholder": "搜索任务名称...",
+        "value": "search.keyword",
+        "mode": "search"
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "searchSubmit": true
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "新增任务",
+        "className": "ms-auto shrink-0",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "icon": "plus"
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.createTask",
+            "value": true
+          }
+        }
+      }
+    ],
+    "task-table": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "savePath": "crm/task/update",
+          "rowKey": "id",
+          "columns": [
+            {
+              "name": "任务",
+              "value": "name",
+              "type": "show-base"
+            },
+            {
+              "name": "类型",
+              "value": "task_type",
+              "type": "show-tag"
+            },
+            {
+              "name": "必做",
+              "value": "required",
+              "type": "form-switch",
+              "meta": {
+                "trueValue": true,
+                "falseValue": false
+              }
+            },
+            {
+              "name": "负责方式",
+              "value": "assignee_mode",
+              "type": "show-tag"
+            },
+            {
+              "name": "负责部门",
+              "value": "assignee_department.name",
+              "type": "show-base"
+            },
+            {
+              "name": "负责人",
+              "value": "assignee_staff.name",
+              "type": "show-base"
+            },
+            {
+              "name": "期限（天）",
+              "value": "due_days",
+              "type": "show-base"
+            },
+            {
+              "name": "状态",
+              "value": "status",
+              "type": "form-switch",
+              "meta": {
+                "trueValue": 1,
+                "falseValue": 2
+              }
+            },
+            {
+              "name": "排序",
+              "value": "sort",
+              "type": "show-base",
+              "editor": "form-number",
+              "trigger": "doubleClick"
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "编辑任务",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.taskId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.editTask",
+                          "value": true
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "icon": "trash-2",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "删除任务",
+                    "className": "text-destructive hover:text-destructive",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.deleteTaskId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.deleteTask",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.createWorkflow",
+          "pageRoute": "/crm/workflow/update",
+          "title": "新增流程",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.editWorkflow",
+          "pageRoute": "/crm/workflow/update",
+          "title": "编辑流程",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.workflowId"
+          },
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.createStage",
+          "pageRoute": "/crm/stage/update",
+          "title": "新增阶段",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "workflow_id": "data.search.workflow_id"
+          },
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.editStage",
+          "pageRoute": "/crm/stage/update",
+          "title": "编辑阶段",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.stageId"
+          },
+          "size": "sm",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.createTask",
+          "pageRoute": "/crm/task/update",
+          "title": "新增任务",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "stage_id": "data.search.stage_id"
+          },
+          "size": "lg",
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.editTask",
+          "pageRoute": "/crm/task/update",
+          "title": "编辑任务",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.taskId"
+          },
+          "size": "lg",
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-confirm",
+        "name": "删除流程",
+        "info": "确认删除这个流程吗？",
+        "meta": {
+          "stateKey": "dialog.deleteWorkflow",
+          "successMessage": "流程已删除"
+        },
+        "action": {
+          "confirm": {
+            "type": "delete",
+            "params": "data.actionTarget.deleteWorkflowId",
+            "before": {
+              "service": "crm.setting.CrmHook.BeforeDeleteWorkflow"
+            }
+          }
+        }
+      },
+      {
+        "type": "feedback-confirm",
+        "name": "删除阶段",
+        "info": "确认删除这个阶段吗？",
+        "meta": {
+          "stateKey": "dialog.deleteStage",
+          "successMessage": "阶段已删除"
+        },
+        "action": {
+          "confirm": {
+            "type": "delete",
+            "model": "crm.NewStageModel",
+            "params": "data.actionTarget.deleteStageId",
+            "before": {
+              "service": "crm.setting.CrmHook.BeforeDeleteStage"
+            }
+          }
+        }
+      },
+      {
+        "type": "feedback-confirm",
+        "name": "删除任务",
+        "info": "确认删除这个任务吗？",
+        "meta": {
+          "stateKey": "dialog.deleteTask",
+          "successMessage": "任务已删除"
+        },
+        "action": {
+          "confirm": {
+            "type": "delete",
+            "model": "crm.NewTaskModel",
+            "params": "data.actionTarget.deleteTaskId",
+            "before": {
+              "service": "crm.setting.CrmHook.BeforeDeleteTask"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "data": {
+    "search": {
+      "workflow_id": "",
+      "stage_id": "",
+      "keyword": ""
+    },
+    "table": {
+      "model": "crm.NewTaskModel",
+      "pageSize": 20,
+      "defaultFilters": {
+        "stage_id": 0
+      },
+      "searchFields": [
+        "name"
+      ],
+      "filterFields": [
+        "stage_id"
+      ]
+    },
+    "actionTarget": {
+      "workflowId": "",
+      "stageId": "",
+      "taskId": "",
+      "deleteWorkflowId": "",
+      "deleteStageId": "",
+      "deleteTaskId": ""
+    }
+  },
+  "state": {
+    "dialog": {
+      "createWorkflow": false,
+      "editWorkflow": false,
+      "createStage": false,
+      "editStage": false,
+      "createTask": false,
+      "editTask": false,
+      "deleteWorkflow": false,
+      "deleteStage": false,
+      "deleteTask": false
+    }
+  },
+  "action": {}
+}
