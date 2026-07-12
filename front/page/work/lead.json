@@ -8,7 +8,7 @@
   },
   "layout": {
     "type": "container",
-    "className": "min-h-svh bg-[#f6f8fb] p-4 md:p-6",
+    "className": "crm-work-page crm-work-lead-page",
     "children": {
       "content": {
         "type": "container",

@@ -1865,7 +1865,7 @@ export function ShowCrmWorkStats() {
   }
 
   return (
-    <div className="grid gap-4">
+    <div className="crm-work-stats grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-background px-5 py-4 shadow-sm">
         <div>
           <h2 className="text-lg font-semibold leading-7">我的工作概览</h2>
@@ -2490,7 +2490,7 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="crm-work-customers space-y-4">
       <WorkCustomerListHeader
         mode={mode}
         modeCounts={modeCounts}
