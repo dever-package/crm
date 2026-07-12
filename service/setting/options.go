@@ -28,13 +28,12 @@ func (OptionService) ProviderLoadWorkflowOptions(c *server.Context, _ []any) any
 }
 
 func (OptionService) ProviderLoadStageOptions(c *server.Context, params []any) any {
-	workflowID := optionUint64(c, params, "workflow_id", "workflowId")
+	workflowID := optionUint64(c, params, "workflow_id", "workflowId", "parent_id", "parentId")
 	if workflowID == 0 {
 		return []map[string]any{}
 	}
 	rows := crmmodel.NewStageModel().SelectMap(contextFromServer(c), map[string]any{
 		"workflow_id": workflowID,
-		"status":      crmmodel.StatusEnabled,
 	}, stageSelectOptions())
 	return loadStageOptions(rows)
 }

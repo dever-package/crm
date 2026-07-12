@@ -234,11 +234,43 @@ func rerunPendingRuleTodos(ctx context.Context, assetID, stageID uint64) error {
 		if task == nil || task.TaskType != crmmodel.TaskTypeRule {
 			continue
 		}
+		if !workRuleTodoReady(ctx, todo, task) {
+			continue
+		}
 		if err := executePendingRuleTodo(ctx, todo, task); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func workRuleTodoReady(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.Task) bool {
+	if todo == nil || task == nil || task.TaskType != crmmodel.TaskTypeRule {
+		return false
+	}
+	pendingTodos := crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
+		"asset_id": todo.AssetID,
+		"stage_id": todo.StageID,
+		"required": true,
+		"status":   crmmodel.WorkTodoStatusPending,
+	})
+	for _, pendingTodo := range pendingTodos {
+		if pendingTodo == nil || pendingTodo.ID == todo.ID {
+			continue
+		}
+		pendingTask := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": pendingTodo.TaskID})
+		if pendingTask != nil && taskComesBefore(pendingTask, task) {
+			return false
+		}
+	}
+	return true
+}
+
+func taskComesBefore(current *crmmodel.Task, target *crmmodel.Task) bool {
+	if current == nil || target == nil {
+		return false
+	}
+	return current.Sort < target.Sort || current.Sort == target.Sort && current.ID < target.ID
 }
 
 func executePendingRuleTodo(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.Task) error {
@@ -250,7 +282,7 @@ func executePendingRuleTodo(ctx context.Context, todo *crmmodel.WorkTodo, task *
 		result = TaskRuleResult{Passed: false, Reason: err.Error()}
 	}
 	if !result.Passed {
-		reason := strings.TrimSpace(result.Reason)
+		reason := taskRuleResultText(result)
 		if reason == "" {
 			reason = "自动核验未通过"
 		}
@@ -264,14 +296,31 @@ func executePendingRuleTodo(ctx context.Context, todo *crmmodel.WorkTodo, task *
 		})
 		return nil
 	}
-	operationID := recordWorkTaskOperation(ctx, nil, todo, task, "passed", result.Reason, map[string]any{
+	resultText := taskRuleResultText(result)
+	if resultText == "" {
+		resultText = "自动核验通过"
+	}
+	operationID := recordWorkTaskOperation(ctx, nil, todo, task, "passed", resultText, map[string]any{
 		"raw_result":  result.RawResult,
 		"duration_ms": result.DurationMS,
 	}, true)
 	if operationID == 0 {
 		return fmt.Errorf("自动核验记录创建失败")
 	}
-	return completeWorkTodo(ctx, todo, "自动核验通过")
+	return completeWorkTodo(ctx, todo, resultText)
+}
+
+func taskRuleResultText(result TaskRuleResult) string {
+	value := strings.TrimSpace(result.Value)
+	reason := strings.TrimSpace(result.Reason)
+	switch {
+	case value != "" && reason != "":
+		return value + "：" + reason
+	case value != "":
+		return value
+	default:
+		return reason
+	}
 }
 
 func workRuleInput(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.Task) map[string]any {

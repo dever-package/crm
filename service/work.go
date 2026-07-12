@@ -1561,7 +1561,7 @@ func workSummaryTaskRows(targets []workSummaryTarget) []map[string]any {
 				key = "_unknown"
 			}
 			counts[key]++
-			names[key] = workTaskTypeName(key)
+			names[key] = WorkTaskTypeName(key)
 			total++
 		}
 	}
@@ -1593,7 +1593,7 @@ func workSummaryBreakdownRows(counts map[string]int, names map[string]string, to
 	return rows
 }
 
-func workTaskTypeName(taskType string) string {
+func WorkTaskTypeName(taskType string) string {
 	switch taskType {
 	case crmmodel.TaskTypeTodo:
 		return "普通事项"
@@ -2500,7 +2500,7 @@ func workTaskDisplayName(task map[string]any) string {
 			return value
 		}
 	}
-	return workTaskTypeName(inputText(task["task_type"]))
+	return WorkTaskTypeName(inputText(task["task_type"]))
 }
 
 func filterWorkOperations(rows []map[string]any, keyword string) []map[string]any {
@@ -2640,24 +2640,32 @@ func workOperationResultDisplayValue(_ context.Context, _ map[string]any, value 
 	if resultValue == "" {
 		return ""
 	}
-	if resultName := workOperationBaseResultName(resultValue); resultName != "" {
+	if resultName := WorkOperationResultName(resultValue); resultName != "" {
 		return resultName
 	}
 	return resultValue
 }
 
-func workOperationBaseResultName(value string) string {
+func WorkOperationResultName(value string) string {
 	switch value {
 	case workResultProgress:
 		return "保存进度"
+	case "completed":
+		return "已完成"
+	case "submitted":
+		return "已提交"
 	case "approved":
-		return "通过"
+		return "审核通过"
 	case "rejected":
-		return "驳回"
+		return "审核驳回"
 	case "passed":
 		return "核验通过"
 	case "failed":
 		return "核验未通过"
+	case "canceled":
+		return "已取消"
+	case "entered":
+		return "进入阶段"
 	default:
 		return ""
 	}
@@ -3513,6 +3521,17 @@ func workDataFieldChildFormFields(ctx context.Context, group *crmmodel.DataField
 		result = append(result, row)
 	}
 	return result
+}
+
+func workDataFieldTemplateCateID(ctx context.Context, field *crmmodel.DataField) uint64 {
+	if field == nil || field.DataTemplateID == 0 {
+		return 0
+	}
+	template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{"id": field.DataTemplateID})
+	if template == nil {
+		return 0
+	}
+	return template.CateID
 }
 
 func workActionValues(payload map[string]any) map[string]any {

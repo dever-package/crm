@@ -87,12 +87,6 @@
             "status": 1
           }
         },
-        "validate": [
-          {
-            "type": "required",
-            "message": "请选择资料表单。"
-          }
-        ],
         "meta": {
           "formLayout": "horizontal",
           "hiddenWhen": [
@@ -121,12 +115,6 @@
             "status": 1
           }
         },
-        "validate": [
-          {
-            "type": "required",
-            "message": "请选择核验规则。"
-          }
-        ],
         "meta": {
           "formLayout": "horizontal",
           "hiddenWhen": [
@@ -185,12 +173,6 @@
             "status": 1
           }
         },
-        "validate": [
-          {
-            "type": "required",
-            "message": "请选择负责部门。"
-          }
-        ],
         "meta": {
           "formLayout": "horizontal",
           "hiddenWhen": [
@@ -215,12 +197,6 @@
           "valueField": "id",
           "labelField": "value"
         },
-        "validate": [
-          {
-            "type": "required",
-            "message": "请选择负责人。"
-          }
-        ],
         "meta": {
           "formLayout": "horizontal",
           "optionParams": {
@@ -256,7 +232,7 @@
         "mode": "form",
         "meta": {
           "formLayout": "horizontal",
-          "min": 1,
+          "min": 0,
           "step": 10
         }
       },

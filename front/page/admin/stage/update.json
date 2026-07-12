@@ -79,7 +79,7 @@
         "mode": "form",
         "meta": {
           "formLayout": "horizontal",
-          "min": 1,
+          "min": 0,
           "step": 10
         }
       },

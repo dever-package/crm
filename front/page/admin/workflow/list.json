@@ -183,17 +183,10 @@
         "id": "crm-workflow-stage-list",
         "value": "search.stage_id",
         "option": {
-          "model": "crm.NewStageModel",
+          "service": "crm.setting.OptionService.LoadStageOptions",
+          "valueField": "id",
           "labelField": "name",
-          "parentField": "workflow_id",
-          "order": "sort asc,id asc",
-          "pageSize": 200,
-          "extraFields": [
-            "workflow_id",
-            "owner_department_id",
-            "status",
-            "sort"
-          ]
+          "pageSize": 200
         },
         "meta": {
           "title": "阶段",
@@ -201,10 +194,10 @@
           "defaultFirst": true,
           "queryKey": "stage_id",
           "optionParams": {
-            "parentId": "search.workflow_id"
+            "parentId": "data.search.workflow_id"
           },
           "optionReloadPaths": [
-            "search.workflow_id"
+            "data.search.workflow_id"
           ],
           "sortable": true,
           "sortField": "sort",

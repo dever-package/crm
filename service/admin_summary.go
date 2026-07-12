@@ -507,7 +507,7 @@ func adminSummaryTaskBreakdown(targets []*crmmodel.CustomerStage, stages []admin
 
 	rows := make([]map[string]any, 0, len(counts))
 	for key, count := range counts {
-		rows = append(rows, adminSummaryBreakdownRow(key, workTaskTypeName(key), count, total))
+		rows = append(rows, adminSummaryBreakdownRow(key, WorkTaskTypeName(key), count, total))
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		return inputInt(rows[i]["count"]) > inputInt(rows[j]["count"])

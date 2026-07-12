@@ -31,6 +31,7 @@ type ScriptDryRunRequest struct {
 
 type TaskRuleResult struct {
 	Passed     bool
+	Value      string
 	Reason     string
 	RawResult  any
 	DurationMS int64
@@ -94,11 +95,25 @@ func normalizeTaskRuleResult(value any) TaskRuleResult {
 	}
 	payload := mapFromAny(value)
 	if len(payload) == 0 {
-		return TaskRuleResult{Reason: "规则必须返回 true/false 或 { passed, reason }"}
+		return TaskRuleResult{Reason: "规则必须返回 true/false、{ passed, reason } 或 { value, reason }"}
+	}
+	if _, exists := payload["passed"]; exists {
+		return TaskRuleResult{
+			Passed: booleanFromAny(payload["passed"]),
+			Value:  firstText(payload, "value", "result"),
+			Reason: firstText(payload, "reason", "message"),
+		}
+	}
+	resultValue := firstText(payload, "value", "result")
+	if resultValue != "" {
+		return TaskRuleResult{
+			Passed: true,
+			Value:  resultValue,
+			Reason: firstText(payload, "reason", "message"),
+		}
 	}
 	return TaskRuleResult{
-		Passed: booleanFromAny(payload["passed"]),
-		Reason: firstText(payload, "reason", "message"),
+		Reason: "规则必须返回 true/false、{ passed, reason } 或 { value, reason }",
 	}
 }
 
@@ -158,6 +173,7 @@ func (RuleService) DryRun(ctx context.Context, req ScriptDryRunRequest) (map[str
 	}
 	response["matched"] = result.Passed
 	response["passed"] = result.Passed
+	response["value"] = result.Value
 	response["reason"] = result.Reason
 	response["raw_result"] = result.RawResult
 	response["duration_ms"] = result.DurationMS

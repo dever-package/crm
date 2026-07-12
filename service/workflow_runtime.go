@@ -170,6 +170,9 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 		}
 	}
 	for _, current := range ruleTodos {
+		if !workRuleTodoReady(ctx, current.todo, current.task) {
+			continue
+		}
 		if err := executePendingRuleTodo(ctx, current.todo, current.task); err != nil {
 			return err
 		}
