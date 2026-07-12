@@ -1,0 +1,43 @@
+{
+  "page": {
+    "name": "工作台",
+    "icon": "layout-dashboard",
+    "parent": "crm-work-customer-center",
+    "type": 1,
+    "sort": 0
+  },
+  "layout": {
+    "type": "container",
+    "className": "min-h-svh bg-[#f6f8fb] p-4 md:p-6",
+    "children": {
+      "header": {
+        "type": "container",
+        "className": "mb-4 flex flex-wrap items-center justify-between gap-3"
+      },
+      "content": {
+        "type": "container",
+        "className": "min-w-0"
+      }
+    }
+  },
+  "nodes": {
+    "header": [
+      {
+        "type": "show-title",
+        "name": "工作台",
+        "description": "查看当前人员的客户、资产、待办与操作概览"
+      },
+      {
+        "type": "show-crm-work-refresh-button"
+      }
+    ],
+    "content": [
+      {
+        "type": "show-crm-work-stats"
+      }
+    ]
+  },
+  "data": {},
+  "state": {},
+  "action": {}
+}

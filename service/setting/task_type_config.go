@@ -61,6 +61,11 @@ func normalizeFormTaskConfig(ctx context.Context, record map[string]any, partial
 	}
 	updates := base.updates()
 	updates["completion_mode"] = effectiveTaskCompletionMode(ctx, record, partial)
+	if assignTaskID := effectiveTaskCompleteAssignTaskID(ctx, record, partial); assignTaskID > 0 {
+		updates[crmmodel.TaskCompleteAssignTaskID] = assignTaskID
+	} else {
+		updates[crmmodel.TaskCompleteAssignTaskID] = nil
+	}
 	record["script_id"] = uint64(0)
 	record["config_json"] = encodeTaskConfig(mergedTaskConfig(record, updates))
 }
@@ -79,6 +84,11 @@ func normalizeAssignTaskConfig(ctx context.Context, record map[string]any, parti
 	updates["assign_department_ids"] = departmentIDs
 	updates["auto_assign_department_id"] = autoDepartmentID
 	updates["auto_assign_staff_id"] = autoStaffID
+	if effectiveTaskHiddenFromWorkList(ctx, record, partial) {
+		updates["hide_from_work_list"] = true
+	} else {
+		updates["hide_from_work_list"] = nil
+	}
 	if effectiveTaskTriggerType(ctx, record, partial) == crmmodel.TaskTriggerManual {
 		updates["auto_assign_department_id"] = nil
 		updates["auto_assign_staff_id"] = nil

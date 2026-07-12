@@ -238,26 +238,20 @@ func (OptionService) ProviderLoadFormFieldTemplateOptions(c *server.Context, par
 }
 
 func formFieldCateOptions(ctx context.Context) []map[string]any {
-	allowedCateIDs := map[uint64]bool{
-		crmmodel.CustomerDataTemplateCateID:      true,
-		crmmodel.CustomerAssetDataTemplateCateID: true,
-	}
 	cates := crmmodel.NewDataTemplateCateModel().SelectMap(ctx, map[string]any{
 		"status": crmmodel.StatusEnabled,
 	}, dataTemplateCateSelectOptions())
 	options := make([]map[string]any, 0, len(cates))
 	for _, cate := range cates {
 		cateID := util.ToUint64(cate["id"])
-		if !allowedCateIDs[cateID] {
-			continue
-		}
 		options = append(options, map[string]any{
-			"id":           fmt.Sprintf("cate:%d", cateID),
-			"value":        util.ToStringTrimmed(cate["name"]),
-			"name":         util.ToStringTrimmed(cate["name"]),
-			"leaf":         false,
-			"target_table": util.ToStringTrimmed(cate["target_table"]),
-			"sort":         util.ToIntDefault(cate["sort"], 0),
+			"id":                      fmt.Sprintf("cate:%d", cateID),
+			"value":                   util.ToStringTrimmed(cate["name"]),
+			"name":                    util.ToStringTrimmed(cate["name"]),
+			"leaf":                    false,
+			"target_table":            util.ToStringTrimmed(cate["target_table"]),
+			"business_object_type_id": util.ToUint64(cate["business_object_type_id"]),
+			"sort":                    util.ToIntDefault(cate["sort"], 0),
 		})
 	}
 	return options
@@ -267,14 +261,17 @@ func formFieldTemplateLevelOptions(ctx context.Context, cateID uint64) []map[str
 	if cateID == 0 {
 		return []map[string]any{}
 	}
-	options := []map[string]any{{
-		"id":                    collectMainTemplateSource(cateID),
-		"value":                 "主表",
-		"name":                  "主表",
-		"is_main":               true,
-		"leaf":                  false,
-		"data_template_cate_id": cateID,
-	}}
+	options := make([]map[string]any, 0, 8)
+	if _, ok := collectMainFields[cateID]; ok {
+		options = append(options, map[string]any{
+			"id":                    collectMainTemplateSource(cateID),
+			"value":                 "主表",
+			"name":                  "主表",
+			"is_main":               true,
+			"leaf":                  false,
+			"data_template_cate_id": cateID,
+		})
+	}
 	templates := crmmodel.NewDataTemplateModel().SelectMap(ctx, map[string]any{
 		"cate_id": cateID,
 		"status":  crmmodel.StatusEnabled,
@@ -335,32 +332,29 @@ func taskVisibleFieldOptions(ctx context.Context, templateID uint64) []map[strin
 	if template == nil {
 		return []map[string]any{}
 	}
-	rows := crmmodel.NewDataFieldModel().SelectMap(ctx, map[string]any{
+	fields := crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
 		"data_template_id": templateID,
-		"stat_enabled":     true,
 		"status":           crmmodel.StatusEnabled,
-	}, map[string]any{
-		"field": "main.id, main.name, main.field_type, main.sort",
-		"order": "main.sort asc, main.id asc",
 	})
-	options := make([]map[string]any, 0, len(rows))
-	for _, row := range rows {
-		fieldID := util.ToUint64(row["id"])
-		if !conditionFieldHasOptions(util.ToStringTrimmed(row["field_type"])) ||
-			crmmodel.NewDataFieldOptionModel().Count(ctx, map[string]any{"data_field_id": fieldID}) == 0 {
+	options := make([]map[string]any, 0, len(fields))
+	for _, field := range fields {
+		if field == nil || field.FieldType == "group" ||
+			!conditionFieldHasOptions(field.FieldType) ||
+			dataFieldOptionCount(ctx, field) == 0 {
 			continue
 		}
 		options = append(options, map[string]any{
-			"id":                    fmt.Sprintf("%s%d", collectFieldSourceDataPrefix, fieldID),
-			"value":                 util.ToStringTrimmed(row["name"]),
-			"name":                  util.ToStringTrimmed(row["name"]),
+			"id":                    fmt.Sprintf("%s%d", collectFieldSourceDataPrefix, field.ID),
+			"value":                 field.Name,
+			"name":                  field.Name,
 			"leaf":                  false,
 			"source":                "data_field",
 			"data_template_id":      templateID,
-			"data_field_id":         fieldID,
-			"field_type":            util.ToStringTrimmed(row["field_type"]),
+			"data_field_id":         field.ID,
+			"field_key":             field.FieldKey,
+			"field_type":            field.FieldType,
 			"data_template_cate_id": template.CateID,
-			"sort":                  util.ToIntDefault(row["sort"], 0),
+			"sort":                  field.Sort,
 		})
 	}
 	return options
@@ -377,34 +371,29 @@ func decisionResultFieldOptions(ctx context.Context, templateID uint64) []map[st
 	if template == nil {
 		return []map[string]any{}
 	}
-	rows := crmmodel.NewDataFieldModel().SelectMap(ctx, map[string]any{
+	fields := crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
 		"data_template_id": templateID,
-		"stat_enabled":     true,
 		"status":           crmmodel.StatusEnabled,
-	}, map[string]any{
-		"field": "main.id, main.name, main.field_key, main.field_type, main.sort",
-		"order": "main.sort asc, main.id asc",
 	})
-	options := make([]map[string]any, 0, len(rows))
-	for _, row := range rows {
-		fieldID := util.ToUint64(row["id"])
-		fieldKey := util.ToStringTrimmed(row["field_key"])
-		if fieldKey == "" || !conditionFieldHasOptions(util.ToStringTrimmed(row["field_type"])) ||
-			crmmodel.NewDataFieldOptionModel().Count(ctx, map[string]any{"data_field_id": fieldID}) == 0 {
+	options := make([]map[string]any, 0, len(fields))
+	for _, field := range fields {
+		if field == nil || field.FieldType == "group" || strings.TrimSpace(field.FieldKey) == "" ||
+			!conditionFieldHasOptions(field.FieldType) ||
+			dataFieldOptionCount(ctx, field) == 0 {
 			continue
 		}
 		options = append(options, map[string]any{
-			"id":                    fmt.Sprintf("%s%d", collectFieldSourceDataPrefix, fieldID),
-			"value":                 util.ToStringTrimmed(row["name"]),
-			"name":                  util.ToStringTrimmed(row["name"]),
+			"id":                    fmt.Sprintf("%s%d", collectFieldSourceDataPrefix, field.ID),
+			"value":                 field.Name,
+			"name":                  field.Name,
 			"leaf":                  true,
 			"source":                "data_field",
 			"data_template_id":      templateID,
-			"data_field_id":         fieldID,
-			"field_key":             fieldKey,
-			"field_type":            util.ToStringTrimmed(row["field_type"]),
+			"data_field_id":         field.ID,
+			"field_key":             field.FieldKey,
+			"field_type":            field.FieldType,
 			"data_template_cate_id": template.CateID,
-			"sort":                  util.ToIntDefault(row["sort"], 0),
+			"sort":                  field.Sort,
 		})
 	}
 	return options
@@ -414,12 +403,8 @@ func taskVisibleValueOptions(ctx context.Context, fieldID uint64) []map[string]a
 	if fieldID == 0 {
 		return []map[string]any{}
 	}
-	rows := crmmodel.NewDataFieldOptionModel().SelectMap(ctx, map[string]any{
-		"data_field_id": fieldID,
-	}, map[string]any{
-		"field": "main.name, main.value, main.sort",
-		"order": "main.sort asc, main.id asc",
-	})
+	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID, "status": crmmodel.StatusEnabled})
+	rows := dataFieldOptionRows(ctx, field)
 	options := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		value := util.ToStringTrimmed(row["value"])
@@ -509,6 +494,49 @@ func (OptionService) ProviderLoadFormFieldOptions(c *server.Context, params []an
 		return []map[string]any{}
 	}
 	return formFieldDataFieldOptions(ctx, cateID, templateID, template.Name)
+}
+
+func (OptionService) ProviderLoadDataFieldGroupOptions(c *server.Context, params []any) any {
+	ctx := context.Background()
+	if c != nil {
+		ctx = c.Context()
+	}
+	templateID := optionUint64(c, params, "data_template_id", "dataTemplateId", "parentId", "parent_id")
+	if selected := firstSelectedOptionValue(c, params); selected != "" {
+		if group := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": util.ToUint64(selected)}); group != nil {
+			templateID = group.DataTemplateID
+			if templateID == 0 {
+				return []map[string]any{}
+			}
+		}
+	}
+	if templateID == 0 {
+		return []map[string]any{}
+	}
+	rows := crmmodel.NewDataFieldModel().SelectMap(ctx, map[string]any{
+		"data_template_id": templateID,
+		"field_type":       "group",
+		"parent_field_id":  0,
+		"status":           crmmodel.StatusEnabled,
+	}, map[string]any{
+		"field": "main.id, main.name, main.field_key, main.sort",
+		"order": "main.sort asc, main.id asc",
+	})
+	options := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		id := util.ToUint64(row["id"])
+		if id == 0 {
+			continue
+		}
+		options = append(options, map[string]any{
+			"id":        id,
+			"value":     util.ToStringTrimmed(row["name"]),
+			"name":      util.ToStringTrimmed(row["name"]),
+			"field_key": util.ToStringTrimmed(row["field_key"]),
+			"sort":      util.ToIntDefault(row["sort"], 0),
+		})
+	}
+	return options
 }
 
 func firstSelectedOptionValue(c *server.Context, params []any) string {
@@ -664,7 +692,7 @@ func formFieldDataFieldOptions(ctx context.Context, cateID uint64, templateID ui
 		"data_template_id": templateID,
 		"status":           crmmodel.StatusEnabled,
 	}, map[string]any{
-		"field": "main.id, main.name, main.field_type, main.sort",
+		"field": "main.id, main.name, main.field_key, main.field_type, main.parent_field_id, main.sort",
 		"order": "main.sort asc, main.id asc",
 	})
 	options := make([]map[string]any, 0, len(rows))
@@ -677,7 +705,9 @@ func formFieldDataFieldOptions(ctx context.Context, cateID uint64, templateID ui
 			"source":                "data_field",
 			"data_template_id":      templateID,
 			"data_field_id":         util.ToUint64(row["id"]),
+			"field_key":             util.ToStringTrimmed(row["field_key"]),
 			"field_type":            util.ToStringTrimmed(row["field_type"]),
+			"parent_field_id":       util.ToUint64(row["parent_field_id"]),
 			"data_template_cate_id": cateID,
 			"sort":                  util.ToIntDefault(row["sort"], 0),
 		})
@@ -727,7 +757,9 @@ func formFieldDataFieldOption(ctx context.Context, fieldID uint64) map[string]an
 		"source":                "data_field",
 		"data_template_id":      field.DataTemplateID,
 		"data_field_id":         field.ID,
+		"field_key":             field.FieldKey,
 		"field_type":            field.FieldType,
+		"parent_field_id":       field.ParentFieldID,
 		"data_template_cate_id": template.CateID,
 		"sort":                  field.Sort,
 	}
@@ -788,7 +820,7 @@ func assetCateSelectOptions() map[string]any {
 
 func dataTemplateCateSelectOptions() map[string]any {
 	return map[string]any{
-		"field": "main.id, main.name, main.target_table, main.status, main.sort",
+		"field": "main.id, main.name, main.target_table, main.business_object_type_id, main.status, main.sort",
 		"order": "main.sort asc, main.id asc",
 	}
 }
@@ -804,12 +836,13 @@ func loadCrmCateOptions(rows []map[string]any) []map[string]any {
 	options := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		options = append(options, map[string]any{
-			"id":           util.ToUint64(row["id"]),
-			"value":        util.ToStringTrimmed(row["name"]),
-			"name":         util.ToStringTrimmed(row["name"]),
-			"target_table": util.ToStringTrimmed(row["target_table"]),
-			"status":       util.ToIntDefault(row["status"], 0),
-			"sort":         util.ToIntDefault(row["sort"], 0),
+			"id":                      util.ToUint64(row["id"]),
+			"value":                   util.ToStringTrimmed(row["name"]),
+			"name":                    util.ToStringTrimmed(row["name"]),
+			"target_table":            util.ToStringTrimmed(row["target_table"]),
+			"business_object_type_id": util.ToUint64(row["business_object_type_id"]),
+			"status":                  util.ToIntDefault(row["status"], 0),
+			"sort":                    util.ToIntDefault(row["sort"], 0),
 		})
 	}
 	return options

@@ -29,7 +29,7 @@ func normalizeTaskVisibleWhen(ctx context.Context, record map[string]any, partia
 	}
 	field := requireConditionDataField(ctx, fieldID, "form.visible_condition_path", "显示条件字段")
 	if field == nil {
-		panicCrmField("form.visible_condition_path", "显示条件字段不存在、未开启条件字段或已停用。")
+		panicCrmField("form.visible_condition_path", "显示条件字段不存在或已停用。")
 	}
 	if value == "" {
 		panicCrmField("form.visible_condition_path", "显示条件值不能为空。")
@@ -55,10 +55,14 @@ func conditionFieldAndValueFromPath(value any) (uint64, string) {
 }
 
 func conditionDataFieldID(value any) uint64 {
+	fieldID := uint64(0)
 	for _, item := range collectPathItems(value) {
 		if strings.HasPrefix(item, collectFieldSourceDataPrefix) {
-			return util.ToUint64(strings.TrimPrefix(item, collectFieldSourceDataPrefix))
+			fieldID = util.ToUint64(strings.TrimPrefix(item, collectFieldSourceDataPrefix))
 		}
+	}
+	if fieldID > 0 {
+		return fieldID
 	}
 	return util.ToUint64(value)
 }
@@ -78,7 +82,7 @@ func requireConditionDataField(ctx context.Context, fieldID uint64, formPath str
 	}
 	field := conditionDataField(ctx, fieldID)
 	if field == nil {
-		panicCrmField(formPath, fmt.Sprintf("%s不存在、未开启条件字段或已停用。", label))
+		panicCrmField(formPath, fmt.Sprintf("%s不存在或已停用。", label))
 	}
 	return field
 }
@@ -88,9 +92,8 @@ func conditionDataField(ctx context.Context, fieldID uint64) *crmmodel.DataField
 		return nil
 	}
 	return crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-		"id":           fieldID,
-		"stat_enabled": true,
-		"status":       crmmodel.StatusEnabled,
+		"id":     fieldID,
+		"status": crmmodel.StatusEnabled,
 	})
 }
 
@@ -98,10 +101,7 @@ func requireConditionDataFieldOption(ctx context.Context, field *crmmodel.DataFi
 	if field == nil || !conditionFieldHasOptions(field.FieldType) || strings.TrimSpace(value) == "" {
 		return
 	}
-	if crmmodel.NewDataFieldOptionModel().Find(ctx, map[string]any{
-		"data_field_id": field.ID,
-		"value":         value,
-	}) == nil {
+	if !dataFieldOptionExists(ctx, field, value) {
 		panicCrmField(formPath, fmt.Sprintf("%s不属于该字段的可选项。", label))
 	}
 }
@@ -150,7 +150,7 @@ func normalizeDecisionResultField(ctx context.Context, record map[string]any, pa
 	if !conditionFieldHasOptions(field.FieldType) {
 		panicCrmField("form.decision_result_field_path", "结果写入字段必须是单选或下拉字段。")
 	}
-	if crmmodel.NewDataFieldOptionModel().Count(ctx, map[string]any{"data_field_id": field.ID}) == 0 {
+	if dataFieldOptionCount(ctx, field) == 0 {
 		panicCrmField("form.decision_result_field_path", "结果写入字段必须配置可选项。")
 	}
 	return field.ID

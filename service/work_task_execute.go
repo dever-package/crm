@@ -10,25 +10,28 @@ import (
 )
 
 type workOperationCompletion struct {
-	customerID   uint64
-	assetID      uint64
-	operationID  uint64
-	task         *crmmodel.Task
-	formInput    *workFormInput
-	resultValue  string
-	todoID       uint64
-	progressOnly bool
+	customerID       uint64
+	assetID          uint64
+	businessObjectID uint64
+	operationID      uint64
+	task             *crmmodel.Task
+	formInput        *workFormInput
+	resultValue      string
+	todoID           uint64
+	progressOnly     bool
 }
 
 type workFormOperationCompletion struct {
-	customerID   uint64
-	assetID      uint64
-	createdAsset bool
-	operationID  uint64
-	task         *crmmodel.Task
-	formInput    *workFormInput
-	resultValue  string
-	fromState    *crmmodel.CustomerStage
+	customerID            uint64
+	assetID               uint64
+	businessObjectID      uint64
+	createdAsset          bool
+	createdBusinessObject bool
+	operationID           uint64
+	task                  *crmmodel.Task
+	formInput             *workFormInput
+	resultValue           string
+	fromState             *crmmodel.CustomerStage
 }
 
 func executeWorkTask(ctx context.Context, staff *WorkStaffSession, payload map[string]any, runtime *workExecutionRuntime) (map[string]any, error) {
@@ -41,8 +44,15 @@ func executeWorkTask(ctx context.Context, staff *WorkStaffSession, payload map[s
 	}
 	customerID := firstUint64(payload, "customer_id", "customerId")
 	assetID := firstUint64(payload, "asset_id", "assetId")
+	businessObjectID := firstUint64(payload, "business_object_id", "businessObjectId")
+	if businessObjectID == 0 {
+		businessObjectID = firstUint64(mapFromAny(payload["values"]), "business_object_id", "businessObjectId")
+	}
 	if assetID > 0 && !workCustomerOwnsAsset(ctx, customerID, assetID) {
 		return nil, fmt.Errorf("客户资产不存在")
+	}
+	if businessObjectID > 0 && !workCustomerOwnsBusinessObject(ctx, customerID, assetID, businessObjectID) {
+		return nil, fmt.Errorf("业务对象不存在")
 	}
 	task := workAllowedTask(ctx, staff, taskID, customerID, assetID, firstUint64(payload, "todo_id", "todoId"))
 	if task == nil {
@@ -59,17 +69,23 @@ func executeWorkTask(ctx context.Context, staff *WorkStaffSession, payload map[s
 		}
 		return executeCreateCustomerTask(ctx, staff, task, mapFromAny(payload["values"]), runtime)
 	case crmmodel.TaskTypeForm:
-		return executeFormTask(ctx, staff, task, customerID, assetID, workActionValues(payload), runtime)
+		values := workActionValues(payload)
+		values["business_object_id"] = businessObjectID
+		return executeFormTask(ctx, staff, task, customerID, assetID, values, runtime)
 	case crmmodel.TaskTypeAssign:
 		if customerID == 0 {
 			return nil, fmt.Errorf("客户不能为空")
 		}
-		return executeAssignCustomerTask(ctx, staff, task, customerID, assetID, workActionValues(payload), runtime)
+		values := workActionValues(payload)
+		values["business_object_id"] = businessObjectID
+		return executeAssignCustomerTask(ctx, staff, task, customerID, assetID, values, runtime)
 	case crmmodel.TaskTypeCollaborate:
 		if customerID == 0 {
 			return nil, fmt.Errorf("客户不能为空")
 		}
-		return executeCollaborateCustomerTask(ctx, staff, task, customerID, assetID, workActionValues(payload), runtime)
+		values := workActionValues(payload)
+		values["business_object_id"] = businessObjectID
+		return executeCollaborateCustomerTask(ctx, staff, task, customerID, assetID, values, runtime)
 	case crmmodel.TaskTypeDecision:
 		if customerID == 0 {
 			return nil, fmt.Errorf("客户不能为空")
@@ -92,24 +108,47 @@ func executeFormTask(ctx context.Context, staff *WorkStaffSession, task *crmmode
 	return executeEditFormTask(ctx, staff, task, customerID, assetID, values, runtime)
 }
 
+func requireExistingWorkBusinessObject(ctx context.Context, task *crmmodel.Task, formInput *workFormInput, businessObjectID uint64) error {
+	if task == nil || !formInputHasBusinessObjectValues(formInput) {
+		return nil
+	}
+	if normalizeWorkBusinessObjectMode(inputText(mapFromAny(task.ConfigJSON)["business_object_mode"])) != "select" {
+		return nil
+	}
+	if businessObjectID > 0 {
+		return nil
+	}
+	typeID, err := workBusinessObjectTypeIDForFormInput(ctx, formInput)
+	if err != nil {
+		return err
+	}
+	typeName := workBusinessObjectTypeName(ctx, typeID)
+	if typeName == "" {
+		typeName = "业务对象"
+	}
+	return fmt.Errorf("请选择%s", typeName)
+}
+
 func completeWorkFormOperation(ctx context.Context, staff *WorkStaffSession, runtime *workExecutionRuntime, completion workFormOperationCompletion) (map[string]any, error) {
-	saveWorkFormDataRecords(ctx, completion.customerID, completion.assetID, completion.task.ID, completion.operationID, completion.formInput)
+	saveWorkFormObjectDataRecords(ctx, completion.customerID, completion.assetID, completion.businessObjectID, completion.task.ID, completion.operationID, completion.formInput)
 	afterWorkOperationCompleted(ctx, staff, workOperationCompletion{
-		customerID:  completion.customerID,
-		assetID:     completion.assetID,
-		operationID: completion.operationID,
-		task:        completion.task,
-		formInput:   completion.formInput,
-		resultValue: completion.resultValue,
+		customerID:       completion.customerID,
+		assetID:          completion.assetID,
+		businessObjectID: completion.businessObjectID,
+		operationID:      completion.operationID,
+		task:             completion.task,
+		formInput:        completion.formInput,
+		resultValue:      completion.resultValue,
 	})
 	fromState := ensureCreatedWorkAssetStage(ctx, staff, completion.customerID, completion.assetID, completion.operationID, completion.task.ID, completion.createdAsset, completion.fromState)
 	transitionStageCode := applyWorkStageTransition(ctx, staff, completion.customerID, completion.assetID, fromState, completion.task, completion.operationID, completion.resultValue)
 	runWorkAutoTriggers(ctx, staff, completion.customerID, completion.assetID, completion.task, completion.resultValue, workEnteredStageCode(completion.createdAsset, fromState, transitionStageCode), runtime)
 	return map[string]any{
-		"customer_id":  completion.customerID,
-		"asset_id":     completion.assetID,
-		"result_value": completion.resultValue,
-		"saved":        true,
+		"customer_id":        completion.customerID,
+		"asset_id":           completion.assetID,
+		"business_object_id": completion.businessObjectID,
+		"result_value":       completion.resultValue,
+		"saved":              true,
 	}, nil
 }
 
@@ -184,8 +223,17 @@ func executeEditFormTask(ctx context.Context, staff *WorkStaffSession, task *crm
 	if err != nil {
 		return nil, err
 	}
+	businessObjectID := firstUint64(values, "business_object_id", "businessObjectId")
 	var createdAsset bool
 	assetID, createdAsset, err = ensureWorkFormAsset(ctx, customerID, assetID, formInput)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireExistingWorkBusinessObject(ctx, task, formInput, businessObjectID); err != nil {
+		return nil, err
+	}
+	var createdBusinessObject bool
+	businessObjectID, createdBusinessObject, err = ensureWorkFormBusinessObject(ctx, staff, customerID, assetID, businessObjectID, formInput)
 	if err != nil {
 		return nil, err
 	}
@@ -194,37 +242,41 @@ func executeEditFormTask(ctx context.Context, staff *WorkStaffSession, task *crm
 	}
 	if progressSubmit {
 		operationID := insertWorkOperationLogWithResult(ctx, staff, task, customerID, assetID, fromState, values, workResultProgress)
-		saveWorkFormDataRecords(ctx, customerID, assetID, task.ID, operationID, formInput)
+		saveWorkFormObjectDataRecords(ctx, customerID, assetID, businessObjectID, task.ID, operationID, formInput)
 		afterWorkOperationCompleted(ctx, staff, workOperationCompletion{
-			customerID:   customerID,
-			assetID:      assetID,
-			operationID:  operationID,
-			task:         task,
-			formInput:    formInput,
-			resultValue:  workResultProgress,
-			progressOnly: true,
+			customerID:       customerID,
+			assetID:          assetID,
+			businessObjectID: businessObjectID,
+			operationID:      operationID,
+			task:             task,
+			formInput:        formInput,
+			resultValue:      workResultProgress,
+			progressOnly:     true,
 		})
 		fromState = ensureCreatedWorkAssetStage(ctx, staff, customerID, assetID, operationID, task.ID, createdAsset, fromState)
 		updateWorkCustomerStageOperation(ctx, customerID, assetID, operationID)
 		return map[string]any{
-			"customer_id":  customerID,
-			"asset_id":     assetID,
-			"result_value": workResultProgress,
-			"saved":        true,
-			"progress":     true,
+			"customer_id":        customerID,
+			"asset_id":           assetID,
+			"business_object_id": businessObjectID,
+			"result_value":       workResultProgress,
+			"saved":              true,
+			"progress":           true,
 		}, nil
 	}
 	resultValue := workFormTaskResultValue(task, formInput)
 	operationID := insertWorkOperationLogWithResult(ctx, staff, task, customerID, assetID, fromState, values, resultValue)
 	return completeWorkFormOperation(ctx, staff, runtime, workFormOperationCompletion{
-		customerID:   customerID,
-		assetID:      assetID,
-		createdAsset: createdAsset,
-		operationID:  operationID,
-		task:         task,
-		formInput:    formInput,
-		resultValue:  resultValue,
-		fromState:    fromState,
+		customerID:            customerID,
+		assetID:               assetID,
+		businessObjectID:      businessObjectID,
+		createdAsset:          createdAsset,
+		createdBusinessObject: createdBusinessObject,
+		operationID:           operationID,
+		task:                  task,
+		formInput:             formInput,
+		resultValue:           resultValue,
+		fromState:             fromState,
 	})
 }
 
@@ -243,8 +295,16 @@ func executeAssignCustomerTask(ctx context.Context, staff *WorkStaffSession, tas
 		return nil, err
 	}
 	fromState := currentWorkCustomerStage(ctx, customerID, assetID)
+	businessObjectID := firstUint64(values, "business_object_id", "businessObjectId")
 	var createdAsset bool
 	assetID, createdAsset, err = ensureWorkFormAsset(ctx, customerID, assetID, formInput)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireExistingWorkBusinessObject(ctx, task, formInput, businessObjectID); err != nil {
+		return nil, err
+	}
+	businessObjectID, _, err = ensureWorkFormBusinessObject(ctx, staff, customerID, assetID, businessObjectID, formInput)
 	if err != nil {
 		return nil, err
 	}
@@ -255,14 +315,15 @@ func executeAssignCustomerTask(ctx context.Context, staff *WorkStaffSession, tas
 	logValues["department_id"] = targetDepartmentID
 	logValues["staff_id"] = targetStaffID
 	operationID := insertWorkOperationLog(ctx, staff, task, customerID, assetID, logValues)
-	saveWorkFormDataRecords(ctx, customerID, assetID, task.ID, operationID, formInput)
+	saveWorkFormObjectDataRecords(ctx, customerID, assetID, businessObjectID, task.ID, operationID, formInput)
 	afterWorkOperationCompleted(ctx, staff, workOperationCompletion{
-		customerID:  customerID,
-		assetID:     assetID,
-		operationID: operationID,
-		task:        task,
-		formInput:   formInput,
-		resultValue: workResultSuccess,
+		customerID:       customerID,
+		assetID:          assetID,
+		businessObjectID: businessObjectID,
+		operationID:      operationID,
+		task:             task,
+		formInput:        formInput,
+		resultValue:      workResultSuccess,
 	})
 	fromState = ensureCreatedWorkAssetStage(ctx, staff, customerID, assetID, operationID, task.ID, createdAsset, fromState)
 	updateWorkCustomerOwner(ctx, customerID, assetID, targetDepartmentID, targetStaffID, operationID)
@@ -284,6 +345,9 @@ func executeCollaborateCustomerTask(ctx context.Context, staff *WorkStaffSession
 	if todoID > 0 {
 		return completeWorkTodo(ctx, staff, task, customerID, assetID, todoID, values, runtime)
 	}
+	if workCollaborationConfirmRequested(values) {
+		return confirmWorkCollaborationTask(ctx, staff, task, customerID, assetID, values, runtime)
+	}
 
 	targets, err := workCollaborationTargets(ctx, task, values)
 	if err != nil {
@@ -296,7 +360,15 @@ func executeCollaborateCustomerTask(ctx context.Context, staff *WorkStaffSession
 	if err != nil {
 		return nil, err
 	}
+	businessObjectID := firstUint64(values, "business_object_id", "businessObjectId")
 	assetID, createdAsset, err := ensureWorkFormAsset(ctx, customerID, assetID, formInput)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireExistingWorkBusinessObject(ctx, task, formInput, businessObjectID); err != nil {
+		return nil, err
+	}
+	businessObjectID, _, err = ensureWorkFormBusinessObject(ctx, staff, customerID, assetID, businessObjectID, formInput)
 	if err != nil {
 		return nil, err
 	}
@@ -306,14 +378,15 @@ func executeCollaborateCustomerTask(ctx context.Context, staff *WorkStaffSession
 	logValues := copyMap(values)
 	logValues["todo_count"] = len(targets)
 	operationID := insertWorkOperationLog(ctx, staff, task, customerID, assetID, logValues)
-	saveWorkFormDataRecords(ctx, customerID, assetID, task.ID, operationID, formInput)
+	saveWorkFormObjectDataRecords(ctx, customerID, assetID, businessObjectID, task.ID, operationID, formInput)
 	afterWorkOperationCompleted(ctx, staff, workOperationCompletion{
-		customerID:  customerID,
-		assetID:     assetID,
-		operationID: operationID,
-		task:        task,
-		formInput:   formInput,
-		resultValue: workResultSuccess,
+		customerID:       customerID,
+		assetID:          assetID,
+		businessObjectID: businessObjectID,
+		operationID:      operationID,
+		task:             task,
+		formInput:        formInput,
+		resultValue:      workResultSuccess,
 	})
 	fromState := ensureCreatedWorkAssetStage(ctx, staff, customerID, assetID, operationID, task.ID, createdAsset, nil)
 	todos := createWorkCollaborationTodos(ctx, staff, task, customerID, assetID, operationID, targets)
@@ -341,6 +414,9 @@ func executeDecisionCustomerTask(ctx context.Context, staff *WorkStaffSession, t
 		return nil, err
 	}
 	logValues := map[string]any{"decision_result": result}
+	if strings.TrimSpace(result.Reason) != "" {
+		logValues["decision_reason"] = result.Reason
+	}
 	operationID := insertWorkOperationLogWithResult(ctx, staff, task, customerID, assetID, fromState, logValues, result.Value)
 	if err := writeWorkDecisionResult(ctx, customerID, task, operationID, resultTarget, result.Value); err != nil {
 		return nil, err
@@ -423,12 +499,11 @@ func resolveWorkDecisionResultTarget(ctx context.Context, customerID uint64, ass
 		return workDecisionResultTarget{}, fmt.Errorf("决策任务未配置结果写入字段")
 	}
 	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-		"id":           fieldID,
-		"stat_enabled": true,
-		"status":       crmmodel.StatusEnabled,
+		"id":     fieldID,
+		"status": crmmodel.StatusEnabled,
 	})
 	if field == nil {
-		return workDecisionResultTarget{}, fmt.Errorf("结果写入字段不存在、未开启条件字段或已停用")
+		return workDecisionResultTarget{}, fmt.Errorf("结果写入字段不存在或已停用")
 	}
 	if strings.TrimSpace(field.FieldKey) == "" {
 		return workDecisionResultTarget{}, fmt.Errorf("结果写入字段必须配置字段编码")
@@ -471,6 +546,17 @@ func workDecisionResultFieldHasOptions(fieldType string) bool {
 func workDecisionFieldOptionExists(ctx context.Context, fieldID uint64, value string) bool {
 	if fieldID == 0 || strings.TrimSpace(value) == "" {
 		return false
+	}
+	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID, "status": crmmodel.StatusEnabled})
+	if field == nil {
+		return false
+	}
+	if field.OptionSetID > 0 {
+		return crmmodel.NewOptionSetItemModel().Find(ctx, map[string]any{
+			"option_set_id": field.OptionSetID,
+			"value":         strings.TrimSpace(value),
+			"status":        crmmodel.StatusEnabled,
+		}) != nil
 	}
 	return crmmodel.NewDataFieldOptionModel().Find(ctx, map[string]any{
 		"data_field_id": fieldID,

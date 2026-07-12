@@ -214,9 +214,8 @@ func stageTransitionConditionField(ctx context.Context, path string) *crmmodel.D
 				cateID = crmmodel.CustomerAssetDataTemplateCateID
 			}
 			for _, field := range crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
-				"field_key":    fieldKey,
-				"stat_enabled": true,
-				"status":       crmmodel.StatusEnabled,
+				"field_key": fieldKey,
+				"status":    crmmodel.StatusEnabled,
 			}) {
 				if stageTransitionFieldCateID(ctx, field) == cateID {
 					return field

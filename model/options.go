@@ -1,6 +1,11 @@
 package model
 
-import "github.com/shemic/dever/orm"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/shemic/dever/orm"
+)
 
 const (
 	StatusEnabled  int16 = 1
@@ -20,6 +25,10 @@ const (
 const (
 	TaskAssignModeStaff      = "staff"
 	TaskAssignModeDepartment = "department"
+)
+
+const (
+	TaskCompleteAssignTaskID = "complete_assign_task_id"
 )
 
 const (
@@ -79,6 +88,12 @@ const (
 )
 
 const (
+	BusinessObjectParentCustomer       = "customer"
+	BusinessObjectParentCustomerAsset  = "customer_asset"
+	BusinessObjectParentBusinessObject = "business_object"
+)
+
+const (
 	StatEventTypeTask       = "task"
 	StatEventTypeTransition = "transition"
 )
@@ -87,6 +102,29 @@ const (
 	StatValueSourceForm       = "form"
 	StatValueSourceTransition = "transition"
 	StatValueSourceTask       = "task"
+)
+
+const (
+	DataUsageTypeStat    = "stat"
+	DataUsageTypeFinance = "finance"
+	DataUsageTypeDisplay = "display"
+	DataUsageTypeReport  = "report"
+)
+
+const (
+	DataUsageValueTypeText      = "text"
+	DataUsageValueTypeNumber    = "number"
+	DataUsageValueTypeAmount    = "amount"
+	DataUsageValueTypeTime      = "time"
+	DataUsageValueTypeStatus    = "status"
+	DataUsageValueTypeDimension = "dimension"
+)
+
+const (
+	DataUsageAggregateCount = "count"
+	DataUsageAggregateSum   = "sum"
+	DataUsageAggregateAvg   = "avg"
+	DataUsageAggregateGroup = "group"
 )
 
 const (
@@ -102,6 +140,21 @@ const (
 const (
 	FinanceDirectionIncome  = "income"
 	FinanceDirectionExpense = "expense"
+)
+
+const (
+	ProductOptionSetName = "S产品"
+
+	ProductCategoryJudicial       = "judicial"
+	ProductCategoryAssetOperation = "asset_operation"
+	ProductCategoryDebtStructure  = "debt_structure"
+	ProductCategoryStageService   = "stage_service"
+	ProductCategoryRiskDisposal   = "risk_disposal"
+	ProductCategoryConsulting     = "consulting"
+
+	ProductSigningNonSealed = "non_sealed_asset_signing"
+	ProductSigningSealed    = "sealed_asset_service_signing"
+	ProductSigningManual    = "manual_review"
 )
 
 const (
@@ -121,6 +174,33 @@ const (
 var statusOptions = []map[string]any{
 	{"id": StatusEnabled, "value": "启用"},
 	{"id": StatusDisabled, "value": "停用"},
+}
+
+var businessObjectStatusOptions = []map[string]any{
+	{"id": "active", "value": "进行中"},
+	{"id": "pending", "value": "待出租"},
+	{"id": "rented", "value": "已出租"},
+	{"id": "delivering", "value": "交付中"},
+	{"id": "ended", "value": "已退租"},
+	{"id": "abnormal", "value": "异常"},
+	{"id": "closed", "value": "已关闭"},
+}
+
+func BusinessObjectStatusName(status string) string {
+	return crmOptionName(businessObjectStatusOptions, status)
+}
+
+func crmOptionName(options []map[string]any, id string) string {
+	target := strings.TrimSpace(id)
+	if target == "" {
+		return ""
+	}
+	for _, option := range options {
+		if strings.TrimSpace(fmt.Sprint(option["id"])) == target {
+			return strings.TrimSpace(fmt.Sprint(option["value"]))
+		}
+	}
+	return target
 }
 
 var staffTypeOptions = []map[string]any{
@@ -144,9 +224,48 @@ var dataFieldStatTypeOptions = []map[string]any{
 	{"id": DataFieldStatTypeText, "value": "文本"},
 }
 
+var dataUsageTypeOptions = []map[string]any{
+	{"id": DataUsageTypeStat, "value": "统计"},
+	{"id": DataUsageTypeFinance, "value": "财务"},
+	{"id": DataUsageTypeDisplay, "value": "展示"},
+	{"id": DataUsageTypeReport, "value": "报表"},
+}
+
+var dataUsageValueTypeOptions = []map[string]any{
+	{"id": DataUsageValueTypeText, "value": "文本"},
+	{"id": DataUsageValueTypeNumber, "value": "数字"},
+	{"id": DataUsageValueTypeAmount, "value": "金额"},
+	{"id": DataUsageValueTypeTime, "value": "时间"},
+	{"id": DataUsageValueTypeStatus, "value": "状态"},
+	{"id": DataUsageValueTypeDimension, "value": "维度"},
+}
+
+var dataUsageAggregateTypeOptions = []map[string]any{
+	{"id": "", "value": "不聚合"},
+	{"id": DataUsageAggregateCount, "value": "计数"},
+	{"id": DataUsageAggregateSum, "value": "求和"},
+	{"id": DataUsageAggregateAvg, "value": "平均"},
+	{"id": DataUsageAggregateGroup, "value": "分组"},
+}
+
 var financeDirectionOptions = []map[string]any{
 	{"id": FinanceDirectionIncome, "value": "收入"},
 	{"id": FinanceDirectionExpense, "value": "支出"},
+}
+
+var productCategoryOptions = []map[string]any{
+	{"id": ProductCategoryJudicial, "value": "司法推进类"},
+	{"id": ProductCategoryAssetOperation, "value": "资产运营类"},
+	{"id": ProductCategoryDebtStructure, "value": "债务结构类"},
+	{"id": ProductCategoryStageService, "value": "阶段性服务类"},
+	{"id": ProductCategoryRiskDisposal, "value": "风险处置类"},
+	{"id": ProductCategoryConsulting, "value": "咨询/预审类"},
+}
+
+var productSigningTypeOptions = []map[string]any{
+	{"id": ProductSigningNonSealed, "value": "非查封资产签约"},
+	{"id": ProductSigningSealed, "value": "查封服务签约"},
+	{"id": ProductSigningManual, "value": "人工复核"},
 }
 
 var financeLedgerSourceOptions = []map[string]any{
@@ -208,6 +327,12 @@ var memberRelationOptions = []map[string]any{
 	{"id": MemberRelationViewer, "value": "查看人"},
 }
 
+var businessObjectParentTargetOptions = []map[string]any{
+	{"id": BusinessObjectParentCustomer, "value": "客户"},
+	{"id": BusinessObjectParentCustomerAsset, "value": "客户资产"},
+	{"id": BusinessObjectParentBusinessObject, "value": "业务对象"},
+}
+
 var fieldTypeOptions = []map[string]any{
 	{"id": "text", "value": "单行文本"},
 	{"id": "textarea", "value": "多行文本"},
@@ -219,8 +344,9 @@ var fieldTypeOptions = []map[string]any{
 	{"id": "checkbox", "value": "多选"},
 	{"id": "select", "value": "下拉"},
 	{"id": "multi_select", "value": "多选下拉"},
-	{"id": "boolean", "value": "是/否"},
+	{"id": "boolean", "value": "开关"},
 	{"id": "attachment", "value": "附件"},
+	{"id": "group", "value": "分组"},
 }
 
 var customerRelation = orm.Relation{
@@ -233,6 +359,24 @@ var assetRelation = orm.Relation{
 	Field:      "asset_id",
 	Option:     "crm.NewCustomerAssetModel",
 	OptionKeys: []string{"asset_no", "asset_name", "asset_status_id"},
+}
+
+var businessObjectTypeRelation = orm.Relation{
+	Field:      "business_object_type_id",
+	Option:     "crm.NewBusinessObjectTypeModel",
+	OptionKeys: []string{"name", "code", "parent_target"},
+}
+
+var businessObjectRelation = orm.Relation{
+	Field:      "business_object_id",
+	Option:     "crm.NewBusinessObjectModel",
+	OptionKeys: []string{"object_no", "object_name", "object_status", "business_object_type_id"},
+}
+
+var parentBusinessObjectRelation = orm.Relation{
+	Field:      "parent_object_id",
+	Option:     "crm.NewBusinessObjectModel",
+	OptionKeys: []string{"object_no", "object_name", "object_status", "business_object_type_id"},
 }
 
 var assetStatusRelation = orm.Relation{

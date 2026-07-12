@@ -74,6 +74,7 @@ func syncWorkFinanceLedgers(ctx context.Context, staff *WorkStaffSession, comple
 	changedAt := workOperationCreatedAt(ctx, completion.operationID)
 	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.customerDataRecords, 0, changedAt)
 	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.assetDataRecords, completion.assetID, changedAt)
+	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.businessObjectDataRecords, completion.assetID, changedAt)
 }
 
 func syncWorkFinanceLedgerRecords(ctx context.Context, staff *WorkStaffSession, completion workOperationCompletion, records map[uint64]map[string]any, assetID uint64, changedAt time.Time) {
@@ -89,8 +90,8 @@ func syncWorkFinanceLedgerRecords(ctx context.Context, staff *WorkStaffSession, 
 			if emptyWorkFieldValue(value) {
 				continue
 			}
-			field := workFinanceDataField(ctx, templateID, inputUint64(fieldIDText))
-			if field == nil {
+			field, usageField := workFinanceDataField(ctx, templateID, inputUint64(fieldIDText))
+			if field == nil || usageField == nil {
 				continue
 			}
 			existing := model.Find(ctx, map[string]any{
@@ -101,7 +102,7 @@ func syncWorkFinanceLedgerRecords(ctx context.Context, staff *WorkStaffSession, 
 			if existing != nil {
 				continue
 			}
-			financeType := workFinanceType(ctx, field.StatID)
+			financeType := workFinanceType(ctx, usageField.FinanceTypeID)
 			if financeType == nil {
 				continue
 			}
@@ -111,17 +112,23 @@ func syncWorkFinanceLedgerRecords(ctx context.Context, staff *WorkStaffSession, 
 	}
 }
 
-func workFinanceDataField(ctx context.Context, templateID uint64, fieldID uint64) *crmmodel.DataField {
+func workFinanceDataField(ctx context.Context, templateID uint64, fieldID uint64) (*crmmodel.DataField, *crmmodel.DataUsageField) {
 	if templateID == 0 || fieldID == 0 {
-		return nil
+		return nil, nil
 	}
-	return crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
 		"id":               fieldID,
 		"data_template_id": templateID,
-		"stat_enabled":     true,
-		"stat_type":        crmmodel.DataFieldStatTypeFinance,
 		"status":           crmmodel.StatusEnabled,
 	})
+	if field == nil || field.FieldType == "group" {
+		return nil, nil
+	}
+	usageField := workDataUsageFieldByType(ctx, field.ID, crmmodel.DataUsageTypeFinance)
+	if usageField == nil || usageField.FinanceTypeID == 0 {
+		return nil, nil
+	}
+	return field, usageField
 }
 
 func workFinanceType(ctx context.Context, financeTypeID uint64) *crmmodel.FinanceType {
@@ -136,21 +143,22 @@ func workFinanceType(ctx context.Context, financeTypeID uint64) *crmmodel.Financ
 
 func workFinanceLedgerRecord(completion workOperationCompletion, staff *WorkStaffSession, assetID uint64, field *crmmodel.DataField, financeType *crmmodel.FinanceType, value any, changedAt time.Time) map[string]any {
 	return map[string]any{
-		"customer_id":       completion.customerID,
-		"asset_id":          assetID,
-		"task_id":           completion.task.ID,
-		"operation_log_id":  completion.operationID,
-		"data_field_id":     field.ID,
-		"finance_type_id":   financeType.ID,
-		"finance_type_code": financeType.Code,
-		"finance_type_name": financeType.Name,
-		"direction":         financeType.Direction,
-		"amount":            numericValue(value),
-		"raw_value":         inputText(value),
-		"staff_id":          staff.ID,
-		"department_id":     staff.DepartmentID,
-		"source":            crmmodel.FinanceLedgerSourceForm,
-		"created_at":        changedAt,
+		"customer_id":        completion.customerID,
+		"asset_id":           assetID,
+		"business_object_id": completion.businessObjectID,
+		"task_id":            completion.task.ID,
+		"operation_log_id":   completion.operationID,
+		"data_field_id":      field.ID,
+		"finance_type_id":    financeType.ID,
+		"finance_type_code":  financeType.Code,
+		"finance_type_name":  financeType.Name,
+		"direction":          financeType.Direction,
+		"amount":             numericValue(value),
+		"raw_value":          inputText(value),
+		"staff_id":           staff.ID,
+		"department_id":      staff.DepartmentID,
+		"source":             crmmodel.FinanceLedgerSourceForm,
+		"created_at":         changedAt,
 	}
 }
 

@@ -62,6 +62,31 @@
         }
       },
       {
+        "type": "form-select",
+        "value": "form.business_object_type_id",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewBusinessObjectTypeModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "filters": {
+            "status": "1"
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "选择业务对象类型",
+          "hiddenWhen": [
+            {
+              "path": "form.target_table",
+              "operator": "notEquals",
+              "value": "business_object"
+            }
+          ]
+        }
+      },
+      {
         "type": "form-radio",
         "value": "form.status",
         "mode": "form",
@@ -85,6 +110,7 @@
       "id": "",
       "name": "",
       "target_table": "customer",
+      "business_object_type_id": "",
       "status": 1,
       "sort": 100
     }

@@ -1,0 +1,39 @@
+{
+  "page": {
+    "name": "业务数据",
+    "icon": "chart-column",
+    "parent": "crm-dashboard",
+    "sort": 1
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header"
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5"
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "page-main": [
+      {
+        "type": "show-crm-admin-stats",
+        "meta": {
+          "mode": "business"
+        }
+      }
+    ]
+  },
+  "data": {},
+  "state": {},
+  "action": {}
+}

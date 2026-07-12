@@ -191,13 +191,13 @@
               "type": "show-base"
             },
             {
-              "name": "任务积分",
-              "value": "task_points",
+              "name": "完成后进入",
+              "value": "next_stage_name",
               "type": "show-base"
             },
             {
-              "name": "资料模板",
-              "value": "form.name",
+              "name": "任务积分",
+              "value": "task_points",
               "type": "show-base"
             },
             {

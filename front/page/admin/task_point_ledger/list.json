@@ -98,16 +98,16 @@
         }
       },
       {
-        "type": "form-input",
-        "placeholder": "开始时间 YYYY-MM-DD",
+        "type": "form-date",
+        "placeholder": "创建时间",
         "value": "search.created_at_start",
-        "mode": "search"
-      },
-      {
-        "type": "form-input",
-        "placeholder": "结束时间 YYYY-MM-DD",
-        "value": "search.created_at_end",
-        "mode": "search"
+        "mode": "search",
+        "meta": {
+          "searchWidth": "select",
+          "range": true,
+          "endValue": "search.created_at_end",
+          "inputType": "datetime-local"
+        }
       },
       {
         "type": "show-button",
@@ -221,7 +221,8 @@
           "field": "created_at",
           "type": "date-range",
           "startKey": "created_at_start",
-          "endKey": "created_at_end"
+          "endKey": "created_at_end",
+          "valueType": "datetime"
         }
       ]
     }

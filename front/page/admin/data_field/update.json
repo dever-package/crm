@@ -29,7 +29,25 @@
         "children": {
           "dialog-shell": {
             "type": "container",
-            "className": "w-full"
+            "className": "w-full",
+            "children": {
+              "group-field-header": {
+                "type": "header",
+                "className": "gap-4",
+                "children": {
+                  "group-field-actions": {
+                    "type": "row",
+                    "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+                  }
+                }
+              },
+              "group-field-table": {
+                "type": "container"
+              },
+              "group-field-feedback": {
+                "type": "container"
+              }
+            }
           }
         }
       }
@@ -55,7 +73,7 @@
         "type": "form-input",
         "value": "form.field_key",
         "mode": "form",
-        "placeholder": "例如 asset.city、pm.audit_status",
+        "placeholder": "留空自动生成，例如 cs.mingcheng",
         "meta": {
           "formLayout": "horizontal"
         }
@@ -64,10 +82,63 @@
         "type": "form-radio",
         "value": "form.field_type",
         "mode": "form",
-        "option": "option.field_type",
+        "option": [
+          {
+            "id": "text",
+            "value": "单行文本"
+          },
+          {
+            "id": "textarea",
+            "value": "多行文本"
+          },
+          {
+            "id": "number",
+            "value": "数字"
+          },
+          {
+            "id": "money",
+            "value": "金额"
+          },
+          {
+            "id": "date",
+            "value": "日期"
+          },
+          {
+            "id": "datetime",
+            "value": "时间"
+          },
+          {
+            "id": "radio",
+            "value": "单选"
+          },
+          {
+            "id": "checkbox",
+            "value": "多选"
+          },
+          {
+            "id": "select",
+            "value": "下拉"
+          },
+          {
+            "id": "multi_select",
+            "value": "多选下拉"
+          },
+          {
+            "id": "boolean",
+            "value": "开关"
+          },
+          {
+            "id": "attachment",
+            "value": "附件"
+          },
+          {
+            "id": "group",
+            "value": "分组"
+          }
+        ],
         "meta": {
           "formLayout": "horizontal",
-          "controlClassName": "max-w-[360px]"
+          "controlClassName": "max-w-[420px]"
         }
       },
       {
@@ -79,120 +150,26 @@
         }
       },
       {
-        "type": "form-switch",
-        "name": "条件字段",
-        "value": "form.stat_enabled",
-        "mode": "form",
-        "info": "开启后会把该字段值同步为可查询条件，可用于工作台任务显示、流程判断、脚本计算结果写入后的匹配，也可继续用于统计分析。",
-        "meta": {
-          "formLayout": "horizontal",
-          "trueValue": true,
-          "falseValue": false,
-          "controlClassName": "min-w-[6rem]"
-        }
-      },
-      {
         "type": "form-radio",
-        "name": "条件值类型",
-        "value": "form.stat_type",
+        "name": "选项来源",
+        "value": "form.option_source",
         "mode": "form",
-        "option": "option.stat_type",
-        "info": "用于说明该条件字段的值怎么被理解和索引：分类适合标签、来源、T节点等枚举值；数值/金额适合可计算数字；财务适合律师费、回款、支出等会生成财务流水的金额字段；时间适合日期时间；状态适合流程状态；文本适合普通文字。",
-        "meta": {
-          "formLayout": "horizontal",
-          "controlClassName": "max-w-[360px]",
-          "hiddenWhen": [
-            {
-              "path": "form.stat_enabled",
-              "operator": "notEquals",
-              "value": true
-            }
-          ]
-        }
-      },
-      {
-        "type": "form-input",
-        "name": "条件分组",
-        "value": "form.stat_group",
-        "mode": "form",
-        "placeholder": "例如 线索、资产、司法、PM、财务",
-        "info": "用于把条件字段按业务归类，方便后台筛选和统计展示；不参与任务显示、流程判断或脚本匹配本身。",
-        "meta": {
-          "formLayout": "horizontal",
-          "hiddenWhen": [
-            {
-              "path": "form.stat_enabled",
-              "operator": "notEquals",
-              "value": true
-            }
-          ]
-        }
-      },
-      {
-        "type": "form-select",
-        "name": "财务类型",
-        "value": "form.stat_id",
-        "mode": "form",
-        "option": {
-          "model": "crm.NewFinanceTypeModel",
-          "labelField": "name",
-          "order": "sort asc,id asc",
-          "pageSize": 200,
-          "searchFields": [
-            "code",
-            "name"
-          ],
-          "filters": {
-            "status": "1"
-          }
-        },
-        "validate": [
+        "option": [
           {
-            "type": "required",
-            "message": "财务类型不能为空。",
-            "when": [
-              {
-                "path": "form.stat_enabled",
-                "operator": "equals",
-                "value": true
-              },
-              {
-                "path": "form.stat_type",
-                "operator": "equals",
-                "value": "finance"
-              }
-            ]
+            "id": "custom",
+            "value": "私有选项"
+          },
+          {
+            "id": "option_set",
+            "value": "常用选项集"
           }
         ],
         "meta": {
           "formLayout": "horizontal",
-          "placeholder": "选择生成流水时使用的财务类型",
-          "hiddenCondition": "any",
-          "hiddenWhen": [
-            {
-              "path": "form.stat_enabled",
-              "operator": "notEquals",
-              "value": true
-            },
-            {
-              "path": "form.stat_type",
-              "operator": "notEquals",
-              "value": "finance"
-            }
-          ]
-        }
-      },
-      {
-        "type": "form-array",
-        "name": "可选项",
-        "value": "form.options",
-        "mode": "form",
-        "info": "维护单选、多选、下拉、多选下拉字段的可选项。选项值是流程判断、任务显示条件、AI填写和自动决策匹配时使用的真实值，建议使用稳定编码，例如 t1、t2、approved。",
-        "meta": {
-          "formLayout": "horizontal",
-          "pageRoute": "/crm/data_field_option/update",
-          "addText": "添加选项",
-          "drag": "sort",
+          "controlClassName": "max-w-[420px]",
+          "clearOnChange": [
+            "form.option_set_id"
+          ],
           "hiddenCondition": "all",
           "hiddenWhen": [
             {
@@ -217,26 +194,515 @@
             }
           ]
         }
+      },
+      {
+        "type": "form-select",
+        "name": "常用选项集",
+        "value": "form.option_set_id",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewOptionSetModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "请选择常用选项集",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "radio"
+            },
+            {
+              "path": "form.option_source",
+              "operator": "notEquals",
+              "value": "option_set"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "常用选项集",
+        "value": "form.option_set_id",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewOptionSetModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "请选择常用选项集",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "checkbox"
+            },
+            {
+              "path": "form.option_source",
+              "operator": "notEquals",
+              "value": "option_set"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "常用选项集",
+        "value": "form.option_set_id",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewOptionSetModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "请选择常用选项集",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "select"
+            },
+            {
+              "path": "form.option_source",
+              "operator": "notEquals",
+              "value": "option_set"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "常用选项集",
+        "value": "form.option_set_id",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewOptionSetModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "placeholder": "请选择常用选项集",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "multi_select"
+            },
+            {
+              "path": "form.option_source",
+              "operator": "notEquals",
+              "value": "option_set"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-array",
+        "name": "可选项",
+        "value": "form.options",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "pageRoute": "/crm/data_field_option/update",
+          "addText": "添加选项",
+          "drag": "sort",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "radio"
+            },
+            {
+              "path": "form.option_source",
+              "operator": "notEquals",
+              "value": "custom"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-array",
+        "name": "可选项",
+        "value": "form.options",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "pageRoute": "/crm/data_field_option/update",
+          "addText": "添加选项",
+          "drag": "sort",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "checkbox"
+            },
+            {
+              "path": "form.option_source",
+              "operator": "notEquals",
+              "value": "custom"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-array",
+        "name": "可选项",
+        "value": "form.options",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "pageRoute": "/crm/data_field_option/update",
+          "addText": "添加选项",
+          "drag": "sort",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "select"
+            },
+            {
+              "path": "form.option_source",
+              "operator": "notEquals",
+              "value": "custom"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-array",
+        "name": "可选项",
+        "value": "form.options",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "pageRoute": "/crm/data_field_option/update",
+          "addText": "添加选项",
+          "drag": "sort",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "multi_select"
+            },
+            {
+              "path": "form.option_source",
+              "operator": "notEquals",
+              "value": "custom"
+            }
+          ]
+        }
+      }
+    ],
+    "group-field-header": [
+      {
+        "type": "show-title",
+        "name": "分组字段",
+        "info": "维护当前分组下的字段。",
+        "className": "min-w-0 flex-1",
+        "meta": {
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "group"
+            }
+          ]
+        }
+      }
+    ],
+    "group-field-actions": [
+      {
+        "type": "show-button",
+        "name": "添加分组字段",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "plus",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "group"
+            }
+          ]
+        },
+        "action": {
+          "click": [
+            {
+              "type": "state",
+              "key": "childFieldIndex",
+              "value": -1
+            },
+            {
+              "type": "state",
+              "key": "childFieldForm",
+              "value": {
+                "name": "",
+                "field_key": "",
+                "field_type": "text",
+                "default_value": "",
+                "option_source": "custom",
+                "option_set_id": "",
+                "children": [],
+                "options": [],
+                "status": 1,
+                "sort": 100
+              }
+            },
+            {
+              "type": "modal",
+              "key": "dialog.childField",
+              "value": true
+            }
+          ]
+        }
+      }
+    ],
+    "group-field-table": [
+      {
+        "type": "show-table",
+        "value": "form.children",
+        "className": "mt-3 overflow-hidden rounded-md border bg-background",
+        "meta": {
+          "rowKey": "id",
+          "hiddenWhen": [
+            {
+              "path": "form.field_type",
+              "operator": "notEquals",
+              "value": "group"
+            }
+          ],
+          "columns": [
+            {
+              "name": "字段名称",
+              "value": "name",
+              "type": "show-base"
+            },
+            {
+              "name": "字段编码",
+              "value": "field_key",
+              "type": "show-base"
+            },
+            {
+              "name": "字段类型",
+              "value": "field_type",
+              "type": "show-tag"
+            },
+            {
+              "name": "排序",
+              "value": "sort",
+              "type": "show-base",
+              "editor": "form-number",
+              "trigger": "doubleClick"
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "编辑分组字段",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "state",
+                          "key": "childFieldIndex",
+                          "value": "$rowIndex"
+                        },
+                        {
+                          "type": "state",
+                          "key": "childFieldForm",
+                          "value": "$row"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.childField",
+                          "value": true
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "icon": "trash-2",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "删除分组字段",
+                    "className": "text-destructive hover:text-destructive",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "state",
+                          "key": "deleteChildFieldIndex",
+                          "value": "$rowIndex"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.deleteChildField",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "group-field-feedback": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.childField",
+          "pageRoute": "/crm/data_field/child_update",
+          "title": "分组字段",
+          "size": "lg",
+          "width": "44rem",
+          "footer": {
+            "confirm": true,
+            "confirmText": "确定"
+          },
+          "pageDataPatches": {
+            "form.name": "state.childFieldForm.name",
+            "form.field_key": "state.childFieldForm.field_key",
+            "form.field_type": "state.childFieldForm.field_type",
+            "form.default_value": "state.childFieldForm.default_value",
+            "form.option_source": "state.childFieldForm.option_source",
+            "form.option_set_id": "state.childFieldForm.option_set_id",
+            "form.options": "state.childFieldForm.options",
+            "form.status": "state.childFieldForm.status",
+            "form.sort": "state.childFieldForm.sort"
+          }
+        },
+        "action": {
+          "submit": {
+            "type": "array",
+            "key": "form.children",
+            "op": "upsert",
+            "index": "state.childFieldIndex",
+            "value": "$modalForm"
+          }
+        }
+      },
+      {
+        "type": "feedback-confirm",
+        "name": "删除分组字段",
+        "info": "确认删除这一条分组字段吗？删除后当前行内容将被移除。",
+        "meta": {
+          "stateKey": "dialog.deleteChildField",
+          "successMessage": "分组字段已删除"
+        },
+        "action": {
+          "confirm": {
+            "type": "array",
+            "key": "form.children",
+            "op": "remove",
+            "index": "state.deleteChildFieldIndex"
+          }
+        }
       }
     ]
   },
   "data": {
     "form": {
+      "_fields": [
+        "data_template_id",
+        "parent_field_id",
+        "option_set_id",
+        "option_source",
+        "name",
+        "field_key",
+        "field_type",
+        "default_value",
+        "children",
+        "options",
+        "status",
+        "sort"
+      ],
+      "service": "crm.setting.CrmHook.BuildDataFieldForm",
       "id": "",
+      "data_template_id": "",
+      "parent_field_id": "",
+      "option_set_id": "",
+      "option_source": "custom",
       "name": "",
       "field_key": "",
       "field_type": "text",
       "default_value": "",
-      "stat_enabled": false,
-      "stat_type": "dimension",
-      "stat_id": "",
-      "stat_group": "",
+      "children": [],
       "options": [],
       "status": 1,
       "sort": 100
     }
   },
-  "state": {},
+  "state": {
+    "childFieldIndex": -1,
+    "deleteChildFieldIndex": -1,
+    "childFieldForm": {
+      "name": "",
+      "field_key": "",
+      "field_type": "text",
+      "default_value": "",
+      "option_source": "custom",
+      "option_set_id": "",
+      "children": [],
+      "options": [],
+      "status": 1,
+      "sort": 100
+    },
+    "dialog": {
+      "childField": false,
+      "deleteChildField": false
+    }
+  },
   "action": {
     "submit": {
       "type": "save",

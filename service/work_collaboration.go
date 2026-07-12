@@ -229,6 +229,15 @@ func completeWorkTodo(ctx context.Context, staff *WorkStaffSession, task *crmmod
 		}
 		formInput = mergeWorkFormInput(formInput, todoFormInput)
 	}
+	businessObjectID := firstUint64(values, "business_object_id", "businessObjectId")
+	var err error
+	if err := requireExistingWorkBusinessObject(ctx, task, formInput, businessObjectID); err != nil {
+		return nil, err
+	}
+	businessObjectID, _, err = ensureWorkFormBusinessObject(ctx, staff, customerID, assetID, businessObjectID, formInput)
+	if err != nil {
+		return nil, err
+	}
 	if err := saveWorkFormInput(ctx, customerID, assetID, formInput); err != nil {
 		return nil, err
 	}
@@ -240,26 +249,28 @@ func completeWorkTodo(ctx context.Context, staff *WorkStaffSession, task *crmmod
 		resultValue = workResultProgress
 	}
 	operationID := insertWorkOperationLogRecord(ctx, staff, task, customerID, assetID, currentWorkCustomerStage(ctx, customerID, assetID), logValues, resultValue, todo.SubTaskName)
-	saveWorkFormDataRecords(ctx, customerID, assetID, task.ID, operationID, formInput)
+	saveWorkFormObjectDataRecords(ctx, customerID, assetID, businessObjectID, task.ID, operationID, formInput)
 	afterWorkOperationCompleted(ctx, staff, workOperationCompletion{
-		customerID:   customerID,
-		assetID:      assetID,
-		operationID:  operationID,
-		task:         task,
-		formInput:    formInput,
-		resultValue:  resultValue,
-		todoID:       todo.ID,
-		progressOnly: progressSubmit,
+		customerID:       customerID,
+		assetID:          assetID,
+		businessObjectID: businessObjectID,
+		operationID:      operationID,
+		task:             task,
+		formInput:        formInput,
+		resultValue:      resultValue,
+		todoID:           todo.ID,
+		progressOnly:     progressSubmit,
 	})
 	if progressSubmit {
 		updateWorkCustomerStageOperation(ctx, customerID, assetID, operationID)
 		return map[string]any{
-			"customer_id":  customerID,
-			"asset_id":     assetID,
-			"todo_id":      todo.ID,
-			"result_value": resultValue,
-			"saved":        true,
-			"progress":     true,
+			"customer_id":        customerID,
+			"asset_id":           assetID,
+			"business_object_id": businessObjectID,
+			"todo_id":            todo.ID,
+			"result_value":       resultValue,
+			"saved":              true,
+			"progress":           true,
 		}, nil
 	}
 	now := time.Now()
@@ -275,11 +286,70 @@ func completeWorkTodo(ctx context.Context, staff *WorkStaffSession, task *crmmod
 		runWorkAutoTriggers(ctx, staff, customerID, assetID, task, workResultSuccess, transitionStageCode, runtime)
 	}
 	return map[string]any{
+		"customer_id":        customerID,
+		"asset_id":           assetID,
+		"business_object_id": businessObjectID,
+		"todo_id":            todo.ID,
+		"saved":              true,
+	}, nil
+}
+
+func workCollaborationConfirmRequested(values map[string]any) bool {
+	return booleanFromAny(firstWorkValue(values, "collaboration_confirm", "collaborationConfirm"))
+}
+
+func confirmWorkCollaborationTask(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, customerID uint64, assetID uint64, values map[string]any, runtime *workExecutionRuntime) (map[string]any, error) {
+	parentOperation := activeWorkCollaborationOperation(ctx, task, customerID, assetID)
+	if parentOperation == nil {
+		return nil, fmt.Errorf("协作任务尚未发起或已确认完成")
+	}
+	requiredPending := workTodoCount(ctx, parentOperation.ID, map[string]any{
+		"required": true,
+		"status":   crmmodel.WorkTodoStatusPending,
+	})
+	if requiredPending > 0 {
+		return nil, fmt.Errorf("还有 %d 个必做协作待办未完成", requiredPending)
+	}
+
+	logValues := copyMap(values)
+	logValues["parent_operation_log_id"] = parentOperation.ID
+	logValues["todo_count"] = workTodoCount(ctx, parentOperation.ID, map[string]any{})
+	logValues["done_todo_count"] = workTodoCount(ctx, parentOperation.ID, map[string]any{"status": crmmodel.WorkTodoStatusDone})
+	logValues["required_todo_count"] = workTodoCount(ctx, parentOperation.ID, map[string]any{"required": true})
+	operationID := insertWorkOperationLogWithTitle(ctx, staff, task, customerID, assetID, logValues, "确认协作完成")
+	fromState := currentWorkCustomerStage(ctx, customerID, assetID)
+	transitionStageCode := applyWorkStageTransitionWithOwner(ctx, staff, customerID, assetID, fromState, task, operationID, workResultSuccess, 0, 0)
+	runWorkAutoTriggers(ctx, staff, customerID, assetID, task, workResultSuccess, transitionStageCode, runtime)
+	return map[string]any{
+		"customer_id":  customerID,
+		"asset_id":     assetID,
+		"operation_id": operationID,
+		"confirmed":    true,
+		"saved":        true,
+	}, nil
+}
+
+func activeWorkCollaborationOperation(ctx context.Context, task *crmmodel.Task, customerID uint64, assetID uint64) *crmmodel.OperationLog {
+	if task == nil || customerID == 0 {
+		return nil
+	}
+	for _, operation := range crmmodel.NewOperationLogModel().Select(ctx, map[string]any{
 		"customer_id": customerID,
 		"asset_id":    assetID,
-		"todo_id":     todo.ID,
-		"saved":       true,
-	}, nil
+		"task_id":     task.ID,
+	}) {
+		if operation == nil {
+			continue
+		}
+		if workTodoCount(ctx, operation.ID, map[string]any{}) == 0 {
+			continue
+		}
+		if workCollaborationAlreadyFlowed(ctx, task, operation.ID) {
+			continue
+		}
+		return operation
+	}
+	return nil
 }
 
 func canOperateWorkTodo(staff *WorkStaffSession, todo *crmmodel.WorkTodo) bool {
@@ -334,6 +404,15 @@ func workCollaborationAlreadyFlowed(ctx context.Context, task *crmmodel.Task, pa
 		"operation_log_id": parentOperationID,
 	}) != nil {
 		return true
+	}
+	if parentOperation := crmmodel.NewOperationLogModel().Find(ctx, map[string]any{"id": parentOperationID}); parentOperation != nil {
+		if crmmodel.NewStageTransitionLogModel().Find(ctx, map[string]any{
+			"customer_id": parentOperation.CustomerID,
+			"asset_id":    parentOperation.AssetID,
+			"task_id":     task.ID,
+		}) != nil {
+			return true
+		}
 	}
 	for _, todo := range crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
 		"parent_operation_log_id": parentOperationID,

@@ -1,5 +1,6 @@
 {
   "page": {
+    "name": "协作子任务",
     "parent": "crm/task/update",
     "type": 2
   },
@@ -145,7 +146,7 @@
         "name": "必做",
         "value": "form.required",
         "mode": "form",
-        "info": "开启后，该子任务未完成时，“全部必做完成后流转”不会触发；关闭后仅作为辅助待办，不阻塞主流程。",
+        "info": "开启后，该子任务未完成时不会允许主任务确认完成；关闭后仅作为辅助待办，不阻塞主流程。",
         "meta": {
           "formLayout": "horizontal",
           "trueValue": true,

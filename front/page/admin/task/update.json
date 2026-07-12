@@ -27,6 +27,10 @@
         "type": "main",
         "className": "p-0",
         "children": {
+          "tabs-row": {
+            "type": "container",
+            "className": "mb-4"
+          },
           "dialog-shell": {
             "type": "container",
             "className": "w-full"
@@ -36,6 +40,33 @@
     }
   },
   "nodes": {
+    "tabs-row": [
+      {
+        "type": "nav-tab",
+        "meta": {
+          "target": "state.currentTab",
+          "variant": "line",
+          "tabs": [
+            {
+              "label": "基础信息",
+              "value": "basic"
+            },
+            {
+              "label": "动作配置",
+              "value": "action"
+            },
+            {
+              "label": "流转配置",
+              "value": "flow"
+            },
+            {
+              "label": "高级配置",
+              "value": "advanced"
+            }
+          ]
+        }
+      }
+    ],
     "dialog-shell": [
       {
         "type": "form-select",
@@ -45,7 +76,7 @@
         "option": {
           "service": "crm.setting.OptionService.LoadStageOptions",
           "valueField": "id",
-          "labelField": "display_name"
+          "labelField": "name"
         },
         "validate": [
           {
@@ -54,7 +85,8 @@
           }
         ],
         "meta": {
-          "formLayout": "horizontal"
+          "formLayout": "horizontal",
+          "tab": "basic"
         }
       },
       {
@@ -69,7 +101,8 @@
           }
         ],
         "meta": {
-          "formLayout": "horizontal"
+          "formLayout": "horizontal",
+          "tab": "basic"
         }
       },
       {
@@ -111,6 +144,7 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "tab": "action",
           "clearOnChange": [
             "form.form_id",
             "form.script_id",
@@ -122,54 +156,10 @@
             "form.collaboration_items",
             "form.collaboration_complete_mode",
             "form.completion_mode",
+            "form.complete_assign_task_id",
+            "form.hide_from_work_list",
             "form.booking_resource_cate_id",
             "form.booking_need_confirm"
-          ]
-        }
-      },
-      {
-        "type": "form-radio",
-        "name": "触发方式",
-        "value": "form.trigger_type",
-        "mode": "form",
-        "option": "option.trigger_type",
-        "meta": {
-          "formLayout": "horizontal",
-          "info": "任务后触发会在来源任务执行成功后立即触发；协作任务会在派单成功后触发，不会等待协作子任务完成。需要等待律师、财务等子任务完成后再继续流程时，请使用协作任务的完成规则和完成后阶段。",
-          "optionFilter": [
-            {
-              "field": "id",
-              "path": "form.task_type",
-              "map": {
-                "assign": [
-                  "manual",
-                  "after_task",
-                  "on_stage_enter"
-                ],
-                "collaborate": [
-                  "manual",
-                  "after_task",
-                  "on_stage_enter"
-                ],
-                "decision": [
-                  "manual",
-                  "after_task",
-                  "on_stage_enter"
-                ],
-                "create": [
-                  "manual"
-                ],
-                "form": [
-                  "manual"
-                ],
-                "booking": [
-                  "manual"
-                ]
-              }
-            }
-          ],
-          "clearOnChange": [
-            "form.trigger_task_id"
           ]
         }
       },
@@ -181,38 +171,10 @@
         "info": "任务真正完成后给操作人员增加的积分；保存进度不计分，填 0 不生成积分流水。",
         "meta": {
           "formLayout": "horizontal",
+          "tab": "basic",
           "min": 0,
           "step": 1,
           "placeholder": "0"
-        }
-      },
-      {
-        "type": "form-select",
-        "name": "触发任务",
-        "value": "form.trigger_task_id",
-        "mode": "form",
-        "option": {
-          "model": "crm.NewTaskModel",
-          "labelField": "name",
-          "order": "sort asc,id asc",
-          "pageSize": 200,
-          "searchFields": [
-            "name"
-          ],
-          "filters": {
-            "status": "1"
-          }
-        },
-        "meta": {
-          "formLayout": "horizontal",
-          "placeholder": "选择哪个任务执行成功后立即触发",
-          "hiddenWhen": [
-            {
-              "path": "form.trigger_type",
-              "operator": "notEquals",
-              "value": "after_task"
-            }
-          ]
         }
       },
       {
@@ -234,6 +196,7 @@
         },
         "meta": {
           "formLayout": "horizontal",
+          "tab": "action",
           "placeholder": "选择任务需要填写的资料模板",
           "hiddenCondition": "all",
           "hiddenWhen": [
@@ -251,12 +214,79 @@
         }
       },
       {
+        "type": "form-radio",
+        "name": "完成方式",
+        "value": "form.completion_mode",
+        "mode": "form",
+        "option": [
+          {
+            "id": "submit",
+            "value": "提交即完成"
+          },
+          {
+            "id": "manual",
+            "value": "可多次保存，手动完成"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "action",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "form"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "确认完成后派单",
+        "value": "form.complete_assign_task_id",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewTaskModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "task_type": "assign",
+            "trigger_type": "manual",
+            "status": "1"
+          }
+        },
+        "info": "选择后，工作台点击“确认完成”会先弹出派单人员选择，再执行这个分配任务并流转。",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "action",
+          "placeholder": "不派单",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "form"
+            },
+            {
+              "path": "form.completion_mode",
+              "operator": "notEquals",
+              "value": "manual"
+            }
+          ]
+        }
+      },
+      {
         "type": "form-array",
         "name": "协作子任务",
         "value": "form.collaboration_items",
         "mode": "form",
         "info": "生成多个部门/人员的并行待办；后台未指定人员时，工作台派单人需要选择目标部门内的处理人员。必做子任务会参与协作完成规则。",
         "meta": {
+          "tab": "action",
           "pageRoute": "/crm/task/collaboration_item",
           "addText": "添加子任务",
           "drag": "sort",
@@ -287,12 +317,13 @@
           },
           {
             "id": "manual",
-            "value": "只派单，不自动流转"
+            "value": "主任务确认后流转"
           }
         ],
-        "info": "例如 PM 派律师/财务处理，完成规则选择“全部必做完成后流转”，完成后阶段选择下一个 PM 阶段；PM 后续任务应放在该下一个阶段。",
+        "info": "例如 PM 派律师/财务处理，完成规则选择“主任务确认后流转”时，子任务完成后不会自动进入下一阶段，需要主负责人在工作台核对协作资料后确认完成。",
         "meta": {
           "formLayout": "horizontal",
+          "tab": "action",
           "clearOnChange": [
             "form.auto_assign_staff_id"
           ],
@@ -337,6 +368,7 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "tab": "action",
           "placeholder": "选择这个任务可预定的资源分类",
           "hiddenWhen": [
             {
@@ -364,6 +396,7 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "tab": "action",
           "hiddenWhen": [
             {
               "path": "form.task_type",
@@ -390,6 +423,7 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "tab": "action",
           "hiddenWhen": [
             {
               "path": "form.task_type",
@@ -432,6 +466,7 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "tab": "action",
           "multiple": true,
           "placeholder": "请选择这个任务允许派单的部门",
           "hiddenWhen": [
@@ -439,6 +474,210 @@
               "path": "form.task_type",
               "operator": "notEquals",
               "value": "assign"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "工作台展示",
+        "value": "form.hide_from_work_list",
+        "mode": "form",
+        "option": [
+          {
+            "id": 0,
+            "value": "单独展示"
+          },
+          {
+            "id": 1,
+            "value": "仅作为内嵌派单"
+          }
+        ],
+        "info": "选择“仅作为内嵌派单”后，这个分配任务不会单独出现在工作台操作区，只能被填写资料任务的“确认完成后派单”调用。",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "action",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "assign"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-cascader",
+        "name": "结果写入字段",
+        "value": "form.decision_result_field_path",
+        "mode": "form",
+        "placeholder": "选择决策结果要写入的条件字段",
+        "validate": [
+          {
+            "type": "required",
+            "message": "决策任务必须选择结果写入字段。",
+            "when": [
+              {
+                "path": "form.task_type",
+                "operator": "equals",
+                "value": "decision"
+              }
+            ]
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "action",
+          "parentField": "parent_id",
+          "rootValue": 0,
+          "valueField": "id",
+          "labelField": "name",
+          "leafField": "leaf",
+          "placeholder": [
+            "选择客户或资产",
+            "选择资料模板",
+            "选择条件字段"
+          ],
+          "searchPlaceholder": [
+            "搜索分类...",
+            "搜索模板...",
+            "搜索字段..."
+          ],
+          "controlClassName": "min-w-[12rem]",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "decision"
+            }
+          ],
+          "service": "crm.setting.OptionService.LoadDecisionResultFieldOptions"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "完成后进入",
+        "value": "form.next_stage_code",
+        "mode": "form",
+        "option": {
+          "service": "crm.setting.OptionService.LoadStageOptions",
+          "valueField": "code",
+          "labelField": "name"
+        },
+        "info": "任务完成后进入该阶段；协作任务在完成规则满足后进入该阶段。决策任务需要按结果分别流转时，请在阶段流转规则中配置。",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "flow",
+          "placeholder": "不自动流转"
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "触发方式",
+        "value": "form.trigger_type",
+        "mode": "form",
+        "option": "option.trigger_type",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "advanced",
+          "info": "只有分配、协作、决策任务支持自动触发；创建资料、填写资料、资源预定固定为手动处理。",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "equals",
+              "value": "create"
+            },
+            {
+              "path": "form.task_type",
+              "operator": "equals",
+              "value": "form"
+            },
+            {
+              "path": "form.task_type",
+              "operator": "equals",
+              "value": "booking"
+            }
+          ],
+          "optionFilter": [
+            {
+              "field": "id",
+              "path": "form.task_type",
+              "map": {
+                "assign": [
+                  "manual",
+                  "after_task",
+                  "on_stage_enter"
+                ],
+                "collaborate": [
+                  "manual",
+                  "after_task",
+                  "on_stage_enter"
+                ],
+                "decision": [
+                  "manual",
+                  "after_task",
+                  "on_stage_enter"
+                ],
+                "create": [
+                  "manual"
+                ],
+                "form": [
+                  "manual"
+                ],
+                "booking": [
+                  "manual"
+                ]
+              }
+            }
+          ],
+          "clearOnChange": [
+            "form.trigger_task_id"
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "触发任务",
+        "value": "form.trigger_task_id",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewTaskModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "advanced",
+          "placeholder": "选择哪个任务执行成功后立即触发",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.trigger_type",
+              "operator": "notEquals",
+              "value": "after_task"
+            },
+            {
+              "path": "form.task_type",
+              "operator": "equals",
+              "value": "create"
+            },
+            {
+              "path": "form.task_type",
+              "operator": "equals",
+              "value": "form"
+            },
+            {
+              "path": "form.task_type",
+              "operator": "equals",
+              "value": "booking"
             }
           ]
         }
@@ -481,6 +720,7 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "tab": "advanced",
           "placeholder": "自动触发时分配到的部门",
           "hiddenCondition": "any",
           "hiddenWhen": [
@@ -522,6 +762,7 @@
         },
         "meta": {
           "formLayout": "horizontal",
+          "tab": "advanced",
           "placeholder": "不选择则使用部门负责人",
           "optionParams": {
             "parentId": "form.auto_assign_department_id"
@@ -583,6 +824,7 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "tab": "advanced",
           "placeholder": "选择自动触发时使用的脚本规则",
           "hiddenCondition": "any",
           "hiddenWhen": [
@@ -601,101 +843,13 @@
       },
       {
         "type": "form-cascader",
-        "name": "结果写入字段",
-        "value": "form.decision_result_field_path",
-        "mode": "form",
-        "placeholder": "选择决策结果要写入的条件字段",
-        "validate": [
-          {
-            "type": "required",
-            "message": "决策任务必须选择结果写入字段。",
-            "when": [
-              {
-                "path": "form.task_type",
-                "operator": "equals",
-                "value": "decision"
-              }
-            ]
-          }
-        ],
-        "meta": {
-          "formLayout": "horizontal",
-          "parentField": "parent_id",
-          "rootValue": 0,
-          "valueField": "id",
-          "labelField": "name",
-          "leafField": "leaf",
-          "placeholder": [
-            "选择客户或资产",
-            "选择资料模板",
-            "选择条件字段"
-          ],
-          "searchPlaceholder": [
-            "搜索分类...",
-            "搜索模板...",
-            "搜索字段..."
-          ],
-          "controlClassName": "min-w-[12rem]",
-          "hiddenWhen": [
-            {
-              "path": "form.task_type",
-              "operator": "notEquals",
-              "value": "decision"
-            }
-          ],
-          "service": "crm.setting.OptionService.LoadDecisionResultFieldOptions"
-        }
-      },
-      {
-        "type": "form-select",
-        "name": "完成后阶段",
-        "value": "form.next_stage_code",
-        "mode": "form",
-        "option": {
-          "service": "crm.setting.OptionService.LoadStageOptions",
-          "valueField": "code",
-          "labelField": "display_name"
-        },
-        "info": "协作任务会在完成规则满足后流转到该阶段；若要 PM 等律师/财务完成后继续，请选择下一个 PM 阶段。普通任务则在任务完成后流转。",
-        "meta": {
-          "formLayout": "horizontal",
-          "placeholder": "不自动流转"
-        }
-      },
-      {
-        "type": "form-radio",
-        "name": "完成方式",
-        "value": "form.completion_mode",
-        "mode": "form",
-        "option": [
-          {
-            "id": "submit",
-            "value": "提交即完成"
-          },
-          {
-            "id": "manual",
-            "value": "可多次保存，手动完成"
-          }
-        ],
-        "meta": {
-          "formLayout": "horizontal",
-          "hiddenWhen": [
-            {
-              "path": "form.task_type",
-              "operator": "notEquals",
-              "value": "form"
-            }
-          ]
-        }
-      },
-      {
-        "type": "form-cascader",
         "name": "显示条件",
         "value": "form.visible_condition_path",
         "mode": "form",
         "placeholder": "不限制显示条件",
         "meta": {
           "formLayout": "horizontal",
+          "tab": "advanced",
           "parentField": "parent_id",
           "rootValue": 0,
           "valueField": "id",
@@ -738,6 +892,8 @@
         "collaboration_items",
         "collaboration_complete_mode",
         "completion_mode",
+        "complete_assign_task_id",
+        "hide_from_work_list",
         "booking_resource_cate_id",
         "booking_need_confirm",
         "script_id",
@@ -760,8 +916,10 @@
       "auto_assign_department_id": "",
       "auto_assign_staff_id": "",
       "collaboration_items": [],
-      "collaboration_complete_mode": "all",
+      "collaboration_complete_mode": "manual",
       "completion_mode": "submit",
+      "complete_assign_task_id": "",
+      "hide_from_work_list": 0,
       "booking_resource_cate_id": 1,
       "booking_need_confirm": 0,
       "script_id": "",
@@ -769,7 +927,9 @@
       "visible_condition_path": []
     }
   },
-  "state": {},
+  "state": {
+    "currentTab": "basic"
+  },
   "action": {
     "submit": {
       "type": "save",

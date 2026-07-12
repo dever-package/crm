@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -22,22 +23,23 @@ import (
 )
 
 const (
-	workSiteKey              = "work"
-	workAuthProvider         = "crm_work"
-	feishuAPIBase            = "https://open.feishu.cn/open-apis"
-	feishuRequestTimeout     = 10 * time.Second
-	workResultSuccess        = "success"
-	workResultProgress       = "progress"
-	workResultAutoFailed     = "auto_failed"
-	workCustomerModeAll      = "all"
-	workCustomerModePending  = "pending"
-	workCustomerModeDone     = "done"
-	maxWorkAutoTriggerDepth  = 5
-	workTransitionModeAll    = "all"
-	workTransitionModeAny    = "any"
-	workTransitionScriptPass = "pass"
-	workSubmitModeComplete   = "complete"
-	workSubmitModeProgress   = "progress"
+	workSiteKey                 = "work"
+	workAuthProvider            = "crm_work"
+	feishuAPIBase               = "https://open.feishu.cn/open-apis"
+	feishuRequestTimeout        = 10 * time.Second
+	workResultSuccess           = "success"
+	workResultProgress          = "progress"
+	workResultAutoFailed        = "auto_failed"
+	workCustomerModeAll         = "all"
+	workCustomerModePending     = "pending"
+	workCustomerModeDone        = "done"
+	maxWorkAutoTriggerDepth     = 5
+	workTransitionModeAll       = "all"
+	workTransitionModeAny       = "any"
+	workTransitionScriptPass    = "pass"
+	workSubmitModeComplete      = "complete"
+	workSubmitModeProgress      = "progress"
+	workCustomerDefaultPageSize = 10
 )
 
 type WorkService struct{}
@@ -252,7 +254,20 @@ func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, paylo
 	if staff == nil || staff.ID == 0 {
 		return nil, fmt.Errorf("请先登录")
 	}
-	customers := workCustomersByMode(ctx, staff, firstText(payload, "mode"))
+	mode := normalizeWorkCustomerMode(firstText(payload, "mode"))
+	if !hasWorkCustomerListFilter(payload) {
+		snapshot := newWorkCustomerListSnapshot(ctx, staff)
+		list, page, pageSize, total := paginatedWorkCustomersFromSnapshot(ctx, staff, mode, payload, snapshot)
+		return map[string]any{
+			"list":        list,
+			"total":       total,
+			"page":        page,
+			"page_size":   pageSize,
+			"mode_counts": workCustomerModeCountsFromSnapshot(snapshot, mode, total),
+		}, nil
+	}
+	customers := workCustomersByMode(ctx, staff, mode)
+	modeCounts := workCustomerModeCounts(ctx, staff, mode, customers)
 	if hasWorkCustomerStructuredFilter(payload) {
 		customers = filterWorkCustomersByFields(customers, payload)
 	}
@@ -260,9 +275,108 @@ func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, paylo
 	if keyword != "" {
 		customers = filterWorkCustomers(customers, keyword)
 	}
+	if hasWorkCustomerWorkFilter(payload) {
+		customers = filterWorkCustomersByWorkFilters(customers, payload)
+	}
+	list, page, pageSize, total := paginateWorkCustomerRows(customers, payload)
+	list = workCustomerListRows(list)
 	return map[string]any{
-		"list":  customers,
-		"total": len(customers),
+		"list":        list,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"mode_counts": modeCounts,
+	}, nil
+}
+
+func paginateWorkCustomerRows(rows []map[string]any, payload map[string]any) ([]map[string]any, int, int, int) {
+	total := len(rows)
+	page, pageSize, start, end := workCustomerPageBounds(total, payload)
+	if start >= total {
+		return []map[string]any{}, page, pageSize, total
+	}
+	return rows[start:end], page, pageSize, total
+}
+
+func workCustomerPageBounds(total int, payload map[string]any) (int, int, int, int) {
+	page := inputInt(payload["page"])
+	if page <= 0 {
+		page = 1
+	}
+	pageSize := inputInt(firstPresent(payload, "page_size", "pageSize", "limit"))
+	if pageSize <= 0 {
+		pageSize = workCustomerDefaultPageSize
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return page, pageSize, start, end
+}
+
+func (WorkService) Summary(ctx context.Context, staff *WorkStaffSession) (map[string]any, error) {
+	if staff == nil || staff.ID == 0 {
+		return nil, fmt.Errorf("请先登录")
+	}
+	operationRows := workStaffOperationRows(ctx, staff.ID)
+	summary := workSummarySnapshot(ctx, staff, operationRows)
+	recentOperations := workRecentOperationRows(operationRows, 8)
+	enrichWorkOperationRows(ctx, staff, recentOperations)
+	return map[string]any{
+		"metrics":           workSummaryMetricRows(summary, recentOperations),
+		"trend":             workSummaryTrendRows(ctx, staff, 14, operationRows),
+		"stage_breakdown":   workSummaryStageRows(summary.Targets),
+		"task_breakdown":    workSummaryTaskRows(summary.Targets),
+		"recent_operations": recentOperations,
+		"generated_at":      time.Now(),
+	}, nil
+}
+
+func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
+	if staff == nil || staff.ID == 0 {
+		return nil, fmt.Errorf("请先登录")
+	}
+	customerID := firstUint64(payload, "customer_id", "customerId")
+	if customerID == 0 {
+		return nil, fmt.Errorf("请选择客户")
+	}
+	if !canViewWorkCustomer(ctx, staff, customerID) {
+		return nil, fmt.Errorf("无权查看该客户")
+	}
+	customer := workCustomerRow(ctx, staff, customerID)
+	if len(customer) == 0 {
+		return nil, fmt.Errorf("客户不存在")
+	}
+
+	assetID := firstUint64(payload, "asset_id", "assetId")
+	asset := map[string]any(nil)
+	if assetID > 0 {
+		if !canViewWorkAsset(ctx, staff, customerID, assetID) {
+			return nil, fmt.Errorf("无权查看该资产")
+		}
+		asset = workCustomerRowAsset(customer, assetID)
+		if len(asset) == 0 {
+			return nil, fmt.Errorf("资产不存在或不可见")
+		}
+	}
+
+	operationPayload := map[string]any{"customer_id": customerID}
+	if assetID > 0 {
+		operationPayload["asset_id"] = assetID
+	}
+	operations, err := (WorkService{}).Operations(ctx, staff, operationPayload)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"customer":   customer,
+		"asset":      asset,
+		"operations": operations["list"],
+		"todos":      operations["todos"],
 	}, nil
 }
 
@@ -290,9 +404,14 @@ func (WorkService) Operations(ctx context.Context, staff *WorkStaffSession, payl
 		rows = filterWorkOperations(rows, keyword)
 	}
 	enrichWorkOperationRows(ctx, staff, rows)
+	todos := []map[string]any{}
+	if customerID := firstUint64(payload, "customer_id", "customerId"); customerID > 0 {
+		todos = workTodoRows(ctx, staff, customerID, firstUint64(payload, "asset_id", "assetId"))
+	}
 	return map[string]any{
 		"list":  rows,
 		"total": len(rows),
+		"todos": todos,
 	}, nil
 }
 
@@ -502,17 +621,37 @@ func workStaffPayload(staff *crmmodel.Staff, expiredAt time.Time) map[string]any
 }
 
 func visibleWorkCustomers(ctx context.Context, staff *WorkStaffSession) []map[string]any {
+	customerIDs := visibleWorkCustomerIDs(ctx, staff)
+	rows := make([]map[string]any, 0, len(customerIDs))
+	seen := map[uint64]bool{}
+	for _, customerID := range customerIDs {
+		rows = appendVisibleWorkCustomer(ctx, staff, rows, seen, customerID)
+	}
+	return rows
+}
+
+func visibleWorkCustomerIDs(ctx context.Context, staff *WorkStaffSession) []uint64 {
+	if staff == nil || staff.ID == 0 {
+		return []uint64{}
+	}
+	seen := map[uint64]bool{}
+	rows := make([]uint64, 0)
+	appendID := func(customerID uint64) {
+		if customerID == 0 || seen[customerID] {
+			return
+		}
+		seen[customerID] = true
+		rows = append(rows, customerID)
+	}
 	members := crmmodel.NewCustomerMemberModel().Select(ctx, map[string]any{
 		"staff_id": staff.ID,
 		"status":   crmmodel.StatusEnabled,
 	})
-	seen := map[uint64]bool{}
-	rows := make([]map[string]any, 0, len(members))
 	for _, member := range members {
-		if member == nil || member.CustomerID == 0 || seen[member.CustomerID] || !member.CanView {
+		if member == nil || !member.CanView {
 			continue
 		}
-		rows = appendVisibleWorkCustomer(ctx, staff, rows, seen, member.CustomerID)
+		appendID(member.CustomerID)
 	}
 	if staff.DepartmentID > 0 {
 		departmentMembers := crmmodel.NewCustomerMemberModel().Select(ctx, map[string]any{
@@ -520,38 +659,34 @@ func visibleWorkCustomers(ctx context.Context, staff *WorkStaffSession) []map[st
 			"status":        crmmodel.StatusEnabled,
 		})
 		for _, member := range departmentMembers {
-			if member == nil || member.CustomerID == 0 || seen[member.CustomerID] || !member.CanView {
+			if member == nil || !member.CanView {
 				continue
 			}
-			rows = appendVisibleWorkCustomer(ctx, staff, rows, seen, member.CustomerID)
+			appendID(member.CustomerID)
 		}
 	}
 	created := crmmodel.NewCustomerModel().Select(ctx, map[string]any{"created_by_staff_id": staff.ID})
 	for _, customer := range created {
-		if customer == nil || seen[customer.ID] {
+		if customer == nil {
 			continue
 		}
-		rows = appendVisibleWorkCustomer(ctx, staff, rows, seen, customer.ID)
+		appendID(customer.ID)
 	}
 	for _, state := range crmmodel.NewCustomerStageModel().Select(ctx, map[string]any{"current_staff_id": staff.ID}) {
-		if state == nil || state.CustomerID == 0 || seen[state.CustomerID] {
+		if state == nil {
 			continue
 		}
-		rows = appendVisibleWorkCustomer(ctx, staff, rows, seen, state.CustomerID)
+		appendID(state.CustomerID)
 	}
 	if staff.DepartmentID > 0 {
 		for _, state := range crmmodel.NewCustomerStageModel().Select(ctx, map[string]any{"current_department_id": staff.DepartmentID}) {
-			if state == nil || state.CustomerID == 0 || seen[state.CustomerID] {
+			if state == nil {
 				continue
 			}
-			rows = appendVisibleWorkCustomer(ctx, staff, rows, seen, state.CustomerID)
+			appendID(state.CustomerID)
 		}
 	}
 	return rows
-}
-
-func pendingWorkCustomers(ctx context.Context, staff *WorkStaffSession) []map[string]any {
-	return workRowsWithPendingTasks(visibleWorkCustomers(ctx, staff))
 }
 
 func workCustomersByMode(ctx context.Context, staff *WorkStaffSession, mode string) []map[string]any {
@@ -563,6 +698,688 @@ func workCustomersByMode(ctx context.Context, staff *WorkStaffSession, mode stri
 	default:
 		return pendingWorkCustomers(ctx, staff)
 	}
+}
+
+type workCustomerListTarget struct {
+	customerID uint64
+	assetIDs   []uint64
+	doneOnly   bool
+}
+
+type workCustomerListSnapshot struct {
+	visibleCustomerIDs []uint64
+	doneTargets        []doneWorkCustomerTarget
+	pendingTargets     []workCustomerListTarget
+}
+
+func newWorkCustomerListSnapshot(ctx context.Context, staff *WorkStaffSession) workCustomerListSnapshot {
+	visibleCustomerIDs := visibleWorkCustomerIDs(ctx, staff)
+	pendingTargets := workPendingTargetsForCustomerIDs(ctx, staff, visibleCustomerIDs)
+	return workCustomerListSnapshot{
+		visibleCustomerIDs: visibleCustomerIDs,
+		doneTargets:        doneWorkCustomerTargets(ctx, staff),
+		pendingTargets:     pendingWorkCustomerListTargetsFromTargets(pendingTargets),
+	}
+}
+
+func paginatedWorkCustomersFromSnapshot(ctx context.Context, staff *WorkStaffSession, mode string, payload map[string]any, snapshot workCustomerListSnapshot) ([]map[string]any, int, int, int) {
+	targets := workCustomerListTargetsFromSnapshot(snapshot, mode)
+	pageTargets, page, pageSize, total := paginateWorkCustomerListTargets(targets, payload)
+	return workCustomerRowsForListTargets(ctx, staff, mode, pageTargets), page, pageSize, total
+}
+
+func workCustomerListTargetsFromSnapshot(snapshot workCustomerListSnapshot, mode string) []workCustomerListTarget {
+	switch normalizeWorkCustomerMode(mode) {
+	case workCustomerModeAll:
+		return allWorkCustomerListTargetsFromSnapshot(snapshot)
+	case workCustomerModeDone:
+		return doneWorkCustomerListTargetsFromTargets(snapshot.doneTargets)
+	default:
+		return snapshot.pendingTargets
+	}
+}
+
+func paginateWorkCustomerListTargets(targets []workCustomerListTarget, payload map[string]any) ([]workCustomerListTarget, int, int, int) {
+	total := len(targets)
+	page, pageSize, start, end := workCustomerPageBounds(total, payload)
+	if start >= total {
+		return []workCustomerListTarget{}, page, pageSize, total
+	}
+	return targets[start:end], page, pageSize, total
+}
+
+func workCustomerRowsForListTargets(ctx context.Context, staff *WorkStaffSession, mode string, targets []workCustomerListTarget) []map[string]any {
+	return newWorkCustomerListRowBuilder(ctx, staff).rows(mode, targets)
+}
+
+type workCustomerListRowBuilder struct {
+	ctx              context.Context
+	staff            *WorkStaffSession
+	stageNames       map[string]string
+	assetStatusNames map[uint64]string
+	codePrefix       string
+	codePrefixLoaded bool
+}
+
+func newWorkCustomerListRowBuilder(ctx context.Context, staff *WorkStaffSession) *workCustomerListRowBuilder {
+	return &workCustomerListRowBuilder{
+		ctx:              ctx,
+		staff:            staff,
+		stageNames:       map[string]string{},
+		assetStatusNames: map[uint64]string{},
+	}
+}
+
+func (builder *workCustomerListRowBuilder) rows(mode string, targets []workCustomerListTarget) []map[string]any {
+	mode = normalizeWorkCustomerMode(mode)
+	rows := make([]map[string]any, 0, len(targets))
+	for _, target := range targets {
+		row := builder.rowForTarget(mode, target)
+		if len(row) == 0 {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func (builder *workCustomerListRowBuilder) rowForTarget(mode string, target workCustomerListTarget) map[string]any {
+	if target.customerID == 0 {
+		return map[string]any{}
+	}
+	if mode == workCustomerModeDone || target.doneOnly {
+		return builder.doneCustomerRow(target.customerID, target.assetIDs)
+	}
+	row := builder.activeCustomerRow(target.customerID)
+	if mode == workCustomerModePending {
+		pendingRow, ok := workRowWithPendingTasks(row)
+		if !ok {
+			return map[string]any{}
+		}
+		return pendingRow
+	}
+	return row
+}
+
+func (builder *workCustomerListRowBuilder) activeCustomerRow(customerID uint64) map[string]any {
+	customer := builder.customerBaseRow(customerID)
+	if len(customer) == 0 {
+		return map[string]any{}
+	}
+	customer["assets"] = builder.activeAssetRows(customerID)
+	if state := ensureCurrentWorkCustomerStage(builder.ctx, builder.staff, customerID, 0); state != nil {
+		builder.attachStageFields(customer, state)
+		tasks := workAvailableRowTasks(builder.ctx, builder.staff, state)
+		tasks = append(tasks, workPendingTodoRowTasks(builder.ctx, builder.staff, customerID, 0)...)
+		customer["row_tasks"] = workCustomerRowTasks(tasks)
+	}
+	return workCustomerListRow(customer)
+}
+
+func (builder *workCustomerListRowBuilder) doneCustomerRow(customerID uint64, assetIDs []uint64) map[string]any {
+	customer := builder.customerBaseRow(customerID)
+	if len(customer) == 0 {
+		return map[string]any{}
+	}
+	displayAssetIDs := uniqueUint64Values(assetIDs)
+	if len(displayAssetIDs) == 0 {
+		displayAssetIDs = workSummaryVisibleAssetIDs(builder.ctx, builder.staff, customerID)
+	}
+	customer["assets"] = builder.doneAssetRows(customerID, displayAssetIDs)
+	if state := currentWorkCustomerStage(builder.ctx, customerID, 0); state != nil {
+		builder.attachStageFields(customer, state)
+	}
+	customer["row_tasks"] = workPendingTodoRowTasks(builder.ctx, builder.staff, customerID, 0)
+	return workCustomerListRow(customer)
+}
+
+func (builder *workCustomerListRowBuilder) customerBaseRow(customerID uint64) map[string]any {
+	if customerID == 0 {
+		return map[string]any{}
+	}
+	customer := crmmodel.NewCustomerModel().FindMap(builder.ctx, map[string]any{"id": customerID}, map[string]any{
+		"field": "id,code,name,phone,wechat,gender,source_id,channel_id,level_id,created_at",
+	})
+	if len(customer) == 0 {
+		return map[string]any{}
+	}
+	if code := inputText(customer["code"]); code != "" {
+		customer["code_display"] = builder.customerCodePrefix() + code
+	}
+	customer["gender_name"] = workGenderName(inputText(customer["gender"]))
+	return customer
+}
+
+func (builder *workCustomerListRowBuilder) customerCodePrefix() string {
+	if !builder.codePrefixLoaded {
+		builder.codePrefix = customerCodePrefixForWork(builder.ctx)
+		builder.codePrefixLoaded = true
+	}
+	return builder.codePrefix
+}
+
+func (builder *workCustomerListRowBuilder) activeAssetRows(customerID uint64) []map[string]any {
+	if customerID == 0 {
+		return []map[string]any{}
+	}
+	assets := crmmodel.NewCustomerAssetModel().SelectMap(builder.ctx, map[string]any{"customer_id": customerID}, map[string]any{
+		"field": "id,customer_id,asset_no,asset_name,asset_status_id,remark,created_at",
+	})
+	rows := make([]map[string]any, 0, len(assets))
+	for _, asset := range assets {
+		assetID := inputUint64(asset["id"])
+		if assetID == 0 || !canViewWorkAsset(builder.ctx, builder.staff, customerID, assetID) {
+			continue
+		}
+		asset["asset_status_name"] = builder.assetStatusName(inputUint64(asset["asset_status_id"]))
+		asset["business_objects"] = workBusinessObjectRows(builder.ctx, customerID, assetID)
+		if state := ensureCurrentWorkCustomerStage(builder.ctx, builder.staff, customerID, assetID); state != nil {
+			builder.attachStageFields(asset, state)
+			tasks := workAvailableRowTasks(builder.ctx, builder.staff, state)
+			tasks = append(tasks, workPendingTodoRowTasks(builder.ctx, builder.staff, customerID, assetID)...)
+			asset["row_tasks"] = workAssetRowTasks(tasks)
+		}
+		rows = append(rows, workAssetListRow(asset))
+	}
+	return rows
+}
+
+func (builder *workCustomerListRowBuilder) doneAssetRows(customerID uint64, assetIDs []uint64) []map[string]any {
+	if customerID == 0 || len(assetIDs) == 0 {
+		return []map[string]any{}
+	}
+	rows := make([]map[string]any, 0, len(assetIDs))
+	for _, assetID := range assetIDs {
+		asset := builder.doneAssetRow(customerID, assetID)
+		if len(asset) > 0 {
+			rows = append(rows, asset)
+		}
+	}
+	return rows
+}
+
+func (builder *workCustomerListRowBuilder) doneAssetRow(customerID uint64, assetID uint64) map[string]any {
+	if customerID == 0 || assetID == 0 {
+		return map[string]any{}
+	}
+	asset := crmmodel.NewCustomerAssetModel().FindMap(builder.ctx, map[string]any{
+		"id":          assetID,
+		"customer_id": customerID,
+	}, map[string]any{
+		"field": "id,customer_id,asset_no,asset_name,asset_status_id,remark,created_at",
+	})
+	if len(asset) == 0 {
+		return map[string]any{}
+	}
+	asset["asset_status_name"] = builder.assetStatusName(inputUint64(asset["asset_status_id"]))
+	asset["business_objects"] = workBusinessObjectRows(builder.ctx, customerID, assetID)
+	if state := currentWorkCustomerStage(builder.ctx, customerID, assetID); state != nil {
+		builder.attachStageFields(asset, state)
+	}
+	asset["row_tasks"] = workPendingTodoRowTasks(builder.ctx, builder.staff, customerID, assetID)
+	return workAssetListRow(asset)
+}
+
+func (builder *workCustomerListRowBuilder) attachStageFields(target map[string]any, state *crmmodel.CustomerStage) {
+	if target == nil || state == nil {
+		return
+	}
+	stageEnteredAt := workStageEnteredAt(builder.ctx, state)
+	target["state.id"] = state.ID
+	target["state.current_stage_code"] = state.CurrentStageCode
+	target["state.current_department_id"] = state.CurrentDepartmentID
+	target["state.current_staff_id"] = state.CurrentStaffID
+	target["stage_code"] = state.CurrentStageCode
+	target["stage_name"] = builder.stageName(state.CurrentStageCode)
+	target["stage_entered_at"] = stageEnteredAt
+	target["stage_days"] = workStageDwellDays(stageEnteredAt)
+	if !state.LastOperatedAt.IsZero() {
+		target["last_operated_at"] = state.LastOperatedAt
+	}
+}
+
+func (builder *workCustomerListRowBuilder) stageName(stageCode string) string {
+	if stageCode == "" {
+		return ""
+	}
+	if name, exists := builder.stageNames[stageCode]; exists {
+		return name
+	}
+	name := workStageName(builder.ctx, stageCode)
+	builder.stageNames[stageCode] = name
+	return name
+}
+
+func (builder *workCustomerListRowBuilder) assetStatusName(statusID uint64) string {
+	if statusID == 0 {
+		return ""
+	}
+	if name, exists := builder.assetStatusNames[statusID]; exists {
+		return name
+	}
+	name := workAssetStatusName(builder.ctx, statusID)
+	builder.assetStatusNames[statusID] = name
+	return name
+}
+
+var workCustomerListFields = []string{
+	"id",
+	"customer_id",
+	"customer_no",
+	"code_display",
+	"code",
+	"no",
+	"name",
+	"customer_name",
+	"phone",
+	"mobile",
+	"wechat",
+	"gender_name",
+	"source_name",
+	"source",
+	"channel_name",
+	"channel",
+	"level_name",
+	"customer_level",
+	"status_name",
+	"stage_name",
+	"stage_code",
+	"status_code",
+	"current_stage_name",
+	"current_status_name",
+	"stage_entered_at",
+	"stage_days",
+	"last_operated_at",
+	"created_at",
+	"create_time",
+}
+
+var workAssetListFields = []string{
+	"id",
+	"asset_id",
+	"customer_id",
+	"asset_no",
+	"asset_code",
+	"code",
+	"name",
+	"asset_name",
+	"asset_status_id",
+	"asset_status_name",
+	"status_name",
+	"stage_name",
+	"stage_code",
+	"status_code",
+	"current_stage_name",
+	"current_status_name",
+	"stage_entered_at",
+	"stage_days",
+	"last_operated_at",
+	"remark",
+}
+
+func workCustomerListRows(rows []map[string]any) []map[string]any {
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if compact := workCustomerListRow(row); len(compact) > 0 {
+			result = append(result, compact)
+		}
+	}
+	return result
+}
+
+func workCustomerListRow(row map[string]any) map[string]any {
+	if len(row) == 0 {
+		return map[string]any{}
+	}
+	result := pickWorkListFields(row, workCustomerListFields)
+	if tasks := workListRowTasks(row); len(tasks) > 0 {
+		result["row_tasks"] = tasks
+	}
+	if assets := workAssetListRows(mapListFromAny(row["assets"])); len(assets) > 0 {
+		result["assets"] = assets
+	}
+	return result
+}
+
+func workAssetListRows(rows []map[string]any) []map[string]any {
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if compact := workAssetListRow(row); len(compact) > 0 {
+			result = append(result, compact)
+		}
+	}
+	return result
+}
+
+func workAssetListRow(row map[string]any) map[string]any {
+	if len(row) == 0 {
+		return map[string]any{}
+	}
+	result := pickWorkListFields(row, workAssetListFields)
+	if tasks := workListRowTasks(row); len(tasks) > 0 {
+		result["row_tasks"] = tasks
+	}
+	if businessObjects := workBusinessObjectListRows(mapListFromAny(row["business_objects"])); len(businessObjects) > 0 {
+		result["business_objects"] = businessObjects
+	}
+	return result
+}
+
+var workBusinessObjectListFields = []string{
+	"id",
+	"business_object_id",
+	"business_object_type_id",
+	"business_object_type_name",
+	"object_no",
+	"object_name",
+	"object_status",
+	"status",
+	"created_at",
+	"updated_at",
+}
+
+func workBusinessObjectListRows(rows []map[string]any) []map[string]any {
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if compact := pickWorkListFields(row, workBusinessObjectListFields); len(compact) > 0 {
+			result = append(result, compact)
+		}
+	}
+	return result
+}
+
+func pickWorkListFields(row map[string]any, fields []string) map[string]any {
+	result := map[string]any{}
+	for _, field := range fields {
+		if value, exists := row[field]; exists {
+			result[field] = value
+		}
+	}
+	return result
+}
+
+func workListRowTasks(row map[string]any) []map[string]any {
+	for _, field := range []string{"row_tasks", "edit_tasks", "tasks"} {
+		tasks := mapListFromAny(row[field])
+		if len(tasks) > 0 {
+			return workListTaskRows(tasks)
+		}
+	}
+	return nil
+}
+
+var workTaskListFields = []string{
+	"id",
+	"name",
+	"task_name",
+	"task_type",
+	"action_type",
+	"task_action",
+	"trigger_type",
+	"form_id",
+	"completion_mode",
+	"business_object_mode",
+	"business_object_type_id",
+	"business_object_type_name",
+	"confirm_message",
+	"success_message",
+	"todo_id",
+	"todo_status",
+	"todo_required",
+	"todo_sort",
+	"assigned_at",
+	"assignee_department_id",
+	"assignee_staff_id",
+	"collaboration_review",
+}
+
+func workListTaskRows(rows []map[string]any) []map[string]any {
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if compact := pickWorkListFields(row, workTaskListFields); len(compact) > 0 {
+			result = append(result, compact)
+		}
+	}
+	return result
+}
+
+func allWorkCustomerListTargetsFromSnapshot(snapshot workCustomerListSnapshot) []workCustomerListTarget {
+	seen := map[uint64]bool{}
+	targets := make([]workCustomerListTarget, 0)
+	for _, customerID := range snapshot.visibleCustomerIDs {
+		if customerID == 0 || seen[customerID] {
+			continue
+		}
+		seen[customerID] = true
+		targets = append(targets, workCustomerListTarget{customerID: customerID})
+	}
+	for _, target := range snapshot.doneTargets {
+		if target.customerID == 0 || seen[target.customerID] {
+			continue
+		}
+		seen[target.customerID] = true
+		targets = append(targets, workCustomerListTarget{
+			customerID: target.customerID,
+			assetIDs:   target.assetIDs,
+			doneOnly:   true,
+		})
+	}
+	sortWorkCustomerListTargetsByPendingTargets(targets, snapshot.pendingTargets)
+	return targets
+}
+
+func doneWorkCustomerListTargetsFromTargets(doneTargets []doneWorkCustomerTarget) []workCustomerListTarget {
+	targets := make([]workCustomerListTarget, 0, len(doneTargets))
+	for _, target := range doneTargets {
+		if target.customerID == 0 {
+			continue
+		}
+		targets = append(targets, workCustomerListTarget{
+			customerID: target.customerID,
+			assetIDs:   target.assetIDs,
+			doneOnly:   true,
+		})
+	}
+	return targets
+}
+
+func pendingWorkCustomerListTargets(ctx context.Context, staff *WorkStaffSession) []workCustomerListTarget {
+	return pendingWorkCustomerListTargetsFromTargets(workPendingTargets(ctx, staff))
+}
+
+func pendingWorkCustomerListTargetsFromTargets(pendingTargets []workPendingTarget) []workCustomerListTarget {
+	seen := map[uint64]bool{}
+	targets := make([]workCustomerListTarget, 0, len(pendingTargets))
+	for _, target := range pendingTargets {
+		if target.customerID == 0 || seen[target.customerID] {
+			continue
+		}
+		seen[target.customerID] = true
+		targets = append(targets, workCustomerListTarget{customerID: target.customerID})
+	}
+	return targets
+}
+
+func sortWorkCustomerListTargetsByPendingTargets(targets []workCustomerListTarget, pendingTargets []workCustomerListTarget) {
+	if len(targets) == 0 {
+		return
+	}
+	pendingCustomerIDs := map[uint64]bool{}
+	for _, target := range pendingTargets {
+		if target.customerID > 0 {
+			pendingCustomerIDs[target.customerID] = true
+		}
+	}
+	sort.SliceStable(targets, func(i, j int) bool {
+		leftPending := pendingCustomerIDs[targets[i].customerID]
+		rightPending := pendingCustomerIDs[targets[j].customerID]
+		if leftPending != rightPending {
+			return leftPending
+		}
+		return false
+	})
+}
+
+type workPendingTarget struct {
+	customerID uint64
+	assetID    uint64
+}
+
+func pendingWorkCustomers(ctx context.Context, staff *WorkStaffSession) []map[string]any {
+	targets := workPendingTargets(ctx, staff)
+	if len(targets) == 0 {
+		return []map[string]any{}
+	}
+	return workPendingCustomerRows(ctx, staff, targets)
+}
+
+func workPendingTargets(ctx context.Context, staff *WorkStaffSession) []workPendingTarget {
+	return workPendingTargetsForCustomerIDs(ctx, staff, visibleWorkCustomerIDs(ctx, staff))
+}
+
+func workPendingTargetsForCustomerIDs(ctx context.Context, staff *WorkStaffSession, customerIDs []uint64) []workPendingTarget {
+	targets := make([]workPendingTarget, 0, len(customerIDs))
+	for _, customerID := range customerIDs {
+		if customerID == 0 {
+			continue
+		}
+		if len(workPendingTargetTasks(ctx, staff, customerID, 0)) > 0 {
+			targets = append(targets, workPendingTarget{customerID: customerID})
+		}
+		for _, assetID := range workSummaryVisibleAssetIDs(ctx, staff, customerID) {
+			if len(workPendingTargetTasks(ctx, staff, customerID, assetID)) == 0 {
+				continue
+			}
+			targets = append(targets, workPendingTarget{
+				customerID: customerID,
+				assetID:    assetID,
+			})
+		}
+	}
+	return targets
+}
+
+func workPendingTargetTasks(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) []map[string]any {
+	state := ensureCurrentWorkCustomerStage(ctx, staff, customerID, assetID)
+	if state == nil {
+		return []map[string]any{}
+	}
+	tasks := workAvailableRowTasks(ctx, staff, state)
+	tasks = append(tasks, workPendingTodoRowTasks(ctx, staff, customerID, assetID)...)
+	if assetID > 0 {
+		return workAssetRowTasks(tasks)
+	}
+	return workCustomerRowTasks(tasks)
+}
+
+func workPendingCustomerRows(ctx context.Context, staff *WorkStaffSession, targets []workPendingTarget) []map[string]any {
+	seen := map[uint64]bool{}
+	rows := make([]map[string]any, 0, len(targets))
+	for _, target := range targets {
+		if target.customerID == 0 || seen[target.customerID] {
+			continue
+		}
+		seen[target.customerID] = true
+		row := workCustomerRow(ctx, staff, target.customerID)
+		if pendingRow, ok := workRowWithPendingTasks(row); ok {
+			rows = append(rows, pendingRow)
+		}
+	}
+	return rows
+}
+
+func workCustomerModeCounts(ctx context.Context, staff *WorkStaffSession, currentMode string, currentRows []map[string]any) map[string]int {
+	currentMode = normalizeWorkCustomerMode(currentMode)
+	doneTargets := doneWorkCustomerTargets(ctx, staff)
+	return map[string]int{
+		workCustomerModePending: workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModePending),
+		workCustomerModeDone:    workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModeDone),
+		workCustomerModeAll:     workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModeAll),
+	}
+}
+
+func workCustomerModeCountsFromSnapshot(snapshot workCustomerListSnapshot, currentMode string, currentTotal int) map[string]int {
+	currentMode = normalizeWorkCustomerMode(currentMode)
+	return map[string]int{
+		workCustomerModePending: workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModePending),
+		workCustomerModeDone:    workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModeDone),
+		workCustomerModeAll:     workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModeAll),
+	}
+}
+
+func workCustomerModeCountFromSnapshot(snapshot workCustomerListSnapshot, currentMode string, currentTotal int, targetMode string) int {
+	if currentMode == targetMode {
+		return currentTotal
+	}
+	switch targetMode {
+	case workCustomerModeAll:
+		return workCustomerListSnapshotAllCount(snapshot)
+	case workCustomerModeDone:
+		return len(snapshot.doneTargets)
+	case workCustomerModePending:
+		return len(snapshot.pendingTargets)
+	default:
+		return 0
+	}
+}
+
+func workCustomerListSnapshotAllCount(snapshot workCustomerListSnapshot) int {
+	seen := map[uint64]bool{}
+	for _, customerID := range snapshot.visibleCustomerIDs {
+		if customerID > 0 {
+			seen[customerID] = true
+		}
+	}
+	for _, target := range snapshot.doneTargets {
+		if target.customerID > 0 {
+			seen[target.customerID] = true
+		}
+	}
+	return len(seen)
+}
+
+func workCustomerModeCount(ctx context.Context, staff *WorkStaffSession, currentMode string, currentRows []map[string]any, doneTargets []doneWorkCustomerTarget, targetMode string) int {
+	if currentMode == targetMode {
+		return len(currentRows)
+	}
+	switch targetMode {
+	case workCustomerModeAll:
+		return workAllCustomerCount(ctx, staff, doneTargets)
+	case workCustomerModeDone:
+		return len(doneTargets)
+	case workCustomerModePending:
+		if currentMode == workCustomerModeAll {
+			return countWorkRowsWithPendingTasks(currentRows)
+		}
+		return len(pendingWorkCustomerListTargets(ctx, staff))
+	default:
+		return 0
+	}
+}
+
+func workAllCustomerCount(ctx context.Context, staff *WorkStaffSession, doneTargets []doneWorkCustomerTarget) int {
+	seen := map[uint64]bool{}
+	for _, customerID := range visibleWorkCustomerIDs(ctx, staff) {
+		if customerID > 0 {
+			seen[customerID] = true
+		}
+	}
+	for _, target := range doneTargets {
+		if target.customerID > 0 {
+			seen[target.customerID] = true
+		}
+	}
+	return len(seen)
+}
+
+func countWorkRowsWithPendingTasks(rows []map[string]any) int {
+	count := 0
+	for _, row := range rows {
+		if workRowHasPendingTasks(row) {
+			count++
+		}
+	}
+	return count
 }
 
 func normalizeWorkCustomerMode(mode string) string {
@@ -620,6 +1437,390 @@ func workRowHasPendingTasks(row map[string]any) bool {
 	return false
 }
 
+type workSummaryTarget struct {
+	StageCode string
+	StageName string
+	Tasks     []map[string]any
+}
+
+type workSummaryData struct {
+	CustomerCount         int
+	AssetCount            int
+	MissingAssetCustomers int
+	Targets               []workSummaryTarget
+}
+
+func workSummarySnapshot(ctx context.Context, staff *WorkStaffSession, operationRows []map[string]any) workSummaryData {
+	customerIDs := visibleWorkCustomerIDs(ctx, staff)
+	doneTargets := doneWorkCustomerTargetsFromRows(operationRows)
+	seen := map[uint64]bool{}
+	summary := workSummaryData{}
+
+	for _, customerID := range customerIDs {
+		if customerID == 0 || seen[customerID] {
+			continue
+		}
+		seen[customerID] = true
+		workSummaryAppendCustomer(ctx, staff, &summary, customerID, nil)
+	}
+	for _, target := range doneTargets {
+		if target.customerID == 0 || seen[target.customerID] {
+			continue
+		}
+		seen[target.customerID] = true
+		workSummaryAppendCustomer(ctx, staff, &summary, target.customerID, target.assetIDs)
+	}
+	return summary
+}
+
+func workSummaryAppendCustomer(ctx context.Context, staff *WorkStaffSession, summary *workSummaryData, customerID uint64, fallbackAssetIDs []uint64) {
+	if summary == nil || customerID == 0 {
+		return
+	}
+	if crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}) == nil {
+		return
+	}
+	summary.CustomerCount++
+	assetIDs := workSummaryVisibleAssetIDs(ctx, staff, customerID)
+	if len(assetIDs) == 0 && len(fallbackAssetIDs) > 0 {
+		assetIDs = workSummaryExistingAssetIDs(ctx, customerID, uniqueUint64Values(fallbackAssetIDs))
+	}
+	if len(assetIDs) == 0 {
+		summary.MissingAssetCustomers++
+		summary.Targets = append(summary.Targets, workSummaryCustomerTarget(ctx, staff, customerID))
+		return
+	}
+	summary.AssetCount += len(assetIDs)
+	for _, assetID := range assetIDs {
+		if assetID == 0 {
+			continue
+		}
+		summary.Targets = append(summary.Targets, workSummaryAssetTarget(ctx, staff, customerID, assetID))
+	}
+}
+
+func workSummaryVisibleAssetIDs(ctx context.Context, staff *WorkStaffSession, customerID uint64) []uint64 {
+	if customerID == 0 {
+		return []uint64{}
+	}
+	rows := crmmodel.NewCustomerAssetModel().SelectMap(ctx, map[string]any{"customer_id": customerID})
+	assetIDs := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		assetID := inputUint64(row["id"])
+		if assetID == 0 || !canViewWorkAsset(ctx, staff, customerID, assetID) {
+			continue
+		}
+		assetIDs = append(assetIDs, assetID)
+	}
+	return assetIDs
+}
+
+func workSummaryExistingAssetIDs(ctx context.Context, customerID uint64, assetIDs []uint64) []uint64 {
+	if customerID == 0 || len(assetIDs) == 0 {
+		return []uint64{}
+	}
+	result := make([]uint64, 0, len(assetIDs))
+	for _, assetID := range assetIDs {
+		if assetID == 0 {
+			continue
+		}
+		if crmmodel.NewCustomerAssetModel().Find(ctx, map[string]any{"id": assetID, "customer_id": customerID}) != nil {
+			result = append(result, assetID)
+		}
+	}
+	return result
+}
+
+func workSummaryCustomerTarget(ctx context.Context, staff *WorkStaffSession, customerID uint64) workSummaryTarget {
+	state := currentWorkCustomerStage(ctx, customerID, 0)
+	target := workSummaryTargetFromState(ctx, state)
+	tasks := workSummaryAvailableTasks(ctx, staff, state)
+	tasks = append(tasks, workSummaryPendingTodoTasks(ctx, staff, customerID, 0)...)
+	target.Tasks = workCustomerRowTasks(tasks)
+	return target
+}
+
+func workSummaryAssetTarget(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) workSummaryTarget {
+	state := currentWorkCustomerStage(ctx, customerID, assetID)
+	target := workSummaryTargetFromState(ctx, state)
+	tasks := workSummaryAvailableTasks(ctx, staff, state)
+	tasks = append(tasks, workSummaryPendingTodoTasks(ctx, staff, customerID, assetID)...)
+	target.Tasks = workAssetRowTasks(tasks)
+	return target
+}
+
+func workSummaryTargetFromState(ctx context.Context, state *crmmodel.CustomerStage) workSummaryTarget {
+	if state == nil {
+		return workSummaryTarget{}
+	}
+	return workSummaryTarget{
+		StageCode: state.CurrentStageCode,
+		StageName: workStageName(ctx, state.CurrentStageCode),
+	}
+}
+
+func workSummaryAvailableTasks(ctx context.Context, staff *WorkStaffSession, state *crmmodel.CustomerStage) []map[string]any {
+	if staff == nil || state == nil || !canOperateCurrentState(staff, state) {
+		return []map[string]any{}
+	}
+	stage := crmmodel.NewStageModel().Find(ctx, map[string]any{
+		"code":   state.CurrentStageCode,
+		"status": crmmodel.StatusEnabled,
+	})
+	if stage == nil {
+		return []map[string]any{}
+	}
+	result := make([]map[string]any, 0)
+	for _, task := range crmmodel.NewTaskModel().SelectMap(ctx, map[string]any{"stage_id": stage.ID, "status": crmmodel.StatusEnabled}) {
+		if len(task) == 0 || workTaskTriggerType(task) != crmmodel.TaskTriggerManual {
+			continue
+		}
+		if workTaskHiddenFromWorkList(task) {
+			continue
+		}
+		if inputText(task["task_type"]) == crmmodel.TaskTypeCollaborate && workTaskAlreadyOperated(ctx, state.CustomerID, state.AssetID, inputUint64(task["id"])) {
+			if !workTaskNeedsCollaborationReview(ctx, task, state) {
+				continue
+			}
+			markWorkCollaborationReviewTask(task)
+		}
+		if !workTaskVisibleForState(ctx, task, state) {
+			continue
+		}
+		row := map[string]any{
+			"id":        task["id"],
+			"task_type": inputText(task["task_type"]),
+		}
+		if booleanFromAny(task["collaboration_review"]) {
+			row["name"] = task["name"]
+			row["task_name"] = task["task_name"]
+			row["collaboration_review"] = true
+		}
+		result = append(result, row)
+	}
+	return result
+}
+
+func workSummaryPendingTodoTasks(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) []map[string]any {
+	if staff == nil || customerID == 0 {
+		return []map[string]any{}
+	}
+	rows := crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
+		"customer_id": customerID,
+		"asset_id":    assetID,
+		"status":      crmmodel.WorkTodoStatusPending,
+	})
+	result := make([]map[string]any, 0, len(rows))
+	for _, todo := range rows {
+		if todo == nil || !canOperateWorkTodo(staff, todo) {
+			continue
+		}
+		result = append(result, map[string]any{
+			"id":        todo.SourceTaskID,
+			"task_type": crmmodel.TaskTypeCollaborate,
+		})
+	}
+	return result
+}
+
+func workSummaryMetricRows(summary workSummaryData, recentOperations []map[string]any) []map[string]any {
+	pendingTargets := 0
+	pendingTasks := 0
+	for _, target := range summary.Targets {
+		if len(target.Tasks) > 0 {
+			pendingTargets++
+			pendingTasks += len(target.Tasks)
+		}
+	}
+	return []map[string]any{
+		workSummaryMetric("customers", "客户", summary.CustomerCount, "当前可查看的客户数量"),
+		workSummaryMetric("assets", "已录资产", summary.AssetCount, "客户名下已建立的资产记录"),
+		workSummaryMetric("pending_targets", "待处理对象", pendingTargets, "当前有任务待处理的客户或资产"),
+		workSummaryMetric("pending_tasks", "待办任务", pendingTasks, "当前可执行或协作待办任务"),
+		workSummaryMetric("missing_assets", "未录资产客户", summary.MissingAssetCustomers, "已建客户但尚未补充资产"),
+		workSummaryMetric("recent_operations", "最近操作", len(recentOperations), "最近 8 条我的操作记录"),
+	}
+}
+
+func workSummaryMetric(key string, name string, value int, description string) map[string]any {
+	return map[string]any{
+		"key":         key,
+		"name":        name,
+		"value":       value,
+		"description": description,
+	}
+}
+
+func workSummaryStageRows(targets []workSummaryTarget) []map[string]any {
+	counts := map[string]int{}
+	names := map[string]string{}
+	for _, target := range targets {
+		key := target.StageCode
+		if key == "" {
+			key = "_empty"
+		}
+		name := target.StageName
+		if name == "" {
+			name = target.StageCode
+		}
+		if name == "" {
+			name = "未进入阶段"
+		}
+		counts[key]++
+		names[key] = name
+	}
+	return workSummaryBreakdownRows(counts, names, len(targets))
+}
+
+func workSummaryTaskRows(targets []workSummaryTarget) []map[string]any {
+	counts := map[string]int{}
+	names := map[string]string{}
+	total := 0
+	for _, target := range targets {
+		for _, task := range target.Tasks {
+			key := inputText(task["task_type"])
+			if key == "" {
+				key = "_unknown"
+			}
+			counts[key]++
+			names[key] = workTaskTypeName(key)
+			total++
+		}
+	}
+	return workSummaryBreakdownRows(counts, names, total)
+}
+
+func workSummaryBreakdownRows(counts map[string]int, names map[string]string, total int) []map[string]any {
+	rows := make([]map[string]any, 0, len(counts))
+	for key, count := range counts {
+		percent := 0
+		if total > 0 {
+			percent = int(float64(count) / float64(total) * 100)
+		}
+		rows = append(rows, map[string]any{
+			"key":     key,
+			"name":    names[key],
+			"count":   count,
+			"percent": percent,
+		})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		left := inputUint64(rows[i]["count"])
+		right := inputUint64(rows[j]["count"])
+		if left != right {
+			return left > right
+		}
+		return inputText(rows[i]["name"]) < inputText(rows[j]["name"])
+	})
+	return rows
+}
+
+func workTaskTypeName(taskType string) string {
+	switch taskType {
+	case crmmodel.TaskTypeCreate:
+		return "创建资料"
+	case crmmodel.TaskTypeForm:
+		return "填写资料"
+	case crmmodel.TaskTypeAssign:
+		return "分配"
+	case crmmodel.TaskTypeCollaborate:
+		return "协作任务"
+	case crmmodel.TaskTypeDecision:
+		return "决策"
+	case crmmodel.TaskTypeBooking:
+		return "资源预定"
+	case crmmodel.TaskTypeSystemRule:
+		return "系统规则"
+	default:
+		return "其他任务"
+	}
+}
+
+func workSummaryTrendRows(ctx context.Context, staff *WorkStaffSession, days int, operationRows []map[string]any) []map[string]any {
+	if staff == nil || staff.ID == 0 {
+		return []map[string]any{}
+	}
+	if days <= 0 {
+		days = 14
+	}
+	today := workBeginningOfDay(time.Now())
+	start := today.AddDate(0, 0, -days+1)
+	rows := make([]map[string]any, 0, days)
+	indexes := map[string]int{}
+	for i := 0; i < days; i++ {
+		day := start.AddDate(0, 0, i)
+		key := day.Format("2006-01-02")
+		indexes[key] = i
+		rows = append(rows, map[string]any{
+			"date":             key,
+			"label":            day.Format("01-02"),
+			"task_count":       0,
+			"transition_count": 0,
+			"operation_count":  0,
+		})
+	}
+	for _, event := range crmmodel.NewStatEventModel().Select(ctx, map[string]any{"operator_staff_id": staff.ID}) {
+		if event == nil || event.EventAt.Before(start) || event.EventAt.After(today.AddDate(0, 0, 1)) {
+			continue
+		}
+		index, exists := indexes[workBeginningOfDay(event.EventAt).Format("2006-01-02")]
+		if !exists {
+			continue
+		}
+		switch event.EventType {
+		case crmmodel.StatEventTypeTask:
+			if event.ResultValue == workResultProgress || event.ResultValue == workResultAutoFailed {
+				continue
+			}
+			rows[index]["task_count"] = inputInt(rows[index]["task_count"]) + 1
+		case crmmodel.StatEventTypeTransition:
+			rows[index]["transition_count"] = inputInt(rows[index]["transition_count"]) + 1
+		}
+	}
+	for _, operation := range operationRows {
+		createdAt := workTimeValue(operation["created_at"])
+		if createdAt.IsZero() {
+			createdAt = workTimeValue(operation["create_time"])
+		}
+		if createdAt.IsZero() || createdAt.Before(start) || createdAt.After(today.AddDate(0, 0, 1)) {
+			continue
+		}
+		index, exists := indexes[workBeginningOfDay(createdAt).Format("2006-01-02")]
+		if !exists {
+			continue
+		}
+		rows[index]["operation_count"] = inputInt(rows[index]["operation_count"]) + 1
+	}
+	return rows
+}
+
+func workTimeValue(value any) time.Time {
+	switch typed := value.(type) {
+	case time.Time:
+		return typed
+	case *time.Time:
+		if typed == nil {
+			return time.Time{}
+		}
+		return *typed
+	case string:
+		text := strings.TrimSpace(typed)
+		if text == "" {
+			return time.Time{}
+		}
+		for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05"} {
+			if parsed, err := time.Parse(layout, text); err == nil {
+				return parsed
+			}
+		}
+	}
+	return time.Time{}
+}
+
+func workBeginningOfDay(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
+}
+
 type doneWorkCustomerTarget struct {
 	customerID uint64
 	assetIDs   []uint64
@@ -637,9 +1838,40 @@ func doneWorkCustomers(ctx context.Context, staff *WorkStaffSession) []map[strin
 }
 
 func doneWorkCustomerTargets(ctx context.Context, staff *WorkStaffSession) []doneWorkCustomerTarget {
-	rows := crmmodel.NewOperationLogModel().SelectMap(ctx, map[string]any{
-		"operator_staff_id": staff.ID,
+	if staff == nil || staff.ID == 0 {
+		return []doneWorkCustomerTarget{}
+	}
+	return doneWorkCustomerTargetsFromRows(workStaffOperationTargetRows(ctx, staff.ID))
+}
+
+func workStaffOperationRows(ctx context.Context, staffID uint64) []map[string]any {
+	if staffID == 0 {
+		return []map[string]any{}
+	}
+	return crmmodel.NewOperationLogModel().SelectMap(ctx, map[string]any{
+		"operator_staff_id": staffID,
 	})
+}
+
+func workStaffOperationTargetRows(ctx context.Context, staffID uint64) []map[string]any {
+	if staffID == 0 {
+		return []map[string]any{}
+	}
+	return crmmodel.NewOperationLogModel().SelectMap(ctx, map[string]any{
+		"operator_staff_id": staffID,
+	}, map[string]any{
+		"field": "customer_id,asset_id",
+	})
+}
+
+func workRecentOperationRows(rows []map[string]any, limit int) []map[string]any {
+	if limit <= 0 || len(rows) <= limit {
+		return rows
+	}
+	return rows[:limit]
+}
+
+func doneWorkCustomerTargetsFromRows(rows []map[string]any) []doneWorkCustomerTarget {
 	targetIndexes := map[uint64]int{}
 	seenAssetIDs := map[uint64]map[uint64]bool{}
 	targets := make([]doneWorkCustomerTarget, 0, len(rows))
@@ -670,6 +1902,19 @@ func doneWorkCustomerTargets(ctx context.Context, staff *WorkStaffSession) []don
 	return targets
 }
 
+func uniqueUint64Values(values []uint64) []uint64 {
+	seen := map[uint64]bool{}
+	result := make([]uint64, 0, len(values))
+	for _, value := range values {
+		if value == 0 || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
 func doneWorkCustomerRow(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetIDs []uint64) map[string]any {
 	if customerID == 0 {
 		return map[string]any{}
@@ -678,16 +1923,14 @@ func doneWorkCustomerRow(ctx context.Context, staff *WorkStaffSession, customerI
 	if len(customer) == 0 {
 		return map[string]any{}
 	}
-	customer["data_values"] = workCustomerFormValues(ctx, customerID, 0, customer)
-	customer["data_value_labels"] = workDataValueLabels(ctx, mapFromAny(customer["data_values"]))
-	customer["assets"] = doneWorkAssetRows(ctx, staff, customerID, assetIDs)
+	attachWorkEntityDataValues(ctx, customer, workCustomerFormValues(ctx, customerID, 0, customer), crmmodel.CustomerDataTemplateCateID)
+	displayAssetIDs := uniqueUint64Values(assetIDs)
+	if len(displayAssetIDs) == 0 {
+		displayAssetIDs = workSummaryVisibleAssetIDs(ctx, staff, customerID)
+	}
+	customer["assets"] = doneWorkAssetRows(ctx, staff, customerID, displayAssetIDs)
 	if state := currentWorkCustomerStage(ctx, customerID, 0); state != nil {
-		customer["state.id"] = state.ID
-		customer["state.current_stage_code"] = state.CurrentStageCode
-		customer["state.current_department_id"] = state.CurrentDepartmentID
-		customer["state.current_staff_id"] = state.CurrentStaffID
-		customer["stage_code"] = state.CurrentStageCode
-		customer["stage_name"] = workStageName(ctx, state.CurrentStageCode)
+		attachWorkStageFields(ctx, customer, state)
 	}
 	customer["row_tasks"] = []map[string]any{}
 	customer["row_tasks"] = workPendingTodoTasks(ctx, staff, customerID, 0)
@@ -721,16 +1964,11 @@ func doneWorkAssetRow(ctx context.Context, staff *WorkStaffSession, customerID u
 	if len(asset) == 0 {
 		return map[string]any{}
 	}
-	asset["data_values"] = workAssetFormValues(ctx, customerID, assetID, asset)
-	asset["data_value_labels"] = workDataValueLabels(ctx, mapFromAny(asset["data_values"]))
+	attachWorkEntityDataValues(ctx, asset, workAssetFormValues(ctx, customerID, assetID, asset), crmmodel.CustomerAssetDataTemplateCateID)
 	asset["asset_status_name"] = workAssetStatusName(ctx, inputUint64(asset["asset_status_id"]))
+	asset["business_objects"] = workBusinessObjectRows(ctx, customerID, assetID)
 	if state := currentWorkCustomerStage(ctx, customerID, assetID); state != nil {
-		asset["state.id"] = state.ID
-		asset["state.current_stage_code"] = state.CurrentStageCode
-		asset["state.current_department_id"] = state.CurrentDepartmentID
-		asset["state.current_staff_id"] = state.CurrentStaffID
-		asset["stage_code"] = state.CurrentStageCode
-		asset["stage_name"] = workStageName(ctx, state.CurrentStageCode)
+		attachWorkStageFields(ctx, asset, state)
 	}
 	asset["row_tasks"] = workPendingTodoTasks(ctx, staff, customerID, assetID)
 	asset["tasks"] = []map[string]any{}
@@ -832,6 +2070,13 @@ func canViewWorkAsset(ctx context.Context, staff *WorkStaffSession, customerID u
 	if staff == nil || customerID == 0 || assetID == 0 {
 		return false
 	}
+	if crmmodel.NewOperationLogModel().Find(ctx, map[string]any{
+		"customer_id":       customerID,
+		"asset_id":          assetID,
+		"operator_staff_id": staff.ID,
+	}) != nil {
+		return true
+	}
 	if customer := crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}); customer != nil && customer.CreatedByStaffID == staff.ID {
 		return true
 	}
@@ -895,17 +2140,11 @@ func workCustomerRow(ctx context.Context, staff *WorkStaffSession, customerID ui
 	if len(customer) == 0 {
 		return map[string]any{}
 	}
-	customer["data_values"] = workCustomerFormValues(ctx, customerID, 0, customer)
-	customer["data_value_labels"] = workDataValueLabels(ctx, mapFromAny(customer["data_values"]))
+	attachWorkEntityDataValues(ctx, customer, workCustomerFormValues(ctx, customerID, 0, customer), crmmodel.CustomerDataTemplateCateID)
 	customer["assets"] = workAssetRows(ctx, staff, customerID)
 	state := ensureCurrentWorkCustomerStage(ctx, staff, customerID, 0)
 	if state != nil {
-		customer["state.id"] = state.ID
-		customer["state.current_stage_code"] = state.CurrentStageCode
-		customer["state.current_department_id"] = state.CurrentDepartmentID
-		customer["state.current_staff_id"] = state.CurrentStaffID
-		customer["stage_code"] = state.CurrentStageCode
-		customer["stage_name"] = workStageName(ctx, state.CurrentStageCode)
+		attachWorkStageFields(ctx, customer, state)
 		tasks := workAvailableTasks(ctx, staff, state)
 		tasks = append(tasks, workPendingTodoTasks(ctx, staff, customerID, 0)...)
 		customer["row_tasks"] = workCustomerRowTasks(tasks)
@@ -913,6 +2152,18 @@ func workCustomerRow(ctx context.Context, staff *WorkStaffSession, customerID ui
 	}
 	enrichWorkCustomerRow(ctx, customer)
 	return customer
+}
+
+func workCustomerRowAsset(customer map[string]any, assetID uint64) map[string]any {
+	if assetID == 0 {
+		return map[string]any{}
+	}
+	for _, asset := range mapListFromAny(customer["assets"]) {
+		if inputUint64(asset["id"]) == assetID {
+			return asset
+		}
+	}
+	return map[string]any{}
 }
 
 func workAssetRows(ctx context.Context, staff *WorkStaffSession, customerID uint64) []map[string]any {
@@ -929,17 +2180,12 @@ func workAssetRows(ctx context.Context, staff *WorkStaffSession, customerID uint
 		if !canViewWorkAsset(ctx, staff, customerID, assetID) {
 			continue
 		}
-		asset["data_values"] = workAssetFormValues(ctx, customerID, assetID, asset)
-		asset["data_value_labels"] = workDataValueLabels(ctx, mapFromAny(asset["data_values"]))
+		attachWorkEntityDataValues(ctx, asset, workAssetFormValues(ctx, customerID, assetID, asset), crmmodel.CustomerAssetDataTemplateCateID)
 		asset["asset_status_name"] = workAssetStatusName(ctx, inputUint64(asset["asset_status_id"]))
+		asset["business_objects"] = workBusinessObjectRows(ctx, customerID, assetID)
 		state := ensureCurrentWorkCustomerStage(ctx, staff, customerID, assetID)
 		if state != nil {
-			asset["state.id"] = state.ID
-			asset["state.current_stage_code"] = state.CurrentStageCode
-			asset["state.current_department_id"] = state.CurrentDepartmentID
-			asset["state.current_staff_id"] = state.CurrentStaffID
-			asset["stage_code"] = state.CurrentStageCode
-			asset["stage_name"] = workStageName(ctx, state.CurrentStageCode)
+			attachWorkStageFields(ctx, asset, state)
 			tasks := workAvailableTasks(ctx, staff, state)
 			tasks = append(tasks, workPendingTodoTasks(ctx, staff, customerID, assetID)...)
 			asset["row_tasks"] = workAssetRowTasks(tasks)
@@ -947,6 +2193,113 @@ func workAssetRows(ctx context.Context, staff *WorkStaffSession, customerID uint
 		rows = append(rows, asset)
 	}
 	return rows
+}
+
+func workBusinessObjectRows(ctx context.Context, customerID uint64, assetID uint64) []map[string]any {
+	if customerID == 0 {
+		return []map[string]any{}
+	}
+	filter := map[string]any{
+		"customer_id": customerID,
+		"status":      crmmodel.StatusEnabled,
+	}
+	if assetID > 0 {
+		filter["asset_id"] = assetID
+	}
+	rows := crmmodel.NewBusinessObjectModel().SelectMap(ctx, filter, map[string]any{
+		"field": "id,business_object_type_id,object_no,object_name,object_status,customer_id,asset_id,created_at,updated_at",
+		"order": "id desc",
+	})
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		objectID := inputUint64(row["id"])
+		if objectID == 0 {
+			continue
+		}
+		typeID := inputUint64(row["business_object_type_id"])
+		row["business_object_id"] = objectID
+		row["business_object_type_name"] = workBusinessObjectTypeName(ctx, typeID)
+		if cateID := workBusinessObjectTemplateCateID(ctx, typeID); cateID > 0 {
+			values := workBusinessObjectFormValues(ctx, customerID, assetID, objectID)
+			attachWorkEntityDataValues(ctx, row, values, cateID)
+			row["display_fields"] = workBusinessObjectDisplayFields(ctx, values)
+		}
+		result = append(result, row)
+	}
+	return result
+}
+
+func workBusinessObjectTypeName(ctx context.Context, typeID uint64) string {
+	if typeID == 0 {
+		return ""
+	}
+	objectType := crmmodel.NewBusinessObjectTypeModel().Find(ctx, map[string]any{
+		"id":     typeID,
+		"status": crmmodel.StatusEnabled,
+	})
+	if objectType == nil {
+		return ""
+	}
+	return objectType.Name
+}
+
+func workBusinessObjectTemplateCateID(ctx context.Context, typeID uint64) uint64 {
+	if typeID == 0 {
+		return 0
+	}
+	cate := crmmodel.NewDataTemplateCateModel().Find(ctx, map[string]any{
+		"target_table":            crmmodel.DataTemplateTargetBusinessObject,
+		"business_object_type_id": typeID,
+		"status":                  crmmodel.StatusEnabled,
+	})
+	if cate == nil {
+		return 0
+	}
+	return cate.ID
+}
+
+func attachWorkStageFields(ctx context.Context, target map[string]any, state *crmmodel.CustomerStage) {
+	if target == nil || state == nil {
+		return
+	}
+	stageEnteredAt := workStageEnteredAt(ctx, state)
+	target["state.id"] = state.ID
+	target["state.current_stage_code"] = state.CurrentStageCode
+	target["state.current_department_id"] = state.CurrentDepartmentID
+	target["state.current_staff_id"] = state.CurrentStaffID
+	target["stage_code"] = state.CurrentStageCode
+	target["stage_name"] = workStageName(ctx, state.CurrentStageCode)
+	target["stage_entered_at"] = stageEnteredAt
+	target["stage_days"] = workStageDwellDays(stageEnteredAt)
+	if !state.LastOperatedAt.IsZero() {
+		target["last_operated_at"] = state.LastOperatedAt
+	}
+}
+
+func workStageEnteredAt(ctx context.Context, state *crmmodel.CustomerStage) time.Time {
+	if state == nil {
+		return time.Time{}
+	}
+	if state.LastTransitionLogID > 0 {
+		if transition := crmmodel.NewStageTransitionLogModel().Find(ctx, map[string]any{"id": state.LastTransitionLogID}); transition != nil {
+			return transition.CreatedAt
+		}
+	}
+	if !state.CreatedAt.IsZero() {
+		return state.CreatedAt
+	}
+	return state.UpdatedAt
+}
+
+func workStageDwellDays(start time.Time) int {
+	if start.IsZero() {
+		return 0
+	}
+	days := int(time.Since(start).Hours() / 24)
+	if days < 0 {
+		return 0
+	}
+	return days
 }
 
 func enrichWorkCustomerRow(ctx context.Context, customer map[string]any) {
@@ -1021,6 +2374,12 @@ func hasWorkCustomerStructuredFilter(payload map[string]any) bool {
 		firstText(payload, "status") != ""
 }
 
+func hasWorkCustomerListFilter(payload map[string]any) bool {
+	return hasWorkCustomerStructuredFilter(payload) ||
+		firstText(payload, "keyword") != "" ||
+		hasWorkCustomerWorkFilter(payload)
+}
+
 func filterWorkCustomersByFields(rows []map[string]any, payload map[string]any) []map[string]any {
 	result := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
@@ -1090,6 +2449,192 @@ func workFilterRequiresAsset(payload map[string]any) bool {
 	return firstText(payload, "asset_no", "assetNo") != ""
 }
 
+func hasWorkCustomerWorkFilter(payload map[string]any) bool {
+	quickFilter := firstText(payload, "quick_filter", "quickFilter")
+	return (quickFilter != "" && quickFilter != "all") ||
+		firstText(payload, "stage_filter", "stage") != "" ||
+		firstText(payload, "task_filter", "task") != ""
+}
+
+func filterWorkCustomersByWorkFilters(rows []map[string]any, payload map[string]any) []map[string]any {
+	quickFilter := firstText(payload, "quick_filter", "quickFilter")
+	stageFilter := firstText(payload, "stage_filter", "stage")
+	taskFilter := firstText(payload, "task_filter", "task")
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if !workRowMatchesTargetFilters(row, quickFilter, stageFilter, taskFilter) {
+			continue
+		}
+		assets := mapListFromAny(row["assets"])
+		filteredAssets := filterWorkAssetsByWorkFilters(assets, quickFilter, stageFilter, taskFilter)
+		next := copyMap(row)
+		if len(assets) > 0 {
+			next["assets"] = filteredAssets
+		}
+		result = append(result, next)
+	}
+	return result
+}
+
+func filterWorkAssetsByWorkFilters(assets []map[string]any, quickFilter string, stageFilter string, taskFilter string) []map[string]any {
+	if len(assets) == 0 {
+		return assets
+	}
+	result := make([]map[string]any, 0, len(assets))
+	for _, asset := range assets {
+		if workTargetMatchesFilters(asset, quickFilter, stageFilter, taskFilter, true) {
+			result = append(result, asset)
+		}
+	}
+	return result
+}
+
+func workRowMatchesTargetFilters(row map[string]any, quickFilter string, stageFilter string, taskFilter string) bool {
+	assets := mapListFromAny(row["assets"])
+	if len(assets) == 0 {
+		return workTargetMatchesFilters(row, quickFilter, stageFilter, taskFilter, false)
+	}
+	for _, asset := range assets {
+		if workTargetMatchesFilters(asset, quickFilter, stageFilter, taskFilter, true) {
+			return true
+		}
+	}
+	return false
+}
+
+func workTargetMatchesFilters(target map[string]any, quickFilter string, stageFilter string, taskFilter string, hasAsset bool) bool {
+	if !workTargetMatchesQuickFilter(target, quickFilter, hasAsset) {
+		return false
+	}
+	if stageFilter != "" && !workTargetStageMatches(target, stageFilter) {
+		return false
+	}
+	if taskFilter != "" && !workTargetTaskMatches(target, taskFilter) {
+		return false
+	}
+	return true
+}
+
+func workTargetMatchesQuickFilter(target map[string]any, quickFilter string, hasAsset bool) bool {
+	switch quickFilter {
+	case "", "all":
+		return true
+	case "hasTasks":
+		return len(mapListFromAny(target["row_tasks"])) > 0
+	case "missingAsset":
+		return !hasAsset
+	case "collaboration":
+		return workTargetHasTaskType(target, crmmodel.TaskTypeCollaborate)
+	case "archived":
+		return strings.Contains(workTargetStageText(target), "归档")
+	default:
+		return true
+	}
+}
+
+func workTargetStageMatches(target map[string]any, stageFilter string) bool {
+	if stageFilter == "" {
+		return true
+	}
+	return inputText(target["stage_code"]) == stageFilter || inputText(target["stage_name"]) == stageFilter
+}
+
+func workTargetTaskMatches(target map[string]any, taskFilter string) bool {
+	if taskFilter == "" {
+		return true
+	}
+	for _, task := range mapListFromAny(target["row_tasks"]) {
+		if workTaskFilterKey(task) == taskFilter {
+			return true
+		}
+	}
+	return false
+}
+
+func workTargetHasTaskType(target map[string]any, taskType string) bool {
+	for _, task := range mapListFromAny(target["row_tasks"]) {
+		if inputText(task["task_type"]) == taskType || inputText(task["task_action"]) == taskType || inputText(task["action_type"]) == taskType {
+			return true
+		}
+	}
+	return false
+}
+
+func workTargetStageText(target map[string]any) string {
+	return inputText(target["stage_name"]) + " " + inputText(target["current_stage_name"]) + " " + inputText(target["stage_code"])
+}
+
+func workTaskFilterKey(task map[string]any) string {
+	for _, key := range []string{"task_type", "task_action", "action_type", "id"} {
+		value := inputText(task[key])
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func workCustomerFilterOptions(rows []map[string]any) map[string]any {
+	stages := map[string]string{}
+	tasks := map[string]string{}
+	for _, row := range rows {
+		collectWorkTargetFilterOptions(row, stages, tasks)
+		for _, asset := range mapListFromAny(row["assets"]) {
+			collectWorkTargetFilterOptions(asset, stages, tasks)
+		}
+	}
+	return map[string]any{
+		"stages": workFilterOptionRows(stages),
+		"tasks":  workFilterOptionRows(tasks),
+	}
+}
+
+func collectWorkTargetFilterOptions(target map[string]any, stages map[string]string, tasks map[string]string) {
+	stageKey := inputText(target["stage_code"])
+	stageLabel := inputText(target["stage_name"])
+	if stageKey != "" && stageLabel == "" {
+		stageLabel = stageKey
+	}
+	if stageKey != "" && stageLabel != "" {
+		stages[stageKey] = stageLabel
+	}
+	for _, task := range mapListFromAny(target["row_tasks"]) {
+		taskKey := workTaskFilterKey(task)
+		if taskKey == "" {
+			continue
+		}
+		tasks[taskKey] = workTaskDisplayName(task)
+	}
+}
+
+func workFilterOptionRows(options map[string]string) []map[string]any {
+	keys := make([]string, 0, len(options))
+	for key := range options {
+		keys = append(keys, key)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		return options[keys[i]] < options[keys[j]]
+	})
+	rows := make([]map[string]any, 0, len(keys))
+	for _, key := range keys {
+		rows = append(rows, map[string]any{
+			"value": key,
+			"label": options[key],
+		})
+	}
+	return rows
+}
+
+func workTaskDisplayName(task map[string]any) string {
+	for _, key := range []string{"task_name", "name"} {
+		value := inputText(task[key])
+		if value != "" {
+			return value
+		}
+	}
+	return workTaskTypeName(inputText(task["task_type"]))
+}
+
 func filterWorkOperations(rows []map[string]any, keyword string) []map[string]any {
 	result := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
@@ -1115,6 +2660,9 @@ func enrichWorkOperationRow(ctx context.Context, staff *WorkStaffSession, row ma
 		row["task.name"] = task.Name
 		row["task.task_type"] = task.TaskType
 	}
+	if stageName := workStageName(ctx, inputText(row["stage_code"])); stageName != "" {
+		row["stage_name"] = stageName
+	}
 	if asset := crmmodel.NewCustomerAssetModel().Find(ctx, map[string]any{"id": inputUint64(row["asset_id"])}); asset != nil {
 		row["asset.asset_no"] = asset.AssetNo
 		row["asset.asset_name"] = asset.AssetName
@@ -1127,12 +2675,13 @@ func enrichWorkOperationRow(ctx context.Context, staff *WorkStaffSession, row ma
 		row["operator_department.name"] = department.Name
 	}
 	row["operator_is_current"] = staff != nil && staff.ID > 0 && inputUint64(row["operator_staff_id"]) == staff.ID
+	row["result_value_name"] = workOperationResultDisplayValue(ctx, row, row["result_value"])
 	summaryItems := workOperationSummaryItems(ctx, row)
-	row["summary"] = workOperationSummary(row, summaryItems)
+	row["summary"] = workOperationSummary(ctx, row, summaryItems)
 	row["summary_items"] = summaryItems
 }
 
-func workOperationSummary(row map[string]any, items []map[string]any) string {
+func workOperationSummary(ctx context.Context, row map[string]any, items []map[string]any) string {
 	taskType := inputText(row["task_type"])
 	if inputText(row["result_value"]) == workResultProgress {
 		return "保存进度"
@@ -1161,6 +2710,14 @@ func workOperationSummary(row map[string]any, items []map[string]any) string {
 		return "完成分配"
 	case crmmodel.TaskTypeCollaborate:
 		values := mapFromAny(row["data_snapshot_json"])
+		if workOperationIsCollaborationConfirm(row, values) {
+			doneCount := inputInt(values["done_todo_count"])
+			totalCount := inputInt(values["todo_count"])
+			if doneCount > 0 && totalCount > 0 {
+				return fmt.Sprintf("确认 %d/%d 个协作待办已完成", doneCount, totalCount)
+			}
+			return "确认协作完成"
+		}
 		if todoName := inputText(values["todo_name"]); todoName != "" {
 			return "完成" + todoName
 		}
@@ -1171,7 +2728,7 @@ func workOperationSummary(row map[string]any, items []map[string]any) string {
 		}
 		return "协作任务"
 	case crmmodel.TaskTypeDecision:
-		if result := inputText(row["result_value"]); result != "" && result != workResultSuccess {
+		if result := workOperationResultSummaryValue(ctx, row, items); result != "" && inputText(row["result_value"]) != workResultSuccess {
 			return "决策：" + result
 		}
 		return "完成决策"
@@ -1190,6 +2747,16 @@ func workOperationSummary(row map[string]any, items []map[string]any) string {
 	}
 }
 
+func workOperationIsCollaborationConfirm(row map[string]any, values map[string]any) bool {
+	if booleanFromAny(firstWorkValue(values, "collaboration_confirm", "collaborationConfirm")) {
+		return true
+	}
+	if inputText(row["title"]) == "确认协作完成" {
+		return true
+	}
+	return firstUint64(values, "done_todo_count", "doneTodoCount", "required_todo_count", "requiredTodoCount") > 0
+}
+
 func workOperationSummaryItems(ctx context.Context, row map[string]any) []map[string]any {
 	values := mapFromAny(row["data_snapshot_json"])
 	if len(values) == 0 {
@@ -1198,11 +2765,10 @@ func workOperationSummaryItems(ctx context.Context, row map[string]any) []map[st
 	items := make([]map[string]any, 0, len(values))
 	for _, key := range sortedMapKeys(values) {
 		value := values[key]
-		text := inputText(value)
-		if text == "" {
+		if inputText(value) == "" && !workOperationComplexSnapshotValue(key, value) {
 			continue
 		}
-		label, displayValue, meta := workOperationSnapshotItem(ctx, key, value)
+		label, displayValue, meta := workOperationSnapshotItem(ctx, row, key, value)
 		if label == "" || displayValue == "" {
 			continue
 		}
@@ -1219,14 +2785,44 @@ func workOperationSummaryItems(ctx context.Context, row map[string]any) []map[st
 	return items
 }
 
-func workOperationSnapshotItem(ctx context.Context, key string, value any) (string, string, map[string]any) {
+func workOperationComplexSnapshotValue(key string, value any) bool {
+	switch key {
+	case "decision_result", "decisionResult":
+		return len(mapFromAny(value)) > 0
+	default:
+		return false
+	}
+}
+
+func workOperationResultSummaryValue(ctx context.Context, row map[string]any, items []map[string]any) string {
+	for _, item := range items {
+		if inputText(item["label"]) == "决策结果" {
+			return inputText(item["value"])
+		}
+	}
+	return workOperationResultDisplayValue(ctx, row, row["result_value"])
+}
+
+func workOperationSnapshotItem(ctx context.Context, row map[string]any, key string, value any) (string, string, map[string]any) {
+	if workOperationInternalSnapshotKey(key) {
+		return "", "", nil
+	}
 	switch key {
 	case "department_id", "departmentId":
 		return "分配部门", workDepartmentName(ctx, inputUint64(value)), nil
 	case "staff_id", "staffId":
 		return "分配人员", workStaffName(ctx, inputUint64(value)), nil
 	case "result_value", "resultValue":
-		return "决策结果", inputText(value), nil
+		return "决策结果", workOperationResultDisplayValue(ctx, row, value), nil
+	case "decision_result", "decisionResult":
+		result := mapFromAny(value)
+		resultValue := firstText(result, "value", "result_value", "resultValue")
+		if resultValue == "" {
+			return "", "", nil
+		}
+		return "决策结果", workOperationResultDisplayValue(ctx, row, resultValue), nil
+	case "decision_reason", "decisionReason":
+		return "判断原因", inputText(value), nil
 	case "resource_id", "resourceId", "booking:resource_id", "main:resource_id":
 		return "预定资源", workPublicResourceName(ctx, inputUint64(value)), nil
 	case "start_at", "startAt", "booking:start_at", "main:start_at":
@@ -1237,52 +2833,232 @@ func workOperationSnapshotItem(ctx context.Context, key string, value any) (stri
 		return "备注", inputText(value), nil
 	case "todo_name":
 		return "协作待办", inputText(value), nil
-	case "todo_id", "todoId":
-		return "", "", nil
 	case "todo_count":
 		return "协作待办数", inputText(value), nil
+	case "done_todo_count", "doneTodoCount":
+		return "已完成待办数", inputText(value), nil
+	case "required_todo_count", "requiredTodoCount":
+		return "必做待办数", inputText(value), nil
 	}
 	if strings.HasPrefix(key, "main:") {
 		field := strings.TrimPrefix(key, "main:")
 		return workMainFieldLabel(field), workMainFieldDisplayValue(ctx, field, value), nil
 	}
 	if strings.HasPrefix(key, "data:") {
-		fieldID := inputUint64(strings.TrimPrefix(key, "data:"))
-		if fieldID == 0 {
+		return workOperationDataFieldSnapshotItem(ctx, strings.TrimPrefix(key, "data:"), value)
+	}
+	if strings.HasPrefix(key, "field:") {
+		return workOperationFormFieldSnapshotItem(ctx, strings.TrimPrefix(key, "field:"), value)
+	}
+	return "", "", nil
+}
+
+func workOperationResultDisplayValue(ctx context.Context, row map[string]any, value any) string {
+	resultValue := inputText(value)
+	if resultValue == "" {
+		return ""
+	}
+	task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": inputUint64(row["task_id"])})
+	if task == nil {
+		if resultName := workOperationBaseResultName(resultValue); resultName != "" {
+			return resultName
+		}
+		return resultValue
+	}
+	fieldID := inputUint64(mapFromAny(task.ConfigJSON)["decision_result_field_id"])
+	if fieldID == 0 {
+		if resultName := workOperationBaseResultName(resultValue); resultName != "" {
+			return resultName
+		}
+		return resultValue
+	}
+	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+		"id":     fieldID,
+		"status": crmmodel.StatusEnabled,
+	})
+	displayValue, _ := workDataFieldDisplayValue(ctx, field, resultValue)
+	if displayValue == "" {
+		if resultName := workOperationBaseResultName(resultValue); resultName != "" {
+			return resultName
+		}
+		return resultValue
+	}
+	return displayValue
+}
+
+func workOperationBaseResultName(value string) string {
+	switch value {
+	case workResultSuccess:
+		return "成功"
+	case workResultProgress:
+		return "保存进度"
+	case workResultAutoFailed:
+		return "自动执行失败"
+	case crmmodel.ResourceBookingStatusPending:
+		return "待确认"
+	case crmmodel.ResourceBookingStatusReserved:
+		return "已预定"
+	case crmmodel.ResourceBookingStatusCanceled:
+		return "已取消"
+	case crmmodel.ResourceBookingStatusRejected:
+		return "已拒绝"
+	case crmmodel.ResourceBookingStatusDone:
+		return "已完成"
+	default:
+		return ""
+	}
+}
+
+func workOperationInternalSnapshotKey(key string) bool {
+	switch key {
+	case "todo_id", "todoId", "submit_mode", "submitMode", "collaboration_targets", "collaborationTargets", "collaboration_confirm", "collaborationConfirm", "parent_operation_log_id", "parentOperationLogId":
+		return true
+	default:
+		return false
+	}
+}
+
+func workOperationDataFieldSnapshotItem(ctx context.Context, fieldIDText string, value any) (string, string, map[string]any) {
+	fieldID := inputUint64(fieldIDText)
+	if fieldID == 0 {
+		return "", "", nil
+	}
+	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID})
+	if field == nil {
+		return "", "", nil
+	}
+	displayValue, meta := workDataFieldDisplayValue(ctx, field, value)
+	if groupMeta := workDataFieldGroupSummaryMeta(ctx, field); len(groupMeta) > 0 {
+		if meta == nil {
+			meta = map[string]any{}
+		}
+		for key, value := range groupMeta {
+			meta[key] = value
+		}
+	}
+	return field.Name, displayValue, meta
+}
+
+func workDataFieldGroupSummaryMeta(ctx context.Context, field *crmmodel.DataField) map[string]any {
+	if field == nil || field.ParentFieldID == 0 {
+		return nil
+	}
+	parent := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": field.ParentFieldID})
+	if parent == nil {
+		return nil
+	}
+	label := strings.TrimSpace(parent.Name)
+	if label == "" {
+		label = strings.TrimSpace(parent.FieldKey)
+	}
+	if label == "" {
+		return nil
+	}
+	return map[string]any{
+		"group_id":    fmt.Sprintf("data:%d", parent.ID),
+		"group_label": label,
+	}
+}
+
+func workOperationFormFieldSnapshotItem(ctx context.Context, fieldIDText string, value any) (string, string, map[string]any) {
+	fieldID := inputUint64(fieldIDText)
+	if fieldID == 0 {
+		return "", "", nil
+	}
+	field := crmmodel.NewFormFieldModel().Find(ctx, map[string]any{"id": fieldID})
+	if field == nil {
+		return "", "", nil
+	}
+	label := strings.TrimSpace(field.Name)
+	displayValue := inputText(value)
+	var meta map[string]any
+	if field.DataFieldID > 0 {
+		dataLabel, dataValue, dataMeta := workOperationDataFieldSnapshotItem(ctx, fmt.Sprintf("%d", field.DataFieldID), value)
+		if label == "" {
+			label = dataLabel
+		}
+		if dataValue == "" {
 			return "", "", nil
 		}
-		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID})
-		if field == nil {
-			return key, inputText(value), nil
+		displayValue = dataValue
+		meta = dataMeta
+	} else if field.MainField != "" {
+		if label == "" {
+			label = workMainFieldLabel(field.MainField)
 		}
-		displayValue, meta := workDataFieldDisplayValue(ctx, field, value)
-		return field.Name, displayValue, meta
+		displayValue = workMainFieldDisplayValue(ctx, field.MainField, value)
 	}
-	return key, inputText(value), nil
+	if label == "" || displayValue == "" {
+		return "", "", nil
+	}
+	return label, displayValue, meta
 }
 
 func workDataFieldDisplayValue(ctx context.Context, field *crmmodel.DataField, value any) (string, map[string]any) {
-	text := inputText(value)
-	if field == nil || field.ID == 0 || text == "" {
-		return text, nil
+	if field == nil || field.ID == 0 {
+		return inputText(value), nil
 	}
 	if workIsAttachmentFieldType(field.FieldType) {
-		files := workUploadFilePayloads(ctx, uint64ListFromAny(value))
+		fileIDs := uint64ListFromAny(value)
+		if len(fileIDs) == 0 {
+			return "", nil
+		}
+		files := workUploadFilePayloads(ctx, fileIDs)
 		if len(files) == 0 {
-			return text, nil
+			return "", nil
 		}
 		return fmt.Sprintf("%d 个附件", len(files)), map[string]any{
 			"value_type": "files",
 			"files":      files,
 		}
 	}
-	if option := crmmodel.NewDataFieldOptionModel().Find(ctx, map[string]any{
-		"data_field_id": field.ID,
-		"value":         text,
-	}); option != nil {
-		return option.Name, nil
+	text := inputText(value)
+	if text == "" {
+		return text, nil
+	}
+	if label := workDataFieldOptionDisplayValue(ctx, field, value); label != "" {
+		return label, nil
 	}
 	return text, nil
+}
+
+func workDataFieldOptionDisplayValue(ctx context.Context, field *crmmodel.DataField, value any) string {
+	labelMap := workDataFieldOptionLabelMap(ctx, field)
+	if len(labelMap) == 0 {
+		return ""
+	}
+	values := stringListFromAny(value)
+	if len(values) == 0 {
+		if text := inputText(value); text != "" {
+			values = []string{text}
+		}
+	}
+	labels := make([]string, 0, len(values))
+	for _, optionValue := range values {
+		label := labelMap[optionValue]
+		if label == "" {
+			label = optionValue
+		}
+		labels = append(labels, label)
+	}
+	return strings.Join(labels, "、")
+}
+
+func workDataFieldOptionLabelMap(ctx context.Context, field *crmmodel.DataField) map[string]string {
+	rows := workDataFieldOptionRows(ctx, field)
+	labels := make(map[string]string, len(rows))
+	for _, row := range rows {
+		value := inputText(row["value"])
+		if value == "" {
+			continue
+		}
+		label := inputText(row["name"])
+		if label == "" {
+			label = value
+		}
+		labels[value] = label
+	}
+	return labels
 }
 
 func workIsAttachmentFieldType(fieldType string) bool {
@@ -1411,10 +3187,18 @@ func workDepartmentTasks(ctx context.Context, staff *WorkStaffSession) []map[str
 }
 
 func workTaskCreatesCustomerFromDepartment(task map[string]any) bool {
-	return inputText(task["task_type"]) == crmmodel.TaskTypeCreate && !workTaskFormHasAssetFields(task)
+	return inputText(task["task_type"]) == crmmodel.TaskTypeCreate
 }
 
 func workAvailableTasks(ctx context.Context, staff *WorkStaffSession, state *crmmodel.CustomerStage) []map[string]any {
+	return workAvailableTasksForState(ctx, staff, state, true)
+}
+
+func workAvailableRowTasks(ctx context.Context, staff *WorkStaffSession, state *crmmodel.CustomerStage) []map[string]any {
+	return workAvailableTasksForState(ctx, staff, state, false)
+}
+
+func workAvailableTasksForState(ctx context.Context, staff *WorkStaffSession, state *crmmodel.CustomerStage, withForm bool) []map[string]any {
 	if staff == nil || state == nil || !canOperateCurrentState(staff, state) {
 		return []map[string]any{}
 	}
@@ -1433,13 +3217,21 @@ func workAvailableTasks(ctx context.Context, staff *WorkStaffSession, state *crm
 		if workTaskTriggerType(task) != crmmodel.TaskTriggerManual {
 			continue
 		}
-		if inputText(task["task_type"]) == crmmodel.TaskTypeCollaborate && workTaskAlreadyOperated(ctx, state.CustomerID, state.AssetID, inputUint64(task["id"])) {
+		if workTaskHiddenFromWorkList(task) {
 			continue
+		}
+		if inputText(task["task_type"]) == crmmodel.TaskTypeCollaborate && workTaskAlreadyOperated(ctx, state.CustomerID, state.AssetID, inputUint64(task["id"])) {
+			if !workTaskNeedsCollaborationReview(ctx, task, state) {
+				continue
+			}
+			markWorkCollaborationReviewTask(task)
 		}
 		if !workTaskVisibleForState(ctx, task, state) {
 			continue
 		}
-		attachWorkTaskForm(ctx, task)
+		if withForm {
+			attachWorkTaskForm(ctx, task)
+		}
 		result = append(result, task)
 	}
 	return result
@@ -1454,26 +3246,64 @@ func workTaskVisibleForState(ctx context.Context, task map[string]any, state *cr
 	if state == nil || state.CustomerID == 0 {
 		return false
 	}
-	assetID := state.AssetID
-	if workTaskVisibleDataTemplateCateID(ctx, fieldID) == crmmodel.CustomerDataTemplateCateID {
-		assetID = 0
-	}
-	value := crmmodel.NewStatFieldValueModel().Find(ctx, map[string]any{
-		"customer_id":   state.CustomerID,
-		"asset_id":      assetID,
-		"data_field_id": fieldID,
-		"status":        crmmodel.StatusEnabled,
-	})
-	actual := any(nil)
-	if value != nil {
-		actual = value.ValueText
-	}
+	actual := workDataFieldRecordValue(ctx, state.CustomerID, state.AssetID, fieldID)
 	expected := firstPresent(visibleWhen, "value", "values", "expected")
 	operator := firstText(visibleWhen, "operator", "op")
 	if operator == "" {
 		operator = "equals"
 	}
 	return workConditionValueMatches(actual, expected, operator)
+}
+
+func workTaskNeedsCollaborationReview(ctx context.Context, task map[string]any, state *crmmodel.CustomerStage) bool {
+	if state == nil || len(task) == 0 || inputText(task["task_type"]) != crmmodel.TaskTypeCollaborate {
+		return false
+	}
+	config := mapFromAny(task["config_json"])
+	if normalizeWorkCollaborationCompleteMode(inputText(config["collaboration_complete_mode"])) != crmmodel.CollaborationCompleteManual {
+		return false
+	}
+	modelTask := &crmmodel.Task{
+		ID:         inputUint64(task["id"]),
+		Name:       inputText(task["name"]),
+		TaskType:   inputText(task["task_type"]),
+		ConfigJSON: inputText(task["config_json"]),
+	}
+	return activeWorkCollaborationOperation(ctx, modelTask, state.CustomerID, state.AssetID) != nil
+}
+
+func markWorkCollaborationReviewTask(task map[string]any) {
+	task["name"] = "确认协作完成"
+	task["task_name"] = "确认协作完成"
+	task["form_id"] = uint64(0)
+	task["completion_mode"] = crmmodel.TaskCompletionSubmit
+	task["collaboration_review"] = true
+}
+
+func workDataFieldRecordValue(ctx context.Context, customerID uint64, assetID uint64, fieldID uint64) any {
+	if customerID == 0 || fieldID == 0 {
+		return nil
+	}
+	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+		"id":     fieldID,
+		"status": crmmodel.StatusEnabled,
+	})
+	if field == nil || field.FieldType == "group" || field.DataTemplateID == 0 {
+		return nil
+	}
+	if workDataFieldTemplateCateID(ctx, field) == crmmodel.CustomerDataTemplateCateID {
+		assetID = 0
+	}
+	record := crmmodel.NewDataRecordModel().Find(ctx, map[string]any{
+		"customer_id":      customerID,
+		"asset_id":         assetID,
+		"data_template_id": field.DataTemplateID,
+		"status":           crmmodel.StatusEnabled,
+	})
+	if record == nil {
+		return nil
+	}
+	return mapFromAny(record.RecordJSON)[fmt.Sprintf("%d", field.ID)]
 }
 
 func workTaskVisibleDataTemplateCateID(ctx context.Context, fieldID uint64) uint64 {
@@ -1509,6 +3339,14 @@ func workTaskAlreadyOperated(ctx context.Context, customerID uint64, assetID uin
 }
 
 func workPendingTodoTasks(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) []map[string]any {
+	return workPendingTodoTasksWithForm(ctx, staff, customerID, assetID, true)
+}
+
+func workPendingTodoRowTasks(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) []map[string]any {
+	return workPendingTodoTasksWithForm(ctx, staff, customerID, assetID, false)
+}
+
+func workPendingTodoTasksWithForm(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, withForm bool) []map[string]any {
 	if staff == nil || customerID == 0 {
 		return []map[string]any{}
 	}
@@ -1522,7 +3360,7 @@ func workPendingTodoTasks(ctx context.Context, staff *WorkStaffSession, customer
 		if todo == nil || !canOperateWorkTodo(staff, todo) {
 			continue
 		}
-		task := workTodoTask(ctx, todo)
+		task := workTodoTaskWithForm(ctx, todo, withForm)
 		if len(task) == 0 {
 			continue
 		}
@@ -1539,7 +3377,84 @@ func workPendingTodoTasks(ctx context.Context, staff *WorkStaffSession, customer
 	return result
 }
 
+func workTodoRows(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) []map[string]any {
+	if customerID == 0 {
+		return []map[string]any{}
+	}
+	filter := map[string]any{"customer_id": customerID}
+	if assetID > 0 {
+		filter["asset_id"] = assetID
+	}
+	rows := crmmodel.NewWorkTodoModel().SelectMap(ctx, filter)
+	for _, row := range rows {
+		enrichWorkTodoRow(ctx, staff, row)
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		leftStatus := inputText(rows[i]["status"])
+		rightStatus := inputText(rows[j]["status"])
+		if leftStatus != rightStatus {
+			return leftStatus == crmmodel.WorkTodoStatusPending
+		}
+		leftSort := inputInt(rows[i]["sort"])
+		rightSort := inputInt(rows[j]["sort"])
+		if leftSort != rightSort {
+			return leftSort < rightSort
+		}
+		return inputUint64(rows[i]["id"]) > inputUint64(rows[j]["id"])
+	})
+	return rows
+}
+
+func enrichWorkTodoRow(ctx context.Context, staff *WorkStaffSession, row map[string]any) {
+	if row == nil {
+		return
+	}
+	if task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": inputUint64(row["source_task_id"])}); task != nil {
+		row["task_name"] = task.Name
+		row["task_type"] = task.TaskType
+	}
+	if department := crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": inputUint64(row["assignee_department_id"])}); department != nil {
+		row["assignee_department_name"] = department.Name
+	}
+	if assignee := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": inputUint64(row["assignee_staff_id"])}); assignee != nil {
+		row["assignee_staff_name"] = assignee.Name
+	}
+	if form := crmmodel.NewFormModel().Find(ctx, map[string]any{"id": inputUint64(row["form_id"])}); form != nil {
+		row["form_name"] = form.Name
+	}
+	if operationID := inputUint64(row["completed_operation_log_id"]); operationID > 0 {
+		if operation := crmmodel.NewOperationLogModel().FindMap(ctx, map[string]any{"id": operationID}); len(operation) > 0 {
+			enrichWorkOperationRow(ctx, staff, operation)
+			row["completed_operation"] = operation
+			row["completed_summary_items"] = operation["summary_items"]
+		}
+	}
+	row["status_name"] = workTodoStatusName(inputText(row["status"]))
+	todo := &crmmodel.WorkTodo{
+		AssigneeDepartmentID: inputUint64(row["assignee_department_id"]),
+		AssigneeStaffID:      inputUint64(row["assignee_staff_id"]),
+	}
+	row["can_operate"] = inputText(row["status"]) == crmmodel.WorkTodoStatusPending && canOperateWorkTodo(staff, todo)
+}
+
+func workTodoStatusName(status string) string {
+	switch status {
+	case crmmodel.WorkTodoStatusPending:
+		return "待处理"
+	case crmmodel.WorkTodoStatusDone:
+		return "已完成"
+	case crmmodel.WorkTodoStatusCanceled:
+		return "已取消"
+	default:
+		return status
+	}
+}
+
 func workTodoTask(ctx context.Context, todo *crmmodel.WorkTodo) map[string]any {
+	return workTodoTaskWithForm(ctx, todo, true)
+}
+
+func workTodoTaskWithForm(ctx context.Context, todo *crmmodel.WorkTodo, withForm bool) map[string]any {
 	if todo == nil || todo.SourceTaskID == 0 {
 		return map[string]any{}
 	}
@@ -1566,7 +3481,9 @@ func workTodoTask(ctx context.Context, todo *crmmodel.WorkTodo) map[string]any {
 	} else {
 		task["form_id"] = uint64(0)
 	}
-	attachWorkTaskForm(ctx, task)
+	if withForm {
+		attachWorkTaskForm(ctx, task)
+	}
 	return task
 }
 
@@ -1666,6 +3583,14 @@ func workTaskRequiredFields(task map[string]any) []map[string]any {
 	fields := mapsFromAny(form["fields"])
 	result := make([]map[string]any, 0, len(fields))
 	for _, field := range fields {
+		if inputText(field["field_type"]) == "group" {
+			for _, child := range mapsFromAny(field["children"]) {
+				if booleanFromAny(child["required"]) {
+					result = append(result, child)
+				}
+			}
+			continue
+		}
 		if booleanFromAny(field["required"]) {
 			result = append(result, field)
 		}
@@ -1737,9 +3662,10 @@ func workGenderName(gender string) string {
 func workCustomerDataValues(ctx context.Context, customerID uint64, assetID uint64) map[string]any {
 	values := map[string]any{}
 	records := crmmodel.NewDataRecordModel().Select(ctx, map[string]any{
-		"customer_id": customerID,
-		"asset_id":    assetID,
-		"status":      crmmodel.StatusEnabled,
+		"customer_id":        customerID,
+		"asset_id":           assetID,
+		"business_object_id": uint64(0),
+		"status":             crmmodel.StatusEnabled,
 	})
 	for _, record := range records {
 		if record == nil {
@@ -1775,9 +3701,10 @@ func workAssetFieldValues(ctx context.Context, customerID uint64, assetID uint64
 func workDataRecordFieldValues(ctx context.Context, customerID uint64, assetID uint64) map[string]any {
 	values := map[string]any{}
 	records := crmmodel.NewDataRecordModel().Select(ctx, map[string]any{
-		"customer_id": customerID,
-		"asset_id":    assetID,
-		"status":      crmmodel.StatusEnabled,
+		"customer_id":        customerID,
+		"asset_id":           assetID,
+		"business_object_id": uint64(0),
+		"status":             crmmodel.StatusEnabled,
 	})
 	for _, record := range records {
 		if record == nil {
@@ -1795,6 +3722,30 @@ func workDataRecordFieldValues(ctx context.Context, customerID uint64, assetID u
 	return values
 }
 
+func workBusinessObjectFormValues(ctx context.Context, customerID uint64, assetID uint64, businessObjectID uint64) map[string]any {
+	values := map[string]any{}
+	if customerID == 0 || businessObjectID == 0 {
+		return values
+	}
+	records := crmmodel.NewDataRecordModel().Select(ctx, map[string]any{
+		"customer_id":        customerID,
+		"asset_id":           assetID,
+		"business_object_id": businessObjectID,
+		"status":             crmmodel.StatusEnabled,
+	})
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		for fieldID, value := range mapFromAny(record.RecordJSON) {
+			if fieldID != "" {
+				values["data:"+fieldID] = value
+			}
+		}
+	}
+	return values
+}
+
 func workDataTemplateFieldsByID(ctx context.Context, templateID uint64) map[uint64]*crmmodel.DataField {
 	result := map[uint64]*crmmodel.DataField{}
 	if templateID == 0 {
@@ -1804,7 +3755,7 @@ func workDataTemplateFieldsByID(ctx context.Context, templateID uint64) map[uint
 		"data_template_id": templateID,
 		"status":           crmmodel.StatusEnabled,
 	}) {
-		if field == nil {
+		if field == nil || field.FieldType == "group" {
 			continue
 		}
 		result[field.ID] = field
@@ -1844,6 +3795,218 @@ func workDataValueLabels(ctx context.Context, values map[string]any) map[string]
 		}
 	}
 	return labels
+}
+
+func attachWorkEntityDataValues(ctx context.Context, row map[string]any, values map[string]any, templateCateID uint64) {
+	row["data_values"] = values
+	row["data_value_labels"] = workDataValueLabels(ctx, values)
+	row["display_fields"] = workDisplayDataFields(ctx, values)
+	row["data_completeness"] = workDataCompletenessTemplates(ctx, templateCateID, values)
+}
+
+func workDisplayDataFields(ctx context.Context, values map[string]any) []map[string]any {
+	if len(values) == 0 {
+		return []map[string]any{}
+	}
+	result := make([]map[string]any, 0)
+	for _, usageField := range workDataUsageFieldsByType(ctx, crmmodel.DataUsageTypeDisplay) {
+		if usageField == nil || usageField.DataFieldID == 0 {
+			continue
+		}
+		key := fmt.Sprintf("data:%d", usageField.DataFieldID)
+		value, exists := values[key]
+		if !exists || emptyWorkFieldValue(value) {
+			continue
+		}
+		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+			"id":     usageField.DataFieldID,
+			"status": crmmodel.StatusEnabled,
+		})
+		if field == nil || field.FieldType == "group" {
+			continue
+		}
+		displayValue, meta := workDataFieldDisplayValue(ctx, field, value)
+		if displayValue == "" {
+			continue
+		}
+		label := strings.TrimSpace(usageField.DisplayName)
+		if label == "" {
+			label = field.Name
+		}
+		item := map[string]any{
+			"key":        key,
+			"field_key":  field.FieldKey,
+			"field_id":   field.ID,
+			"label":      label,
+			"value":      displayValue,
+			"value_type": usageField.ValueType,
+		}
+		for metaKey, metaValue := range meta {
+			item[metaKey] = metaValue
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func workBusinessObjectDisplayFields(ctx context.Context, values map[string]any) []map[string]any {
+	if len(values) == 0 {
+		return []map[string]any{}
+	}
+	type displayField struct {
+		id    uint64
+		sort  int
+		key   string
+		value any
+		field *crmmodel.DataField
+	}
+	fields := make([]displayField, 0, len(values))
+	for key, value := range values {
+		if !strings.HasPrefix(key, "data:") || emptyWorkFieldValue(value) {
+			continue
+		}
+		fieldID := inputUint64(strings.TrimPrefix(key, "data:"))
+		if fieldID == 0 {
+			continue
+		}
+		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+			"id":     fieldID,
+			"status": crmmodel.StatusEnabled,
+		})
+		if field == nil || field.FieldType == "group" {
+			continue
+		}
+		fields = append(fields, displayField{
+			id:    field.ID,
+			sort:  field.Sort,
+			key:   key,
+			value: value,
+			field: field,
+		})
+	}
+	sort.SliceStable(fields, func(i, j int) bool {
+		if fields[i].sort == fields[j].sort {
+			return fields[i].id < fields[j].id
+		}
+		return fields[i].sort < fields[j].sort
+	})
+	result := make([]map[string]any, 0, len(fields))
+	for _, item := range fields {
+		displayValue, meta := workDataFieldDisplayValue(ctx, item.field, item.value)
+		if displayValue == "" {
+			continue
+		}
+		row := map[string]any{
+			"key":        item.key,
+			"field_key":  item.field.FieldKey,
+			"field_id":   item.field.ID,
+			"label":      item.field.Name,
+			"value":      displayValue,
+			"value_type": "text",
+		}
+		for metaKey, metaValue := range meta {
+			row[metaKey] = metaValue
+		}
+		result = append(result, row)
+	}
+	return result
+}
+
+func workDataCompletenessTemplates(ctx context.Context, templateCateID uint64, values map[string]any) []map[string]any {
+	if templateCateID == 0 {
+		return []map[string]any{}
+	}
+	templates := crmmodel.NewDataTemplateModel().Select(ctx, map[string]any{
+		"cate_id": templateCateID,
+		"status":  crmmodel.StatusEnabled,
+	})
+	result := make([]map[string]any, 0, len(templates))
+	for _, template := range templates {
+		if template == nil {
+			continue
+		}
+		summary := workDataCompletenessTemplate(ctx, template, values)
+		if inputInt(summary["total"]) == 0 {
+			continue
+		}
+		result = append(result, summary)
+	}
+	return result
+}
+
+func workDataCompletenessTemplate(ctx context.Context, template *crmmodel.DataTemplate, values map[string]any) map[string]any {
+	fields := crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
+		"data_template_id": template.ID,
+		"status":           crmmodel.StatusEnabled,
+	})
+	total := 0
+	filled := 0
+	missing := make([]string, 0)
+	parentNames := workDataCompletenessParentNames(ctx, fields)
+	for _, field := range fields {
+		if field == nil || field.FieldType == "group" {
+			continue
+		}
+		total++
+		value := values[fmt.Sprintf("data:%d", field.ID)]
+		if !emptyWorkFieldValue(value) {
+			filled++
+			continue
+		}
+		missing = append(missing, workDataCompletenessFieldLabel(field, parentNames))
+	}
+	percent := 0
+	if total > 0 {
+		percent = int(math.Round(float64(filled) / float64(total) * 100))
+	}
+	return map[string]any{
+		"template_id":   template.ID,
+		"template_name": template.Name,
+		"name":          template.Name,
+		"total":         total,
+		"filled":        filled,
+		"percent":       percent,
+		"missing":       missing,
+		"is_probe":      workDataCompletenessTemplateIsProbe(template.Name),
+	}
+}
+
+func workDataCompletenessParentNames(ctx context.Context, fields []*crmmodel.DataField) map[uint64]string {
+	parentIDs := map[uint64]bool{}
+	for _, field := range fields {
+		if field != nil && field.ParentFieldID > 0 {
+			parentIDs[field.ParentFieldID] = true
+		}
+	}
+	result := map[uint64]string{}
+	for parentID := range parentIDs {
+		if parent := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": parentID}); parent != nil {
+			result[parentID] = parent.Name
+		}
+	}
+	return result
+}
+
+func workDataCompletenessFieldLabel(field *crmmodel.DataField, parentNames map[uint64]string) string {
+	if field == nil {
+		return ""
+	}
+	if field.ParentFieldID == 0 {
+		return field.Name
+	}
+	if parentName := strings.TrimSpace(parentNames[field.ParentFieldID]); parentName != "" {
+		return parentName + "/" + field.Name
+	}
+	return field.Name
+}
+
+func workDataCompletenessTemplateIsProbe(name string) bool {
+	text := strings.ToLower(strings.TrimSpace(name))
+	return strings.Contains(text, "十一") ||
+		strings.Contains(text, "11") ||
+		strings.Contains(text, "探针") ||
+		strings.Contains(text, "p01") ||
+		strings.Contains(text, "p12")
 }
 
 func workAssetFormValues(ctx context.Context, customerID uint64, assetID uint64, asset map[string]any) map[string]any {
@@ -1896,7 +4059,50 @@ func workAllowedTask(ctx context.Context, staff *WorkStaffSession, taskID uint64
 			})
 		}
 	}
+	if task := workAllowedCompleteAssignTask(ctx, staff, taskID, customerID, assetID); task != nil {
+		return task
+	}
 	return nil
+}
+
+func workAllowedCompleteAssignTask(ctx context.Context, staff *WorkStaffSession, taskID uint64, customerID uint64, assetID uint64) *crmmodel.Task {
+	if taskID == 0 || customerID == 0 {
+		return nil
+	}
+	state := currentWorkCustomerStage(ctx, customerID, assetID)
+	if state == nil || !canOperateCurrentState(staff, state) {
+		return nil
+	}
+	stage := crmmodel.NewStageModel().Find(ctx, map[string]any{
+		"code":   state.CurrentStageCode,
+		"status": crmmodel.StatusEnabled,
+	})
+	if stage == nil {
+		return nil
+	}
+	for _, task := range crmmodel.NewTaskModel().SelectMap(ctx, map[string]any{"stage_id": stage.ID, "status": crmmodel.StatusEnabled}) {
+		if inputText(task["task_type"]) != crmmodel.TaskTypeForm || workTaskTriggerType(task) != crmmodel.TaskTriggerManual {
+			continue
+		}
+		if inputUint64(mapFromAny(task["config_json"])[crmmodel.TaskCompleteAssignTaskID]) != taskID {
+			continue
+		}
+		if !workTaskVisibleForState(ctx, task, state) {
+			continue
+		}
+		assignTask := crmmodel.NewTaskModel().Find(ctx, map[string]any{
+			"id":     taskID,
+			"status": crmmodel.StatusEnabled,
+		})
+		if assignTask != nil && assignTask.TaskType == crmmodel.TaskTypeAssign {
+			return assignTask
+		}
+	}
+	return nil
+}
+
+func workTaskHiddenFromWorkList(task map[string]any) bool {
+	return booleanFromAny(mapFromAny(task["config_json"])["hide_from_work_list"])
 }
 
 func workAllowedTodoTask(ctx context.Context, staff *WorkStaffSession, taskID uint64, customerID uint64, assetID uint64, todoID uint64) *crmmodel.Task {
@@ -1935,6 +4141,7 @@ func attachWorkTaskForm(ctx context.Context, task map[string]any) {
 	}
 	form["fields"] = fields
 	task["form"] = form
+	attachWorkTaskBusinessObjectConfig(ctx, task, fields)
 }
 
 func attachWorkTaskConfig(ctx context.Context, task map[string]any) {
@@ -1947,17 +4154,22 @@ func attachWorkTaskConfig(ctx context.Context, task map[string]any) {
 	case crmmodel.TaskTypeForm:
 		config := mapFromAny(task["config_json"])
 		task["completion_mode"] = normalizeWorkTaskCompletionMode(inputText(config["completion_mode"]))
+		task["business_object_mode"] = normalizeWorkBusinessObjectMode(inputText(config["business_object_mode"]))
+		attachWorkTaskCompleteAssignConfig(ctx, task, config)
 	case crmmodel.TaskTypeCollaborate:
 		config := mapFromAny(task["config_json"])
 		task["collaboration_items"] = mapsFromAny(config["collaboration_items"])
 		task["collaboration_complete_mode"] = normalizeWorkCollaborationCompleteMode(inputText(config["collaboration_complete_mode"]))
+		task["business_object_mode"] = normalizeWorkBusinessObjectMode(inputText(config["business_object_mode"]))
 		if inputUint64(task["todo_id"]) == 0 {
 			task["completion_mode"] = crmmodel.TaskCompletionSubmit
 		}
 	case crmmodel.TaskTypeDecision:
 		config := mapFromAny(task["config_json"])
+		task["decision_mode"] = workDecisionMode(config)
 		task["decision_result_field_id"] = inputUint64(config["decision_result_field_id"])
-		if workTaskTriggerType(task) == crmmodel.TaskTriggerManual {
+		attachWorkTaskTextConfig(task, config, "confirm_message", "success_message")
+		if workTaskTriggerType(task) == crmmodel.TaskTriggerManual && !workDecisionConfigUsesScript(config) {
 			task["form"] = workDecisionForm(ctx, inputUint64(config["decision_result_field_id"]))
 		}
 	case crmmodel.TaskTypeBooking:
@@ -1972,11 +4184,82 @@ func attachWorkTaskConfig(ctx context.Context, task map[string]any) {
 	}
 }
 
+func attachWorkTaskCompleteAssignConfig(ctx context.Context, task map[string]any, config map[string]any) {
+	assignTaskID := inputUint64(config[crmmodel.TaskCompleteAssignTaskID])
+	if assignTaskID == 0 {
+		return
+	}
+	assignTask := crmmodel.NewTaskModel().Find(ctx, map[string]any{
+		"id":     assignTaskID,
+		"status": crmmodel.StatusEnabled,
+	})
+	if assignTask == nil || assignTask.TaskType != crmmodel.TaskTypeAssign {
+		return
+	}
+	assignConfig := mapFromAny(assignTask.ConfigJSON)
+	task["complete_assign_task_id"] = assignTask.ID
+	task["complete_assign_task_name"] = assignTask.Name
+	task["complete_assign_mode"] = normalizeWorkAssignMode(inputText(assignConfig["assign_mode"]))
+	task["complete_assign_department_ids"] = uint64ListFromAny(assignConfig["assign_department_ids"])
+}
+
+func attachWorkTaskBusinessObjectConfig(ctx context.Context, task map[string]any, fields []map[string]any) {
+	typeID := workFormBusinessObjectTypeID(ctx, fields)
+	if typeID == 0 {
+		return
+	}
+	task["business_object_type_id"] = typeID
+	task["business_object_type_name"] = workBusinessObjectTypeName(ctx, typeID)
+	mode := normalizeWorkBusinessObjectMode(inputText(task["business_object_mode"]))
+	if mode == "" {
+		mode = "create"
+	}
+	task["business_object_mode"] = mode
+}
+
+func workFormBusinessObjectTypeID(ctx context.Context, fields []map[string]any) uint64 {
+	for _, field := range fields {
+		cateID := inputUint64(field["data_template_cate_id"])
+		if cateID == 0 {
+			continue
+		}
+		cate := crmmodel.NewDataTemplateCateModel().Find(ctx, map[string]any{
+			"id":     cateID,
+			"status": crmmodel.StatusEnabled,
+		})
+		if cate == nil || cate.TargetTable != crmmodel.DataTemplateTargetBusinessObject {
+			continue
+		}
+		return cate.BusinessObjectTypeID
+	}
+	return 0
+}
+
+func normalizeWorkBusinessObjectMode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case "select", "select_existing", "existing":
+		return "select"
+	case "create", "create_new", "":
+		return "create"
+	default:
+		return "create"
+	}
+}
+
+func attachWorkTaskTextConfig(task map[string]any, config map[string]any, keys ...string) {
+	for _, key := range keys {
+		value := inputText(config[key])
+		if value == "" {
+			continue
+		}
+		task[key] = value
+	}
+}
+
 func workDecisionForm(ctx context.Context, fieldID uint64) map[string]any {
 	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-		"id":           fieldID,
-		"stat_enabled": true,
-		"status":       crmmodel.StatusEnabled,
+		"id":     fieldID,
+		"status": crmmodel.StatusEnabled,
 	})
 	if field == nil {
 		return map[string]any{"id": 0, "name": "决策", "fields": []map[string]any{}}
@@ -1999,11 +4282,15 @@ func workDecisionForm(ctx context.Context, fieldID uint64) map[string]any {
 }
 
 func workDataFieldOptions(ctx context.Context, fieldID uint64) []map[string]any {
-	rows := crmmodel.NewDataFieldOptionModel().SelectMap(ctx, map[string]any{
-		"data_field_id": fieldID,
-	}, map[string]any{
-		"order": "main.sort asc, main.id asc",
-	})
+	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID, "status": crmmodel.StatusEnabled})
+	return workDataFieldOptionsForField(ctx, field)
+}
+
+func workDataFieldOptionsForField(ctx context.Context, field *crmmodel.DataField) []map[string]any {
+	if field == nil || field.ID == 0 {
+		return []map[string]any{}
+	}
+	rows := workDataFieldOptionRows(ctx, field)
 	options := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		value := inputText(row["value"])
@@ -2023,19 +4310,84 @@ func workDataFieldOptions(ctx context.Context, fieldID uint64) []map[string]any 
 	return options
 }
 
+func workDataFieldOptionRows(ctx context.Context, field *crmmodel.DataField) []map[string]any {
+	if field == nil || field.ID == 0 {
+		return []map[string]any{}
+	}
+	if field.OptionSetID > 0 {
+		return crmmodel.NewOptionSetItemModel().SelectMap(ctx, map[string]any{
+			"option_set_id": field.OptionSetID,
+			"status":        crmmodel.StatusEnabled,
+		}, map[string]any{
+			"field": "main.name, main.value, main.sort",
+			"order": "main.sort asc, main.id asc",
+		})
+	}
+	return crmmodel.NewDataFieldOptionModel().SelectMap(ctx, map[string]any{
+		"data_field_id": field.ID,
+	}, map[string]any{
+		"field": "main.name, main.value, main.sort",
+		"order": "main.sort asc, main.id asc",
+	})
+}
+
 func attachWorkFormFieldOptions(ctx context.Context, field map[string]any) {
 	if fieldID := inputUint64(field["data_field_id"]); fieldID > 0 {
 		dataField := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID})
 		if dataField != nil {
+			field["field_key"] = dataField.FieldKey
 			field["field_type"] = dataField.FieldType
 			field["default_value"] = dataField.DefaultValue
-			field["options"] = crmmodel.NewDataFieldOptionModel().SelectMap(ctx, map[string]any{"data_field_id": fieldID})
+			if dataField.FieldType == "group" {
+				field["options"] = []map[string]any{}
+				field["children"] = workDataFieldChildFormFields(ctx, dataField, field)
+				return
+			}
+			field["options"] = workDataFieldOptionsForField(ctx, dataField)
 		}
 		return
 	}
 	mainField := inputText(field["main_field"])
 	field["field_type"] = mainFieldInputType(mainField)
 	field["options"] = mainFieldOptions(ctx, mainField)
+}
+
+func workDataFieldChildFormFields(ctx context.Context, group *crmmodel.DataField, formField map[string]any) []map[string]any {
+	if group == nil || group.ID == 0 {
+		return []map[string]any{}
+	}
+	children := crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
+		"data_template_id": group.DataTemplateID,
+		"parent_field_id":  group.ID,
+		"status":           crmmodel.StatusEnabled,
+	})
+	result := make([]map[string]any, 0, len(children))
+	cateID := inputUint64(formField["data_template_cate_id"])
+	if cateID == 0 {
+		cateID = workDataFieldTemplateCateID(ctx, group)
+	}
+	for _, child := range children {
+		if child == nil || child.FieldType == "group" {
+			continue
+		}
+		row := map[string]any{
+			"id":                    child.ID,
+			"name":                  child.Name,
+			"field_key":             child.FieldKey,
+			"field_type":            child.FieldType,
+			"default_value":         child.DefaultValue,
+			"data_template_id":      child.DataTemplateID,
+			"data_template_cate_id": cateID,
+			"data_field_id":         child.ID,
+			"parent_field_id":       group.ID,
+			"required":              booleanFromAny(formField["required"]),
+			"readonly":              booleanFromAny(formField["readonly"]),
+			"sort":                  child.Sort,
+			"options":               workDataFieldOptionsForField(ctx, child),
+		}
+		result = append(result, row)
+	}
+	return result
 }
 
 func workBookingForm(ctx context.Context, resourceCateID uint64) map[string]any {
@@ -2118,7 +4470,7 @@ func workResourceOptions(ctx context.Context, resourceCateID uint64) []map[strin
 
 func workActionValues(payload map[string]any) map[string]any {
 	values := mapFromAny(payload["values"])
-	for _, key := range []string{"department_id", "departmentId", "staff_id", "staffId", "todo_id", "todoId", "collaboration_targets", "collaborationTargets", "submit_mode", "submitMode"} {
+	for _, key := range []string{"department_id", "departmentId", "staff_id", "staffId", "todo_id", "todoId", "business_object_id", "businessObjectId", "collaboration_targets", "collaborationTargets", "submit_mode", "submitMode"} {
 		if _, exists := values[key]; !exists && payload[key] != nil {
 			values[key] = payload[key]
 		}

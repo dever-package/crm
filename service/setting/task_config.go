@@ -21,6 +21,8 @@ func shouldNormalizeTaskConfig(record map[string]any, partial bool) bool {
 		"auto_assign_staff_id",
 		"collaboration_items",
 		"collaboration_complete_mode",
+		"complete_assign_task_id",
+		"hide_from_work_list",
 		"next_stage_code",
 		"trigger_type",
 		"booking_resource_cate_id",
@@ -45,7 +47,7 @@ func ensureTaskNextStageExists(ctx context.Context, record map[string]any, parti
 		return
 	}
 	if crmmodel.NewStageModel().Find(ctx, map[string]any{"code": nextStageCode, "status": crmmodel.StatusEnabled}) == nil {
-		panicCrmField("form.next_stage_code", "完成后阶段不存在或已停用。")
+		panicCrmField("form.next_stage_code", "完成后进入的阶段不存在或已停用。")
 	}
 }
 
@@ -136,6 +138,35 @@ func effectiveTaskCompletionMode(ctx context.Context, record map[string]any, par
 		return normalizeTaskCompletionMode(record["completion_mode"])
 	}
 	return normalizeTaskCompletionMode(currentTaskConfigValue(ctx, record, "completion_mode"))
+}
+
+func effectiveTaskCompleteAssignTaskID(ctx context.Context, record map[string]any, partial bool) uint64 {
+	if shouldNormalizeCrmField(record, "complete_assign_task_id", partial) {
+		return normalizeTaskCompleteAssignTaskID(ctx, record["complete_assign_task_id"])
+	}
+	return normalizeTaskCompleteAssignTaskID(ctx, currentTaskConfigValue(ctx, record, crmmodel.TaskCompleteAssignTaskID))
+}
+
+func normalizeTaskCompleteAssignTaskID(ctx context.Context, value any) uint64 {
+	taskID := util.ToUint64(value)
+	if taskID == 0 {
+		return 0
+	}
+	task := crmmodel.NewTaskModel().Find(ctx, map[string]any{
+		"id":     taskID,
+		"status": crmmodel.StatusEnabled,
+	})
+	if task == nil || task.TaskType != crmmodel.TaskTypeAssign || task.TriggerType != crmmodel.TaskTriggerManual {
+		panicCrmField("form.complete_assign_task_id", "确认完成后派单必须选择手动触发的分配任务。")
+	}
+	return taskID
+}
+
+func effectiveTaskHiddenFromWorkList(ctx context.Context, record map[string]any, partial bool) bool {
+	if shouldNormalizeCrmField(record, "hide_from_work_list", partial) {
+		return util.ToBool(record["hide_from_work_list"])
+	}
+	return util.ToBool(currentTaskConfigValue(ctx, record, "hide_from_work_list"))
 }
 
 func encodeTaskConfig(config map[string]any) string {

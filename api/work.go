@@ -53,7 +53,32 @@ func (Work) GetCustomers(c *server.Context) error {
 		"asset_no":      c.Input("asset_no"),
 		"status":        c.Input("status"),
 		"mode":          c.Input("mode"),
+		"quick_filter":  c.Input("quick_filter"),
+		"quickFilter":   c.Input("quickFilter"),
+		"stage_filter":  c.Input("stage_filter"),
+		"stage":         c.Input("stage"),
+		"task_filter":   c.Input("task_filter"),
+		"task":          c.Input("task"),
+		"page":          c.Input("page"),
+		"page_size":     c.Input("page_size"),
+		"pageSize":      c.Input("pageSize"),
+		"limit":         c.Input("limit"),
 	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetCustomerDetail(c *server.Context) error {
+	data, err := workService.CustomerDetail(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"customer_id": c.Input("customer_id"),
+		"customerId":  c.Input("customerId"),
+		"asset_id":    c.Input("asset_id"),
+		"assetId":     c.Input("assetId"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetSummary(c *server.Context) error {
+	data, err := workService.Summary(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
 	return crmJSON(c, data, err)
 }
 

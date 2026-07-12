@@ -101,30 +101,32 @@ func workAIFieldsForForm(ctx context.Context, formID uint64) []workAIFillField {
 	}
 	rows := crmmodel.NewFormFieldModel().Select(ctx, map[string]any{"form_id": form.ID, "status": crmmodel.StatusEnabled})
 	fields := make([]workAIFillField, 0, len(rows))
-	for _, field := range rows {
-		if field == nil || field.Readonly {
-			continue
+	for _, sourceField := range rows {
+		for _, field := range expandWorkInputFormFields(ctx, sourceField) {
+			if field == nil || field.Readonly {
+				continue
+			}
+			row := map[string]any{
+				"main_field":    field.MainField,
+				"data_field_id": field.DataFieldID,
+			}
+			attachWorkFormFieldOptions(ctx, row)
+			fieldType := inputText(row["field_type"])
+			if workAIFillFieldIsUpload(fieldType) {
+				continue
+			}
+			key := workFieldInputKey(field)
+			if key == "" {
+				continue
+			}
+			fields = append(fields, workAIFillField{
+				Key:       key,
+				Name:      field.Name,
+				FieldType: fieldType,
+				Required:  field.Required,
+				Options:   mapsFromAny(row["options"]),
+			})
 		}
-		row := map[string]any{
-			"main_field":    field.MainField,
-			"data_field_id": field.DataFieldID,
-		}
-		attachWorkFormFieldOptions(ctx, row)
-		fieldType := inputText(row["field_type"])
-		if workAIFillFieldIsUpload(fieldType) {
-			continue
-		}
-		key := workFieldInputKey(field)
-		if key == "" {
-			continue
-		}
-		fields = append(fields, workAIFillField{
-			Key:       key,
-			Name:      field.Name,
-			FieldType: fieldType,
-			Required:  field.Required,
-			Options:   mapsFromAny(row["options"]),
-		})
 	}
 	return fields
 }
@@ -158,6 +160,7 @@ func workAIFillContext(ctx context.Context, staff *WorkStaffSession, task *crmmo
 		customer = crmmodel.NewCustomerModel().FindMap(ctx, map[string]any{"id": customerID})
 		customer["fields"] = workCustomerFieldValues(ctx, customerID)
 	}
+	instruction := strings.TrimSpace(inputText(firstPresent(payload, "instruction", "prompt", "text")))
 	return map[string]any{
 		"surface": "crm_workbench_task_form",
 		"staff": map[string]any{
@@ -174,6 +177,7 @@ func workAIFillContext(ctx context.Context, staff *WorkStaffSession, task *crmmo
 		},
 		"fields":         workAIFillFieldPayloads(fields),
 		"current_values": mapFromAny(payload["values"]),
+		"instruction":    instruction,
 		"customer":       customer,
 		"assets":         workDecisionAssets(ctx, customerID),
 		"current": map[string]any{
