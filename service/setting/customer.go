@@ -93,51 +93,6 @@ func (CrmHook) ProviderBuildCustomerRows(c *server.Context, params []any) any {
 	return rows
 }
 
-func (CrmHook) ProviderAfterSaveCustomer(c *server.Context, params []any) any {
-	if c == nil || len(params) == 0 {
-		return nil
-	}
-	payload, ok := params[0].(map[string]any)
-	if !ok {
-		return nil
-	}
-	customerID := savedRecordID(payload)
-	if customerID == 0 {
-		return nil
-	}
-	ensureCustomerInitialStage(c.Context(), customerID)
-	return nil
-}
-
-func ensureCustomerInitialStage(ctx context.Context, customerID uint64) {
-	model := crmmodel.NewCustomerStageModel()
-	if model.Find(ctx, map[string]any{"customer_id": customerID, "asset_id": 0}) != nil {
-		return
-	}
-	stage := crmmodel.NewStageModel().Find(
-		ctx,
-		map[string]any{"status": crmmodel.StatusEnabled},
-		map[string]any{"order": "sort asc, id asc"},
-	)
-	if stage == nil {
-		return
-	}
-	now := time.Now()
-	model.Insert(ctx, map[string]any{
-		"customer_id":            customerID,
-		"asset_id":               uint64(0),
-		"current_stage_code":     stage.Code,
-		"current_department_id":  stage.OwnerDepartmentID,
-		"current_staff_id":       uint64(0),
-		"last_operation_log_id":  uint64(0),
-		"last_transition_log_id": uint64(0),
-		"last_operated_at":       now,
-		"context_json":           "{}",
-		"created_at":             now,
-		"updated_at":             now,
-	})
-}
-
 func (CrmHook) ProviderBeforeSaveCustomerSource(_ *server.Context, params []any) any {
 	return normalizeNamedOptionRecord(params, "来源")
 }

@@ -128,6 +128,9 @@
       "params": "form",
       "before": {
         "service": "crm.setting.CrmHook.BeforeSaveCustomerAsset"
+      },
+      "after": {
+        "service": "crm.setting.CrmHook.AfterSaveCustomerAsset"
       }
     }
   }

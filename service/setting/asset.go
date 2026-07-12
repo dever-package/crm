@@ -2,6 +2,7 @@ package setting
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/shemic/dever/util"
 
 	crmmodel "github.com/dever-package/crm/model"
+	crmservice "github.com/dever-package/crm/service"
 )
 
 const maxAssetNoAttempts = 200
@@ -52,6 +54,32 @@ func (CrmHook) ProviderBeforeSaveCustomerAsset(c *server.Context, params []any) 
 	record["asset_seq"] = assetSeq
 	record["asset_no"] = assetNo
 	return record
+}
+
+func (CrmHook) ProviderAfterSaveCustomerAsset(c *server.Context, params []any) any {
+	if c == nil || len(params) == 0 {
+		return nil
+	}
+	payload, ok := params[0].(map[string]any)
+	if !ok {
+		return nil
+	}
+	source, ok := payload["payload"].(map[string]any)
+	if !ok || util.ToUint64(source["id"]) > 0 {
+		return nil
+	}
+	assetID := savedRecordID(payload)
+	asset := crmmodel.NewCustomerAssetModel().Find(c.Context(), map[string]any{"id": assetID})
+	if asset == nil {
+		return nil
+	}
+	if err := crmservice.StartAssetWorkflow(c.Context(), asset.CustomerID, asset.ID); err != nil {
+		if errors.Is(err, crmservice.ErrNoAvailableWorkflow) {
+			return map[string]any{"workflow_warning": err.Error()}
+		}
+		panic(err)
+	}
+	return nil
 }
 
 func validateCustomerAssetRecord(record map[string]any) {
