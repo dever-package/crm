@@ -91,7 +91,7 @@ func normalizeDataUsageFieldRows(c *server.Context, record map[string]any) {
 	}
 	normalized := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
-		if util.ToUint64(row["data_field_id"]) == 0 && conditionDataFieldID(row["field_path"]) == 0 {
+		if util.ToUint64(row["data_field_id"]) == 0 && dataUsageFieldIDFromPath(row["field_path"]) == 0 {
 			continue
 		}
 		normalizeDataUsageFieldFormRow(c, row)
@@ -107,7 +107,7 @@ func normalizeDataUsageFieldFormRow(c *server.Context, row map[string]any) {
 	}
 	fieldID := util.ToUint64(row["data_field_id"])
 	if fieldID == 0 {
-		fieldID = conditionDataFieldID(row["field_path"])
+		fieldID = dataUsageFieldIDFromPath(row["field_path"])
 	}
 	if fieldID == 0 {
 		return
@@ -161,7 +161,7 @@ func normalizeDataUsageFieldRecord(c *server.Context, record map[string]any, par
 	trimCrmStringField(record, "display_name", partial)
 	trimCrmStringField(record, "config_json", partial)
 	if shouldNormalizeCrmField(record, "field_path", partial) {
-		record["data_field_id"] = conditionDataFieldID(record["field_path"])
+		record["data_field_id"] = dataUsageFieldIDFromPath(record["field_path"])
 	}
 	fieldID := util.ToUint64(record["data_field_id"])
 	if fieldID == 0 {
@@ -304,7 +304,7 @@ func (OptionService) ProviderLoadDataUsageFieldOptions(c *server.Context, params
 	case parentID == "" || parentID == "0":
 		return formFieldCateOptions(ctx)
 	case strings.HasPrefix(parentID, "cate:"):
-		return taskVisibleTemplateOptions(ctx, util.ToUint64(strings.TrimPrefix(parentID, "cate:")))
+		return dataUsageTemplateOptions(ctx, util.ToUint64(strings.TrimPrefix(parentID, "cate:")))
 	case strings.HasPrefix(parentID, collectTemplateSourceDataPrefix):
 		_, templateID := parseCollectTemplateSource(ctx, parentID)
 		return dataUsageDataFieldOptions(ctx, templateID)
@@ -314,6 +314,17 @@ func (OptionService) ProviderLoadDataUsageFieldOptions(c *server.Context, params
 	default:
 		return []map[string]any{}
 	}
+}
+
+func dataUsageFieldIDFromPath(value any) uint64 {
+	items := collectPathItems(value)
+	for index := len(items) - 1; index >= 0; index-- {
+		item := strings.TrimSpace(items[index])
+		if strings.HasPrefix(item, collectFieldSourceDataPrefix) {
+			return util.ToUint64(strings.TrimPrefix(item, collectFieldSourceDataPrefix))
+		}
+	}
+	return 0
 }
 
 func (OptionService) ProviderLoadFinanceTypeCascaderOptions(c *server.Context, params []any) any {
