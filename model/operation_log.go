@@ -10,9 +10,10 @@ type OperationLog struct {
 	ID                   uint64    `dorm:"primaryKey;autoIncrement;comment:操作记录ID"`
 	CustomerID           uint64    `dorm:"type:bigint;not null;comment:客户"`
 	AssetID              uint64    `dorm:"type:bigint;not null;default:0;comment:客户资产"`
+	WorkflowID           uint64    `dorm:"type:bigint;not null;default:0;comment:流程"`
+	StageID              uint64    `dorm:"type:bigint;not null;default:0;comment:阶段"`
 	TaskID               uint64    `dorm:"type:bigint;not null;default:0;comment:任务"`
 	TaskType             string    `dorm:"type:varchar(32);not null;default:'';comment:任务动作"`
-	StageCode            string    `dorm:"type:varchar(32);not null;default:'';comment:操作阶段"`
 	ResultValue          string    `dorm:"type:varchar(64);not null;default:'';comment:操作结果"`
 	Title                string    `dorm:"type:varchar(128);not null;default:'';comment:标题"`
 	Content              string    `dorm:"type:text;not null;default:'';comment:内容"`
@@ -27,7 +28,7 @@ type OperationLogIndex struct {
 	AssetTime    struct{} `index:"asset_id,created_at,id"`
 	TaskTime     struct{} `index:"task_id,created_at,id"`
 	OperatorTime struct{} `index:"operator_staff_id,created_at,id"`
-	StageTime    struct{} `index:"stage_code,created_at,id"`
+	StageTime    struct{} `index:"workflow_id,stage_id,created_at,id"`
 }
 
 func NewOperationLogModel() *orm.Model[OperationLog] {
@@ -41,6 +42,8 @@ func NewOperationLogModel() *orm.Model[OperationLog] {
 		Relations: []orm.Relation{
 			customerRelation,
 			assetRelation,
+			workflowRelation,
+			stageRelation,
 			taskRelation,
 			operatorStaffRelation,
 			operatorDepartmentRelation,

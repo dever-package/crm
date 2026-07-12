@@ -13,6 +13,11 @@ const (
 )
 
 const (
+	TaskTypeTodo     = "todo"
+	TaskTypeApproval = "approval"
+	TaskTypeRule     = "rule"
+
+	// Legacy task types remain until the old runtime is removed later in this refactor.
 	TaskTypeCreate      = "create"
 	TaskTypeForm        = "form"
 	TaskTypeAssign      = "assign"
@@ -20,6 +25,17 @@ const (
 	TaskTypeDecision    = "decision"
 	TaskTypeBooking     = "booking"
 	TaskTypeSystemRule  = "system_rule"
+)
+
+const (
+	TaskAssigneeStage      = "stage"
+	TaskAssigneeDepartment = "department"
+	TaskAssigneeStaff      = "staff"
+)
+
+const (
+	ProgressStatusActive    = "active"
+	ProgressStatusCompleted = "completed"
 )
 
 const (
@@ -283,12 +299,21 @@ var statEventTypeOptions = []map[string]any{
 }
 
 var taskTypeOptions = []map[string]any{
-	{"id": TaskTypeCreate, "value": "创建资料"},
+	{"id": TaskTypeTodo, "value": "普通事项"},
 	{"id": TaskTypeForm, "value": "填写资料"},
-	{"id": TaskTypeAssign, "value": "分配"},
-	{"id": TaskTypeCollaborate, "value": "协作任务"},
-	{"id": TaskTypeDecision, "value": "决策"},
-	{"id": TaskTypeBooking, "value": "资源预定"},
+	{"id": TaskTypeApproval, "value": "审核"},
+	{"id": TaskTypeRule, "value": "自动核验"},
+}
+
+var taskAssigneeModeOptions = []map[string]any{
+	{"id": TaskAssigneeStage, "value": "跟随阶段负责部门"},
+	{"id": TaskAssigneeDepartment, "value": "指定部门"},
+	{"id": TaskAssigneeStaff, "value": "指定人员"},
+}
+
+var progressStatusOptions = []map[string]any{
+	{"id": ProgressStatusActive, "value": "进行中"},
+	{"id": ProgressStatusCompleted, "value": "已完成"},
 }
 
 var workTodoStatusOptions = []map[string]any{
@@ -361,6 +386,12 @@ var assetRelation = orm.Relation{
 	OptionKeys: []string{"asset_no", "asset_name", "asset_status_id"},
 }
 
+var workflowRelation = orm.Relation{
+	Field:      "workflow_id",
+	Option:     "crm.NewWorkflowModel",
+	OptionKeys: []string{"name"},
+}
+
 var businessObjectTypeRelation = orm.Relation{
 	Field:      "business_object_type_id",
 	Option:     "crm.NewBusinessObjectTypeModel",
@@ -418,7 +449,7 @@ var operationLogRelation = orm.Relation{
 var todoRelation = orm.Relation{
 	Field:      "todo_id",
 	Option:     "crm.NewWorkTodoModel",
-	OptionKeys: []string{"sub_task_name", "status", "completed_at"},
+	OptionKeys: []string{"status", "result", "completed_at"},
 }
 
 var financeTypeRelation = orm.Relation{
@@ -430,7 +461,7 @@ var financeTypeRelation = orm.Relation{
 var stageRelation = orm.Relation{
 	Field:      "stage_id",
 	Option:     "crm.NewStageModel",
-	OptionKeys: []string{"code", "name"},
+	OptionKeys: []string{"name", "workflow_id"},
 }
 
 var triggerTaskRelation = orm.Relation{
@@ -464,15 +495,15 @@ var stageCodeRelation = orm.Relation{
 }
 
 var fromStageRelation = orm.Relation{
-	Field:      "from_stage_code",
+	Field:      "from_stage_id",
 	Option:     "crm.NewStageModel",
-	OptionKeys: []string{"code", "name"},
+	OptionKeys: []string{"name", "workflow_id"},
 }
 
 var toStageRelation = orm.Relation{
-	Field:      "to_stage_code",
+	Field:      "to_stage_id",
 	Option:     "crm.NewStageModel",
-	OptionKeys: []string{"code", "name"},
+	OptionKeys: []string{"name", "workflow_id"},
 }
 
 var dataTemplateRelation = orm.Relation{
@@ -559,6 +590,12 @@ var ownerDepartmentRelation = orm.Relation{
 	OptionKeys: []string{"name", "code"},
 }
 
+var assigneeDepartmentRelation = orm.Relation{
+	Field:      "assignee_department_id",
+	Option:     "crm.NewDepartmentModel",
+	OptionKeys: []string{"name", "code"},
+}
+
 var currentDepartmentRelation = orm.Relation{
 	Field:      "current_department_id",
 	Option:     "crm.NewDepartmentModel",
@@ -599,6 +636,12 @@ var ownerStaffRelation = orm.Relation{
 	Field:      "owner_staff_id",
 	Option:     "crm.NewStaffModel",
 	OptionKeys: []string{"name", "phone"},
+}
+
+var assigneeStaffRelation = orm.Relation{
+	Field:      "assignee_staff_id",
+	Option:     "crm.NewStaffModel",
+	OptionKeys: []string{"name", "phone", "department_id"},
 }
 
 var bookerStaffRelation = orm.Relation{
