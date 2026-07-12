@@ -42,7 +42,6 @@ import {
   workApi,
   workCustomerModeConfig,
   workRefreshEvent,
-  workSearchFields,
   workStoreValue,
   workTableCellClass,
   workTableHeadClass,
@@ -71,6 +70,7 @@ import {
   type WorkOperationSummaryItem,
   type WorkPageStoreState,
   type WorkSearchFilters,
+  type WorkStageOption,
   type WorkStoreLike,
   type WorkSummary,
   type WorkSummaryBreakdown,
@@ -82,6 +82,11 @@ import {
   type WorkTaskFormState,
   type WorkTodo,
 } from "./work-core";
+import {
+  WorkCustomerListView,
+  type WorkCustomerListRowView,
+  type WorkCustomerListTaskView,
+} from "./work-customer-list";
 import { WorkFlowActions } from "./work-flow-actions";
 import {
   buildFeishuOAuthURL,
@@ -2355,9 +2360,51 @@ function WorkStatsOperationRow({ operation }: { operation: WorkOperation }) {
   );
 }
 
+function workCustomerListTaskView(task: WorkTask): WorkCustomerListTaskView {
+  return {
+    key: workTaskKey(task),
+    label: workTaskButtonLabel(task),
+    result: textValue(task.result),
+    kind: workTaskIsRule(task) ? "rule" : "action",
+    task,
+  };
+}
+
+function workCustomerListRowView(item: WorkItem): WorkCustomerListRowView {
+  const { customer, asset } = item;
+  const target = asset || customer;
+  const tasks = item.tasks.map(workCustomerListTaskView);
+  const firstAction = tasks.find((task) => task.kind === "action")?.task;
+  const ownerName = textValue(
+    target.owner_staff_name ||
+      target["state.owner_staff_name"] ||
+      firstAction?.assignee_staff_name ||
+      firstAction?.assignee_department_name,
+  );
+  const statusName = workStatusName(target);
+  const hasStage = Boolean(statusName && statusName !== "-");
+
+  return {
+    id: item.id,
+    item,
+    customerName: workCustomerTitle(customer),
+    customerNo: workItemCustomerNo(item),
+    phone: workCustomerPhone(customer),
+    wechat: displayText(customer.wechat),
+    assetName: asset ? assetTitle(asset) : "未录入资产",
+    assetNo: asset ? workItemAssetNo(item) : "后续任务补充",
+    assetStatus: asset ? displayText(asset.asset_status_name) : "-",
+    stageName: hasStage ? statusName : "未进入流程",
+    hasStage,
+    ownerName: displayText(ownerName),
+    stageDays: workPositiveNumber(target.stage_days),
+    lastOperatedAt: textValue(target.last_operated_at),
+    tasks,
+  };
+}
+
 export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
   const [customers, setCustomers] = useState<WorkCustomer[]>([]);
-  const taskList = useWorkTaskList();
   const [filters, setFilters] = useState<WorkSearchFilters>(
     workSearchFiltersFromURL,
   );
@@ -2377,6 +2424,7 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
   const [modeCounts, setModeCounts] = useState<WorkCustomerModeCounts>(
     emptyWorkCustomerModeCounts,
   );
+  const [stageOptions, setStageOptions] = useState<WorkStageOption[]>([]);
   const [scope, setScope] = useState<WorkCustomerScope>("mine");
   const [canDispatch, setCanDispatch] = useState(false);
   const [pageState, setPageState] = useState<WorkCustomerPageState>({
@@ -2416,6 +2464,7 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
         page?: string | number;
         page_size?: string | number;
         mode_counts?: Partial<Record<WorkCustomerMode, string | number>>;
+        stage_options?: WorkStageOption[];
         can_dispatch?: boolean;
         scope?: WorkCustomerScope;
       }>(`/crm/work/customers${query}`);
@@ -2425,6 +2474,9 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
       const nextTotal = Number(payload.total) || nextCustomers.length;
       setCustomers(nextCustomers);
       setCanDispatch(Boolean(payload.can_dispatch));
+      setStageOptions(
+        Array.isArray(payload.stage_options) ? payload.stage_options : [],
+      );
       setPageState({
         page: Number(payload.page) || page,
         pageSize: Number(payload.page_size) || workCustomerPageSize,
@@ -2461,16 +2513,14 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
   }, [loadCustomers]);
 
   const workItems = useMemo(() => buildWorkItems(customers), [customers]);
-  const initialLoading = loading && customers.length === 0;
+  const rows = useMemo(
+    () => workItems.map(workCustomerListRowView),
+    [workItems],
+  );
   const goToPage = (nextPage: number) => {
     if (loading || nextPage === pageState.page) return;
     setCustomers([]);
     loadCustomers(nextPage);
-  };
-
-  const submitSearch = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setActiveFilters(filters);
   };
 
   const resetSearch = () => {
@@ -2484,133 +2534,50 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
   };
 
   return (
-    <div className="space-y-4">
-      <WorkCustomerListHeader
-        mode={mode}
-        modeCounts={modeCounts}
-        taskList={taskList}
-        scope={scope}
-        canDispatch={canDispatch}
-        store={store}
-        onScopeChange={(nextScope) => {
-          setCustomers([]);
-          setScope(nextScope);
-        }}
-        onModeChange={(nextMode, nextQuickFilter) => {
-          setMode(nextMode);
-          setQuickFilter(nextQuickFilter);
-        }}
-      />
-      <div className="overflow-hidden rounded-lg bg-background shadow-sm">
-        <form
-          onSubmit={submitSearch}
-          className="flex flex-wrap items-center gap-2.5 border-b border-border/70 bg-muted/10 px-5 py-4"
-        >
-          {workSearchFields.map((field) => (
-            <label key={field.key} className="shrink-0">
-              <span className="sr-only">{field.placeholder}</span>
-              <Input
-                className={field.className}
-                value={filters[field.key]}
-                onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
-                    [field.key]: event.target.value,
-                  }))
-                }
-                placeholder={field.placeholder}
-              />
-            </label>
-          ))}
-          <Button type="submit" size="sm" disabled={loading}>
-            <Search className="h-4 w-4" />
-            搜索
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={resetSearch}
-            disabled={loading}
-          >
-            <RefreshCw className="h-4 w-4" />
-            重置
-          </Button>
-        </form>
-        <div className="p-4 md:hidden">
-          <WorkItemCardList
-            items={workItems}
-            loading={initialLoading}
-            emptyTitle={modeConfig.emptyTitle}
-            emptyDescription={modeConfig.emptyDescription}
-            store={store}
-          />
-        </div>
-
-        <div className="hidden overflow-hidden bg-background md:block">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px] table-fixed border-collapse text-sm">
-              <thead className="bg-[#f8fafc]">
-                <tr className="border-b border-border/70">
-                  <WorkTableHead
-                    className={`${workCustomerTableColumnClass} ${workTableStickyLeftHeadClass}`}
-                  >
-                    客户
-                  </WorkTableHead>
-                  <WorkTableHead className={workContactTableColumnClass}>
-                    联系方式
-                  </WorkTableHead>
-                  <WorkTableHead className={workAssetTableColumnClass}>
-                    房产/资产
-                  </WorkTableHead>
-                  <WorkTableHead className={workStageTableColumnClass}>
-                    当前阶段
-                  </WorkTableHead>
-                  <WorkTableHead
-                    className={`${workActionTableColumnClass} ${workTableStickyRightHeadClass} text-center`}
-                  >
-                    操作
-                  </WorkTableHead>
-                </tr>
-              </thead>
-              <tbody>
-                {initialLoading ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-24">
-                      <WorkStatusState
-                        icon="loading"
-                        title="正在加载"
-                        description="请稍候，正在同步最新数据"
-                      />
-                    </td>
-                  </tr>
-                ) : workItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-16">
-                      <WorkStatusState
-                        icon="empty"
-                        title={modeConfig.emptyTitle}
-                        description={modeConfig.emptyDescription}
-                      />
-                    </td>
-                  </tr>
-                ) : (
-                  workItems.map((item) => (
-                    <WorkItemTableRow key={item.id} item={item} store={store} />
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <WorkCustomerPagination
-          loading={loading}
-          hidden={initialLoading}
-          pageState={pageState}
-          onPageChange={goToPage}
-        />
-      </div>
-    </div>
+    <WorkCustomerListView
+      rows={rows}
+      loading={loading}
+      mode={mode}
+      modeCounts={modeCounts}
+      scope={scope}
+      canDispatch={canDispatch}
+      filters={filters}
+      stageFilter={stageFilter}
+      stageOptions={stageOptions}
+      page={pageState.page}
+      pageSize={pageState.pageSize}
+      total={pageState.total}
+      emptyTitle={modeConfig.emptyTitle}
+      emptyDescription={modeConfig.emptyDescription}
+      onFiltersChange={setFilters}
+      onSearch={() => setActiveFilters(filters)}
+      onReset={resetSearch}
+      onModeChange={(nextMode) => {
+        setMode(nextMode);
+        setQuickFilter("all");
+      }}
+      onScopeChange={(nextScope) => {
+        setCustomers([]);
+        setScope(nextScope);
+      }}
+      onStageChange={(nextStage) => {
+        setCustomers([]);
+        setStageFilter(nextStage);
+      }}
+      onPageChange={goToPage}
+      onRefresh={notifyWorkDataChanged}
+      onOpenDetail={(row) =>
+        openWorkDetail(row.item.customer, store, row.item.asset)
+      }
+      onOpenTask={(row, task) =>
+        void openRowTask(
+          row.item.customer,
+          task.task,
+          store,
+          row.item.asset,
+        )
+      }
+    />
   );
 }
 
