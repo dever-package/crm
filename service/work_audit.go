@@ -63,28 +63,63 @@ func recordWorkTaskOperation(
 	return operationID
 }
 
-func recordWorkStageChange(ctx context.Context, progress *crmmodel.CustomerStage, fromStageID, toStageID uint64, resultValue string) uint64 {
+type workStageChange struct {
+	FromWorkflowID uint64
+	FromStageID    uint64
+	ToWorkflowID   uint64
+	ToStageID      uint64
+	ResultValue    string
+	Title          string
+	Content        string
+	Snapshot       map[string]any
+}
+
+func recordWorkStageChange(ctx context.Context, staff *WorkStaffSession, progress *crmmodel.CustomerStage, change workStageChange) uint64 {
 	if progress == nil {
 		return 0
 	}
 	now := time.Now()
-	title := "流程阶段变更"
-	if toStageID == 0 {
-		title = "流程已完成"
+	title := strings.TrimSpace(change.Title)
+	if title == "" {
+		title = "流程阶段变更"
 	}
+	workflowID := change.ToWorkflowID
+	if workflowID == 0 {
+		workflowID = change.FromWorkflowID
+	}
+	if workflowID == 0 {
+		workflowID = progress.WorkflowID
+	}
+	stageID := change.ToStageID
+	if stageID == 0 {
+		stageID = change.FromStageID
+	}
+	if stageID == 0 {
+		stageID = progress.StageID
+	}
+	snapshot := map[string]any{
+		"from_workflow_id": change.FromWorkflowID,
+		"from_stage_id":    change.FromStageID,
+		"to_workflow_id":   change.ToWorkflowID,
+		"to_stage_id":      change.ToStageID,
+	}
+	for key, value := range change.Snapshot {
+		snapshot[key] = value
+	}
+	staffID, departmentID := workOperatorIDs(staff)
 	operationID := uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
 		"customer_id":            progress.CustomerID,
 		"asset_id":               progress.AssetID,
-		"workflow_id":            progress.WorkflowID,
-		"stage_id":               toStageID,
+		"workflow_id":            workflowID,
+		"stage_id":               stageID,
 		"task_id":                uint64(0),
 		"task_type":              "",
-		"result_value":           resultValue,
+		"result_value":           change.ResultValue,
 		"title":                  title,
-		"content":                "",
-		"data_snapshot_json":     jsonText(map[string]any{"from_stage_id": fromStageID, "to_stage_id": toStageID}),
-		"operator_staff_id":      uint64(0),
-		"operator_department_id": uint64(0),
+		"content":                change.Content,
+		"data_snapshot_json":     jsonText(snapshot),
+		"operator_staff_id":      staffID,
+		"operator_department_id": departmentID,
 		"created_at":             now,
 	}))
 	if operationID == 0 {
@@ -92,23 +127,93 @@ func recordWorkStageChange(ctx context.Context, progress *crmmodel.CustomerStage
 	}
 	insertWorkStatEvent(ctx, map[string]any{
 		"event_type":             crmmodel.StatEventTypeTransition,
-		"event_key":              fmt.Sprintf("transition:%d:%d", fromStageID, toStageID),
+		"event_key":              fmt.Sprintf("transition:%d:%d:%d:%d", change.FromWorkflowID, change.FromStageID, change.ToWorkflowID, change.ToStageID),
 		"customer_id":            progress.CustomerID,
 		"asset_id":               progress.AssetID,
-		"workflow_id":            progress.WorkflowID,
-		"stage_id":               toStageID,
-		"from_stage_id":          fromStageID,
-		"to_stage_id":            toStageID,
+		"workflow_id":            workflowID,
+		"stage_id":               stageID,
+		"from_stage_id":          change.FromStageID,
+		"to_stage_id":            change.ToStageID,
 		"task_id":                uint64(0),
 		"task_type":              "",
-		"result_value":           resultValue,
+		"result_value":           change.ResultValue,
 		"operation_log_id":       operationID,
-		"operator_staff_id":      uint64(0),
-		"operator_department_id": uint64(0),
+		"operator_staff_id":      staffID,
+		"operator_department_id": departmentID,
 		"event_at":               now,
 		"created_at":             now,
 	})
 	return operationID
+}
+
+func recordWorkManagementOperation(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	progress *crmmodel.CustomerStage,
+	resultValue string,
+	title string,
+	content string,
+	snapshot map[string]any,
+) uint64 {
+	if progress == nil {
+		return 0
+	}
+	staffID, departmentID := workOperatorIDs(staff)
+	return uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
+		"customer_id":            progress.CustomerID,
+		"asset_id":               progress.AssetID,
+		"workflow_id":            progress.WorkflowID,
+		"stage_id":               progress.StageID,
+		"task_id":                uint64(0),
+		"task_type":              "",
+		"result_value":           resultValue,
+		"title":                  title,
+		"content":                content,
+		"data_snapshot_json":     jsonText(snapshot),
+		"operator_staff_id":      staffID,
+		"operator_department_id": departmentID,
+		"created_at":             time.Now(),
+	}))
+}
+
+func recordWorkTodoAssignment(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	progress *crmmodel.CustomerStage,
+	todo *crmmodel.WorkTodo,
+	task *crmmodel.Task,
+	fromStaffID uint64,
+	toStaff *crmmodel.Staff,
+) uint64 {
+	if progress == nil || todo == nil || task == nil || toStaff == nil {
+		return 0
+	}
+	resultValue := "assigned"
+	title := "任务已分配"
+	if fromStaffID > 0 {
+		resultValue = "reassigned"
+		title = "任务已改派"
+	}
+	staffID, departmentID := workOperatorIDs(staff)
+	return uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
+		"customer_id":  progress.CustomerID,
+		"asset_id":     progress.AssetID,
+		"workflow_id":  progress.WorkflowID,
+		"stage_id":     progress.StageID,
+		"task_id":      task.ID,
+		"task_type":    task.TaskType,
+		"result_value": resultValue,
+		"title":        title + "：" + task.Name,
+		"content":      toStaff.Name,
+		"data_snapshot_json": jsonText(map[string]any{
+			"todo_id":       todo.ID,
+			"from_staff_id": fromStaffID,
+			"to_staff_id":   toStaff.ID,
+		}),
+		"operator_staff_id":      staffID,
+		"operator_department_id": departmentID,
+		"created_at":             time.Now(),
+	}))
 }
 
 func workOperatorIDs(staff *WorkStaffSession) (uint64, uint64) {

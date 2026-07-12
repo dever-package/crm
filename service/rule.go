@@ -199,6 +199,7 @@ func resolveScriptDryRunStaff(ctx context.Context, req ScriptDryRunRequest) *Wor
 		Name:         staff.Name,
 		Phone:        staff.Phone,
 		DepartmentID: staff.DepartmentID,
+		CanDispatch:  staff.CanDispatch,
 	}
 }
 

@@ -44,6 +44,7 @@ type WorkStaffSession struct {
 	Phone        string
 	FeishuOpenID string
 	DepartmentID uint64
+	CanDispatch  bool
 }
 
 type feishuAppAccessTokenResponse struct {
@@ -491,6 +492,7 @@ func CurrentWorkStaff(ctx context.Context) *WorkStaffSession {
 		Phone:        staff.Phone,
 		FeishuOpenID: staff.FeishuOpenID,
 		DepartmentID: staff.DepartmentID,
+		CanDispatch:  staff.CanDispatch,
 	}
 }
 

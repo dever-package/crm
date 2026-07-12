@@ -34,6 +34,7 @@ func (CustomerAssetService) Create(ctx context.Context, payload map[string]any) 
 	if assetStatusID == 0 {
 		assetStatusID = crmmodel.DefaultAssetStatusID
 	}
+	ownerStaffID := firstUint64(payload, "owner_staff_id", "ownerStaffId")
 	var assetID uint64
 	workflowWarning := ""
 	err := orm.Transaction(ctx, func(txCtx context.Context) error {
@@ -50,7 +51,7 @@ func (CustomerAssetService) Create(ctx context.Context, payload map[string]any) 
 		if assetID == 0 {
 			return fmt.Errorf("客户资产创建失败")
 		}
-		if err := startAssetWorkflow(txCtx, customerID, assetID); err != nil {
+		if err := startAssetWorkflow(txCtx, customerID, assetID, ownerStaffID); err != nil {
 			if errors.Is(err, ErrNoAvailableWorkflow) {
 				workflowWarning = err.Error()
 				return nil

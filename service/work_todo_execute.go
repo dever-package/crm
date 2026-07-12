@@ -206,18 +206,7 @@ func completeWorkTodo(ctx context.Context, todo *crmmodel.WorkTodo, result strin
 	}) == 0 {
 		return fmt.Errorf("待办已被处理，请刷新后重试")
 	}
-	return advanceAssetProgressIfReady(ctx, currentWorkProgressID(ctx, todo))
-}
-
-func currentWorkProgressID(ctx context.Context, todo *crmmodel.WorkTodo) uint64 {
-	if todo == nil {
-		return 0
-	}
-	progress := currentWorkCustomerStage(ctx, todo.CustomerID, todo.AssetID)
-	if progress == nil {
-		return 0
-	}
-	return progress.ID
+	return nil
 }
 
 func rerunPendingRuleTodos(ctx context.Context, assetID, stageID uint64) error {
@@ -380,20 +369,14 @@ func canOperateWorkTodo(staff *WorkStaffSession, todo *crmmodel.WorkTodo) bool {
 	if todo.AssigneeStaffID > 0 {
 		return todo.AssigneeStaffID == staff.ID
 	}
-	return todo.AssigneeDepartmentID > 0 && todo.AssigneeDepartmentID == staff.DepartmentID
+	return false
 }
 
 func canOperateCurrentState(staff *WorkStaffSession, state *crmmodel.CustomerStage) bool {
 	if staff == nil || state == nil {
 		return false
 	}
-	if state.OwnerStaffID > 0 {
-		return state.OwnerStaffID == staff.ID
-	}
-	if state.OwnerDepartmentID > 0 {
-		return state.OwnerDepartmentID == staff.DepartmentID
-	}
-	return false
+	return state.OwnerStaffID > 0 && state.OwnerStaffID == staff.ID
 }
 
 func workSubmitMode(values map[string]any) string {

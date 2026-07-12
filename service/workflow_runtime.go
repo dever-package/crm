@@ -11,15 +11,15 @@ import (
 	crmmodel "github.com/dever-package/crm/model"
 )
 
-var ErrNoAvailableWorkflow = errors.New("未配置可用流程")
+var ErrNoAvailableWorkflow = errors.New("未配置可用的默认入口流程")
 
-func StartAssetWorkflow(ctx context.Context, customerID, assetID uint64) error {
+func StartAssetWorkflow(ctx context.Context, customerID, assetID uint64, ownerStaffID ...uint64) error {
 	return orm.Transaction(ctx, func(txCtx context.Context) error {
-		return startAssetWorkflow(txCtx, customerID, assetID)
+		return startAssetWorkflow(txCtx, customerID, assetID, ownerStaffID...)
 	})
 }
 
-func startAssetWorkflow(ctx context.Context, customerID, assetID uint64) error {
+func startAssetWorkflow(ctx context.Context, customerID, assetID uint64, ownerStaffID ...uint64) error {
 	if customerID == 0 || assetID == 0 {
 		return fmt.Errorf("客户和资产不能为空")
 	}
@@ -34,9 +34,14 @@ func startAssetWorkflow(ctx context.Context, customerID, assetID uint64) error {
 	if progressModel.Find(ctx, map[string]any{"asset_id": assetID}) != nil {
 		return nil
 	}
-	workflow, stage := firstAvailableWorkflowStage(ctx)
+	workflow, stage := defaultEntryWorkflowStage(ctx)
 	if workflow == nil || stage == nil {
 		return ErrNoAvailableWorkflow
+	}
+	requestedOwnerID := firstRequestedOwnerID(ownerStaffID)
+	owner, err := resolveStageOwner(ctx, stage, requestedOwnerID)
+	if err != nil {
+		return err
 	}
 
 	now := time.Now()
@@ -45,10 +50,11 @@ func startAssetWorkflow(ctx context.Context, customerID, assetID uint64) error {
 		"asset_id":            assetID,
 		"workflow_id":         workflow.ID,
 		"stage_id":            stage.ID,
-		"owner_department_id": stage.OwnerDepartmentID,
-		"owner_staff_id":      uint64(0),
+		"owner_department_id": owner.DepartmentID,
+		"owner_staff_id":      owner.ID,
 		"status":              crmmodel.ProgressStatusActive,
 		"started_at":          now,
+		"terminated_reason":   "",
 		"updated_at":          now,
 	}))
 	if progressID == 0 {
@@ -58,54 +64,82 @@ func startAssetWorkflow(ctx context.Context, customerID, assetID uint64) error {
 	if progress == nil {
 		return fmt.Errorf("资产流程启动失败")
 	}
-	recordWorkStageChange(ctx, progress, 0, stage.ID, "entered")
+	if recordWorkStageChange(ctx, nil, progress, workStageChange{
+		ToWorkflowID: workflow.ID,
+		ToStageID:    stage.ID,
+		ResultValue:  "entered",
+		Title:        "流程已启动",
+		Snapshot: map[string]any{
+			"owner_department_id": owner.DepartmentID,
+			"owner_staff_id":      owner.ID,
+		},
+	}) == 0 {
+		return fmt.Errorf("流程启动记录创建失败")
+	}
 	return createStageTodos(ctx, progress, stage)
 }
 
-func firstAvailableWorkflowStage(ctx context.Context) (*crmmodel.Workflow, *crmmodel.Stage) {
-	workflows := crmmodel.NewWorkflowModel().Select(
-		ctx,
-		map[string]any{"status": crmmodel.StatusEnabled},
-		map[string]any{"order": "sort asc,id asc"},
-	)
-	for _, workflow := range workflows {
-		if workflow == nil {
-			continue
-		}
-		if stage := firstEnabledStage(ctx, workflow.ID); stage != nil {
-			return workflow, stage
-		}
+func defaultEntryWorkflowStage(ctx context.Context) (*crmmodel.Workflow, *crmmodel.Stage) {
+	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{
+		"default_entry": true,
+		"status":        crmmodel.StatusEnabled,
+	}, map[string]any{"order": "sort asc,id asc"})
+	if workflow == nil {
+		return nil, nil
 	}
-	return nil, nil
+	return workflow, firstEnabledStage(ctx, workflow.ID)
 }
 
-func enterWorkflowStage(ctx context.Context, progress *crmmodel.CustomerStage, workflow *crmmodel.Workflow, stage *crmmodel.Stage) error {
-	if progress == nil || workflow == nil || stage == nil {
-		return fmt.Errorf("流程阶段不能为空")
+func firstRequestedOwnerID(ownerStaffIDs []uint64) uint64 {
+	if len(ownerStaffIDs) == 0 {
+		return 0
 	}
+	return ownerStaffIDs[0]
+}
+
+func enterWorkflowStage(
+	ctx context.Context,
+	progress *crmmodel.CustomerStage,
+	workflow *crmmodel.Workflow,
+	stage *crmmodel.Stage,
+	requestedOwnerID uint64,
+) (*crmmodel.Staff, error) {
+	if progress == nil || workflow == nil || stage == nil {
+		return nil, fmt.Errorf("流程阶段不能为空")
+	}
+	owner, err := resolveStageOwner(ctx, stage, requestedOwnerID)
+	if err != nil {
+		return nil, err
+	}
+
+	previousWorkflowID := progress.WorkflowID
+	previousStageID := progress.StageID
 	now := time.Now()
 	updated := crmmodel.NewCustomerStageModel().Update(ctx, map[string]any{
-		"id": progress.ID,
+		"id":          progress.ID,
+		"workflow_id": previousWorkflowID,
+		"stage_id":    previousStageID,
+		"status":      crmmodel.ProgressStatusActive,
 	}, map[string]any{
 		"workflow_id":         workflow.ID,
 		"stage_id":            stage.ID,
-		"owner_department_id": stage.OwnerDepartmentID,
-		"owner_staff_id":      uint64(0),
+		"owner_department_id": owner.DepartmentID,
+		"owner_staff_id":      owner.ID,
 		"status":              crmmodel.ProgressStatusActive,
 		"started_at":          now,
 		"updated_at":          now,
 	})
 	if updated == 0 {
-		return fmt.Errorf("资产流程阶段更新失败")
+		return nil, fmt.Errorf("资产流程已变化，请刷新后重试")
 	}
 	progress.WorkflowID = workflow.ID
 	progress.StageID = stage.ID
-	progress.OwnerDepartmentID = stage.OwnerDepartmentID
-	progress.OwnerStaffID = 0
+	progress.OwnerDepartmentID = owner.DepartmentID
+	progress.OwnerStaffID = owner.ID
 	progress.Status = crmmodel.ProgressStatusActive
 	progress.StartedAt = now
 	progress.UpdatedAt = now
-	return createStageTodos(ctx, progress, stage)
+	return owner, nil
 }
 
 func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, stage *crmmodel.Stage) error {
@@ -122,17 +156,14 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 		task *crmmodel.Task
 	}, 0)
 	for _, task := range tasks {
-		if task == nil {
-			continue
-		}
-		if crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
+		if task == nil || crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
 			"asset_id": progress.AssetID,
 			"stage_id": stage.ID,
 			"task_id":  task.ID,
 		}) != nil {
 			continue
 		}
-		departmentID, staffID, err := resolveTaskAssignee(ctx, stage, task)
+		departmentID, staffID, err := resolveTaskAssignee(ctx, progress, task)
 		if err != nil {
 			return err
 		}
@@ -159,12 +190,22 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 		if todoID == 0 {
 			return fmt.Errorf("阶段待办创建失败")
 		}
+		createdTodo := crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{"id": todoID})
+		if createdTodo == nil {
+			return fmt.Errorf("阶段待办创建失败")
+		}
+		if staffID > 0 {
+			assignee := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": staffID})
+			if recordWorkTodoAssignment(ctx, nil, progress, createdTodo, task, 0, assignee) == 0 {
+				return fmt.Errorf("任务分配记录创建失败")
+			}
+		}
 		if task.TaskType == crmmodel.TaskTypeRule {
 			ruleTodos = append(ruleTodos, struct {
 				todo *crmmodel.WorkTodo
 				task *crmmodel.Task
 			}{
-				todo: crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{"id": todoID}),
+				todo: createdTodo,
 				task: task,
 			})
 		}
@@ -177,100 +218,6 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 			return err
 		}
 	}
-	return advanceAssetProgressIfReady(ctx, progress.ID)
-}
-
-func resolveTaskAssignee(ctx context.Context, stage *crmmodel.Stage, task *crmmodel.Task) (uint64, uint64, error) {
-	if stage == nil || task == nil {
-		return 0, 0, fmt.Errorf("阶段和任务不能为空")
-	}
-	switch task.AssigneeMode {
-	case crmmodel.TaskAssigneeStage:
-		if enabledDepartment(ctx, stage.OwnerDepartmentID) {
-			return stage.OwnerDepartmentID, 0, nil
-		}
-		return 0, 0, fmt.Errorf("阶段负责部门不存在或已停用")
-	case crmmodel.TaskAssigneeDepartment:
-		if enabledDepartment(ctx, task.AssigneeDepartmentID) {
-			return task.AssigneeDepartmentID, 0, nil
-		}
-		return 0, 0, fmt.Errorf("任务负责部门不存在或已停用")
-	case crmmodel.TaskAssigneeStaff:
-		staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
-			"id":     task.AssigneeStaffID,
-			"status": crmmodel.StatusEnabled,
-		})
-		if staff != nil {
-			return staff.DepartmentID, staff.ID, nil
-		}
-		return 0, 0, fmt.Errorf("任务负责人不存在或已停用")
-	default:
-		return 0, 0, fmt.Errorf("任务负责方式无效")
-	}
-}
-
-func enabledDepartment(ctx context.Context, departmentID uint64) bool {
-	return departmentID > 0 && crmmodel.NewDepartmentModel().Find(ctx, map[string]any{
-		"id":     departmentID,
-		"status": crmmodel.StatusEnabled,
-	}) != nil
-}
-
-func advanceAssetProgressIfReady(ctx context.Context, progressID uint64) error {
-	progress := crmmodel.NewCustomerStageModel().Find(ctx, map[string]any{
-		"id":     progressID,
-		"status": crmmodel.ProgressStatusActive,
-	})
-	if progress == nil {
-		return nil
-	}
-	if crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{
-		"asset_id": progress.AssetID,
-		"stage_id": progress.StageID,
-		"required": true,
-		"status":   crmmodel.WorkTodoStatusPending,
-	}) > 0 {
-		return nil
-	}
-
-	now := time.Now()
-	crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
-		"asset_id": progress.AssetID,
-		"stage_id": progress.StageID,
-		"required": false,
-		"status":   crmmodel.WorkTodoStatusPending,
-	}, map[string]any{
-		"status":     crmmodel.WorkTodoStatusCanceled,
-		"updated_at": now,
-	})
-
-	if stage := nextEnabledStage(ctx, progress.WorkflowID, progress.StageID); stage != nil {
-		workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{
-			"id": progress.WorkflowID,
-		})
-		if workflow == nil {
-			return fmt.Errorf("当前流程不存在")
-		}
-		recordWorkStageChange(ctx, progress, progress.StageID, stage.ID, "entered")
-		return enterWorkflowStage(ctx, progress, workflow, stage)
-	}
-
-	workflow := nextEnabledWorkflow(ctx, progress.WorkflowID)
-	for workflow != nil {
-		if stage := firstEnabledStage(ctx, workflow.ID); stage != nil {
-			auditProgress := *progress
-			auditProgress.WorkflowID = workflow.ID
-			recordWorkStageChange(ctx, &auditProgress, progress.StageID, stage.ID, "entered")
-			return enterWorkflowStage(ctx, progress, workflow, stage)
-		}
-		workflow = nextEnabledWorkflow(ctx, workflow.ID)
-	}
-
-	recordWorkStageChange(ctx, progress, progress.StageID, 0, "completed")
-	crmmodel.NewCustomerStageModel().Update(ctx, map[string]any{"id": progress.ID}, map[string]any{
-		"status":     crmmodel.ProgressStatusCompleted,
-		"updated_at": now,
-	})
 	return nil
 }
 
@@ -286,22 +233,6 @@ func nextEnabledStage(ctx context.Context, workflowID, stageID uint64) *crmmodel
 	for _, stage := range stages {
 		if stage != nil && (stage.Sort > current.Sort || stage.Sort == current.Sort && stage.ID > current.ID) {
 			return stage
-		}
-	}
-	return nil
-}
-
-func nextEnabledWorkflow(ctx context.Context, workflowID uint64) *crmmodel.Workflow {
-	current := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": workflowID})
-	if current == nil {
-		return nil
-	}
-	workflows := crmmodel.NewWorkflowModel().Select(ctx, map[string]any{
-		"status": crmmodel.StatusEnabled,
-	}, map[string]any{"order": "sort asc,id asc"})
-	for _, workflow := range workflows {
-		if workflow != nil && (workflow.Sort > current.Sort || workflow.Sort == current.Sort && workflow.ID > current.ID) {
-			return workflow
 		}
 	}
 	return nil

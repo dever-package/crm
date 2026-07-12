@@ -110,7 +110,7 @@ func workTodoTaskMap(ctx context.Context, staff *WorkStaffSession, todo *crmmode
 	task["assignee_staff_id"] = todo.AssigneeStaffID
 	task["assignee_staff_name"] = staffName
 	task["can_operate"] = todo.Status == crmmodel.WorkTodoStatusPending && canOperateWorkTodo(staff, todo)
-	task["unassigned"] = todo.AssigneeDepartmentID == 0 && todo.AssigneeStaffID == 0
+	task["unassigned"] = todo.AssigneeStaffID == 0
 	if withForm && inputText(task["task_type"]) == crmmodel.TaskTypeForm {
 		attachWorkTaskForm(ctx, task)
 	}
