@@ -1,0 +1,29 @@
+{
+  "page": {
+    "name": "线索池",
+    "icon": "users-round",
+    "parent": "crm-work-customer-center",
+    "type": 1,
+    "sort": 1
+  },
+  "layout": {
+    "type": "container",
+    "className": "min-h-svh bg-[#f6f8fb] p-4 md:p-6",
+    "children": {
+      "content": {
+        "type": "container",
+        "className": "min-w-0"
+      }
+    }
+  },
+  "nodes": {
+    "content": [
+      {
+        "type": "show-crm-work-lead-pool"
+      }
+    ]
+  },
+  "data": {},
+  "state": {},
+  "action": {}
+}

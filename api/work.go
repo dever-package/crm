@@ -63,6 +63,35 @@ func (Work) GetCustomers(c *server.Context) error {
 	return crmJSON(c, data, err)
 }
 
+func (Work) GetLeads(c *server.Context) error {
+	data, err := workService.LeadPool(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"keyword":   c.Input("keyword"),
+		"status":    c.Input("status"),
+		"page":      c.Input("page"),
+		"page_size": c.Input("page_size"),
+		"pageSize":  c.Input("pageSize"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostCreateLead(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.RegisterLead(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostLeadAction(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.ActOnLead(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
 func (Work) GetCustomerDetail(c *server.Context) error {
 	data, err := workService.CustomerDetail(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
 		"customer_id": c.Input("customer_id"),

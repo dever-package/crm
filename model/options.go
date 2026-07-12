@@ -37,6 +37,13 @@ const (
 )
 
 const (
+	LeadStatusPending   = "pending"
+	LeadStatusInvalid   = "invalid"
+	LeadStatusDuplicate = "duplicate"
+	LeadStatusConverted = "converted"
+)
+
+const (
 	WorkTodoStatusPending  = "pending"
 	WorkTodoStatusDone     = "done"
 	WorkTodoStatusCanceled = "canceled"
@@ -141,6 +148,17 @@ const (
 var statusOptions = []map[string]any{
 	{"id": StatusEnabled, "value": "启用"},
 	{"id": StatusDisabled, "value": "停用"},
+}
+
+var leadStatusOptions = []map[string]any{
+	{"id": LeadStatusPending, "value": "待处理"},
+	{"id": LeadStatusInvalid, "value": "无效"},
+	{"id": LeadStatusDuplicate, "value": "重复"},
+	{"id": LeadStatusConverted, "value": "已转化"},
+}
+
+func LeadStatusName(status string) string {
+	return crmOptionName(leadStatusOptions, status)
 }
 
 var businessObjectStatusOptions = []map[string]any{

@@ -4,7 +4,7 @@
     "icon": "briefcase-business",
     "parent": "crm-work-customer-center",
     "type": 1,
-    "sort": 1
+    "sort": 2
   },
   "layout": {
     "type": "container",

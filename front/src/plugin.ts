@@ -1,6 +1,7 @@
 import { defineFrontPlugin, lazyNode } from "@dever/front-plugin";
 
 const loadWorkAuth = () => import("./nodes/show/work-auth");
+const loadWorkLead = () => import("./nodes/show/work-lead");
 const loadAdminStats = () => import("./nodes/show/admin-stats");
 
 export default defineFrontPlugin({
@@ -49,6 +50,11 @@ export default defineFrontPlugin({
     "show-crm-work-customer-table": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
         default: mod.ShowCrmWorkCustomerTable,
+      })),
+    ),
+    "show-crm-work-lead-pool": lazyNode(() =>
+      loadWorkLead().then((mod) => ({
+        default: mod.ShowCrmWorkLeadPool,
       })),
     ),
     "show-crm-work-stats": lazyNode(() =>
