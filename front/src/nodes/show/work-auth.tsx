@@ -17,13 +17,6 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { downloadUploadFile, type UploadFileItem } from "@/lib/upload";
 import { normalizeUploadItems } from "@/lib/resource";
@@ -67,7 +60,6 @@ import {
   type WorkCustomer,
   type WorkCustomerMode,
   type WorkDataCompletenessTemplate,
-  type WorkDepartmentOption,
   type WorkDisplayField,
   type WorkFieldOption,
   type WorkFormField,
@@ -75,10 +67,8 @@ import {
   type WorkNodeProps,
   type WorkOperation,
   type WorkOperationSummaryItem,
-  type WorkOptions,
   type WorkPageStoreState,
   type WorkSearchFilters,
-  type WorkStaffOption,
   type WorkStoreLike,
   type WorkSummary,
   type WorkSummaryBreakdown,
@@ -111,23 +101,6 @@ import {
 export { ShowCrmWorkTaskUpload } from "./work-upload";
 
 type StoreLike = WorkStoreLike;
-
-type WorkCollaborationTarget = {
-  key?: string;
-  name: string;
-  department_id: string;
-  staff_id: string;
-  form_id?: string;
-  completion_mode?: string;
-  required?: boolean;
-  sort?: number;
-  staff_locked?: boolean;
-};
-
-type WorkCompleteAssignSelection = {
-  department_id: string;
-  staff_id: string;
-};
 
 type WorkTaskGroupField = {
   formKey: string;
@@ -214,29 +187,24 @@ function workBusinessObjectTitle(object?: WorkBusinessObject | null): string {
 }
 
 function workBusinessObjectOptions(
-  asset?: WorkAsset | null,
-  task?: WorkTask | null,
+  asset: WorkAsset | undefined,
+  task: WorkTask,
 ): WorkCommonOption[] {
-  const typeID = positiveTextID(task?.business_object_type_id);
+  const typeID = positiveTextID(task.business_object_type_id);
   const objects = Array.isArray(asset?.business_objects)
     ? asset.business_objects
     : [];
   return objects
-    .filter((object) => {
-      if (!typeID) return true;
-      return positiveTextID(object.business_object_type_id) === typeID;
-    })
-    .map((object) => {
-      const id = workBusinessObjectID(object);
-      const labelParts = [
-        workBusinessObjectTitle(object),
-        textValue(object.object_no),
-      ].filter(Boolean);
-      return {
-        id,
-        value: labelParts.join(" / "),
-      };
-    })
+    .filter(
+      (object) =>
+        !typeID || positiveTextID(object.business_object_type_id) === typeID,
+    )
+    .map((object) => ({
+      id: workBusinessObjectID(object),
+      value: [workBusinessObjectTitle(object), textValue(object.object_no)]
+        .filter(Boolean)
+        .join(" / "),
+    }))
     .filter((option) => Boolean(option.id));
 }
 
@@ -257,111 +225,44 @@ function workTaskName(task: WorkTask): string {
 }
 
 function workTaskAction(task: WorkTask): string {
-  return (
-    textValue(task.action_type) ||
-    textValue(task.task_action) ||
-    textValue(task.task_type) ||
-    "form"
-  );
-}
-
-function workTaskIsAssign(task: WorkTask): boolean {
-  const action = workTaskAction(task);
-  return action === "assign" || action === "dispatch" || action === "分配";
-}
-
-function workTaskIsDecision(task: WorkTask): boolean {
-  const action = workTaskAction(task);
-  return action === "decision" || action === "决策" || action === "自动决策";
-}
-
-function workTaskIsBooking(task: WorkTask): boolean {
-  const action = workTaskAction(task);
-  return action === "booking" || action === "resource" || action === "资源预定";
-}
-
-function workTaskIsCollaborate(task: WorkTask): boolean {
-  const action = workTaskAction(task);
-  return action === "collaborate" || action === "collaboration" || action === "协作任务";
-}
-
-function workTaskIsCollaborationReview(task: WorkTask): boolean {
-  return workTaskIsCollaborate(task) && Boolean(task.collaboration_review);
+  return textValue(task.task_type) || "todo";
 }
 
 function workTaskIsTodo(task: WorkTask): boolean {
-  return Boolean(positiveTextID(task.todo_id));
-}
-
-function workTaskIsCreate(task: WorkTask): boolean {
-  const action = workTaskAction(task);
-  return action === "create" || action === "创建资料";
+  return workTaskAction(task) === "todo";
 }
 
 function workTaskIsForm(task: WorkTask): boolean {
-  return (
-    !workTaskIsCreate(task) &&
-    !workTaskIsAssign(task) &&
-    !workTaskIsDecision(task) &&
-    !workTaskIsBooking(task) &&
-    !workTaskIsCollaborate(task)
-  );
+  return workTaskAction(task) === "form";
+}
+
+function workTaskIsApproval(task: WorkTask): boolean {
+  return workTaskAction(task) === "approval";
+}
+
+function workTaskIsRule(task: WorkTask): boolean {
+  return workTaskAction(task) === "rule";
 }
 
 function workTaskAllowsProgress(task: WorkTask): boolean {
-  const todoHasForm =
-    workTaskIsCollaborate(task) &&
-    workTaskIsTodo(task) &&
-    Boolean(positiveTextID(task.form_id));
-  return (
-    textValue(task.completion_mode) === "manual" &&
-    (workTaskIsForm(task) || todoHasForm)
-  );
+  return workTaskIsForm(task);
 }
 
 function workTaskNeedsCompleteAction(task: WorkTask): boolean {
-  if (workTaskAllowsProgress(task) || workTaskIsCollaborationReview(task)) {
-    return false;
-  }
-  return (
-    workTaskIsDecision(task) ||
-    workTaskIsAssign(task) ||
-    workTaskIsBooking(task) ||
-    workTaskIsCollaborate(task)
-  );
+  return !workTaskIsRule(task);
 }
 
 function workTaskShouldRenderFields(task: WorkTask): boolean {
-  if (workTaskIsCollaborationReview(task)) return false;
-  const fields = task.form?.fields || [];
-  if (fields.length === 0) {
-    return (
-      workTaskIsCreate(task) ||
-      workTaskIsForm(task) ||
-      workTaskIsBooking(task) ||
-      workTaskIsCollaborate(task)
-    );
-  }
-  return (
-    workTaskIsCreate(task) ||
-    workTaskIsForm(task) ||
-    workTaskIsDecision(task) ||
-    workTaskIsBooking(task) ||
-    workTaskIsAssign(task) ||
-    workTaskIsCollaborate(task)
-  );
+  return workTaskIsForm(task) && (task.form?.fields || []).length > 0;
 }
 
 function workTaskButtonLabel(task: WorkTask): string {
   const name = workTaskName(task);
   if (name && name !== "任务") return name;
-  if (workTaskIsCreate(task)) return "创建资料";
-  if (workTaskIsAssign(task)) return "派单";
-  if (workTaskIsDecision(task)) return "决策";
-  if (workTaskIsBooking(task)) return "资源预定";
-  if (workTaskIsCollaborationReview(task)) return "确认协作完成";
-  if (workTaskIsCollaborate(task)) return workTaskIsTodo(task) ? "完成协作" : "协作任务";
-  return "填写资料";
+  if (workTaskIsForm(task)) return "填写资料";
+  if (workTaskIsApproval(task)) return "审核";
+  if (workTaskIsRule(task)) return "自动核验";
+  return "办理事项";
 }
 
 function confirmWorkTaskSubmit(
@@ -369,14 +270,9 @@ function confirmWorkTaskSubmit(
   mode: "complete" | "progress",
 ): boolean {
   if (mode === "progress") return true;
-  const message =
-    textValue(task.confirm_message) ||
-    (workTaskIsCollaborationReview(task)
-      ? "确认所有必做协作资料已核对完成，并流转到下一阶段吗？"
-      : "") ||
-    (workTaskAllowsProgress(task)
-      ? "确认完成该任务并进入后续流程吗？"
-      : "");
+  const message = workTaskIsForm(task)
+    ? "确认提交资料并完成当前任务吗？"
+    : "";
   if (!message) return true;
   if (typeof globalThis.confirm !== "function") return true;
   return globalThis.confirm(message);
@@ -387,8 +283,8 @@ function workTaskSubmitSuccessMessage(
   mode: "complete" | "progress",
 ): string {
   if (mode === "progress") return "进度已保存";
-  if (workTaskIsCollaborationReview(task)) return "协作已确认完成";
-  return textValue(task.success_message) || "保存成功";
+  if (workTaskIsApproval(task)) return "审核结果已提交";
+  return workTaskIsForm(task) ? "资料已提交" : "任务已完成";
 }
 
 function workTaskKey(task: WorkTask): string {
@@ -593,21 +489,21 @@ async function openRowTask(
   let taskCustomer = customer;
   let taskAsset = asset;
   let fullTask = task;
-  const customerID = workCustomerID(customer);
-  const assetID = textValue(asset?.id);
+  const customerID =
+    workCustomerID(customer) || positiveTextID(task.customer_id);
+  const assetID = workAssetID(asset) || positiveTextID(task.asset_id);
   let detail: WorkDetailTargetResponse | null = null;
   if (customerID) {
     try {
       detail = await refreshWorkDetailTarget(store, customerID, assetID);
       taskCustomer = detail?.customer || customer;
-      taskAsset = asset ? detail?.asset || asset : undefined;
+      taskAsset = assetID ? detail?.asset || asset : undefined;
       fullTask =
         findWorkDetailTask(fullTask, taskCustomer, taskAsset) || fullTask;
     } catch (error) {
       toast.error(errorMessage(error, "客户资料加载失败"));
     }
   }
-  fullTask = withWorkCollaborationReviewTodos(fullTask, detail?.todos);
   setWorkStoreValue(store, "data.actionTarget.workTask", fullTask);
   setWorkStoreValue(store, "data.actionTarget.workTaskCustomer", taskCustomer);
   setWorkStoreValue(store, "data.actionTarget.workTaskAsset", taskAsset ?? null);
@@ -618,39 +514,6 @@ async function openRowTask(
   );
   await prepareWorkTaskForm(store, fullTask, taskCustomer, taskAsset);
   setWorkModalOpen(store, "dialog.workTask", true);
-}
-
-function withWorkCollaborationReviewTodos(
-  task: WorkTask,
-  todos?: WorkTodo[],
-): WorkTask {
-  if (!workTaskIsCollaborationReview(task)) return task;
-  return {
-    ...task,
-    collaboration_todos: workCollaborationReviewTodosForTask(task, todos),
-  };
-}
-
-function workCollaborationReviewTodosForTask(
-  task: WorkTask,
-  todos?: WorkTodo[],
-): WorkTodo[] {
-  const taskID = positiveTextID(task.id);
-  return workCollaborationReviewTodos(todos).filter(
-    (todo) => textValue(todo.source_task_id) === taskID,
-  );
-}
-
-function workCollaborationReviewTodos(todos?: WorkTodo[]): WorkTodo[] {
-  return Array.isArray(todos)
-    ? todos.filter((todo) => Boolean(positiveTextID(todo.source_task_id)))
-    : [];
-}
-
-function workCollaborationRequiredPendingCount(todos: WorkTodo[]): number {
-  return todos.filter(
-    (todo) => Boolean(todo.required) && textValue(todo.status) !== "done",
-  ).length;
 }
 
 function findWorkDetailTask(
@@ -681,35 +544,10 @@ async function prepareWorkTaskForm(
   customer?: WorkCustomer | null,
   asset?: WorkAsset,
 ) {
-  const options = await loadWorkTaskOptions(task);
-  const formState = buildWorkTaskFormState(task, customer, asset, options);
+  const formState = buildWorkTaskFormState(task, customer, asset);
   setWorkStoreValue(store, workTaskFormDataPath, formState.values);
   setWorkStoreValue(store, workTaskFieldMapPath, formState.fieldMap);
   replaceWorkTaskFormSection(store, formState.nodes);
-}
-
-async function loadWorkTaskOptions(task: WorkTask): Promise<WorkOptions> {
-  if (!workTaskNeedsAssigneeOptions(task)) {
-    return { departments: [], staffs: [], forms: [] };
-  }
-
-  try {
-    const payload = await workApi<Partial<WorkOptions>>("/crm/work/options");
-    return {
-      departments: Array.isArray(payload.departments)
-        ? payload.departments
-        : [],
-      staffs: Array.isArray(payload.staffs) ? payload.staffs : [],
-      forms: Array.isArray(payload.forms) ? payload.forms : [],
-    };
-  } catch (error) {
-    toast.error(errorMessage(error, "选项加载失败"));
-    return { departments: [], staffs: [], forms: [] };
-  }
-}
-
-function workTaskNeedsAssigneeOptions(task: WorkTask): boolean {
-  return workTaskIsAssign(task) || workTaskCanSelectCollaborationTargets(task);
 }
 
 function replaceWorkTaskFormSection(
@@ -751,12 +589,10 @@ function buildWorkTaskFormState(
   task: WorkTask,
   customer?: WorkCustomer | null,
   asset?: WorkAsset,
-  options: WorkOptions = { departments: [], staffs: [], forms: [] },
 ): WorkTaskFormState {
   const nodes: WorkTaskFormNode[] = [];
   const values: Record<string, unknown> = {};
   const fieldMap: Record<string, string> = {};
-
   addWorkTaskBusinessObjectNode(nodes, values, fieldMap, task, asset);
 
   if (workTaskShouldRenderFields(task)) {
@@ -786,14 +622,7 @@ function buildWorkTaskFormState(
       asset,
     );
   }
-
-  if (workTaskIsAssign(task)) {
-    addWorkTaskAssignTargetNodes(nodes, values, fieldMap, task, options);
-  }
-
-  if (workTaskCanSelectCollaborationTargets(task)) {
-    addWorkTaskCollaborationTargetNode(nodes, values, fieldMap, task, options);
-  }
+  addWorkTaskActionFields(nodes, values, fieldMap, task);
 
   nodes.push({
     id: "work-task-submit-controller",
@@ -810,38 +639,68 @@ function addWorkTaskBusinessObjectNode(
   task: WorkTask,
   asset?: WorkAsset,
 ) {
-  if (textValue(task.business_object_mode) !== "select") return;
   if (!positiveTextID(task.business_object_type_id)) return;
-  const options = workBusinessObjectOptions(asset, task);
-  const typeName = textValue(task.business_object_type_name) || "业务对象";
+  const existing = workBusinessObjectOptions(asset, task);
+  if (existing.length === 0) return;
+  const typeName = textValue(task.business_object_type_name) || "运营记录";
   const formKey = uniqueWorkTaskFormKey("business_object_id", fieldMap);
-  values[formKey] = options[0]?.id || "";
+  values[formKey] = existing[0].id;
   fieldMap[formKey] = "business_object_id";
   nodes.push({
     id: "work-task-business-object-section",
     type: "show-crm-work-task-field-section",
     meta: {
-      title: typeName,
+      title: "关联记录",
       fields: [
         {
           formKey,
           label: typeName,
-          placeholder:
-            options.length > 0
-              ? `请选择${typeName}`
-              : `请先完成${typeName}创建任务`,
+          placeholder: `请选择${typeName}`,
           required: true,
           type: "form-select",
-          options,
-          meta: {
-            helpText:
-              options.length > 0
-                ? "后续费用和收款会关联到选中的记录。"
-                : `当前资产暂无${typeName}，请先执行创建类任务。`,
-          },
+          options: [...existing, { id: "0", value: `新建${typeName}` }],
         },
       ],
     },
+  });
+}
+
+function addWorkTaskActionFields(
+  nodes: WorkTaskFormNode[],
+  values: Record<string, unknown>,
+  fieldMap: Record<string, string>,
+  task: WorkTask,
+) {
+  if (workTaskIsTodo(task)) {
+    addWorkTaskTextNode(nodes, values, fieldMap, {
+      formKey: "result",
+      rawKey: "result",
+      label: "办理结果",
+      placeholder: "请输入本次办理结果",
+      required: true,
+      type: "form-textarea",
+    });
+    return;
+  }
+  if (!workTaskIsApproval(task)) return;
+  addWorkTaskSelectNode(nodes, values, fieldMap, {
+    formKey: "approval_result",
+    rawKey: "approval_result",
+    label: "审核结果",
+    placeholder: "请选择审核结果",
+    required: true,
+    options: [
+      { id: "approved", value: "通过" },
+      { id: "rejected", value: "驳回" },
+    ],
+  });
+  addWorkTaskTextNode(nodes, values, fieldMap, {
+    formKey: "opinion",
+    rawKey: "opinion",
+    label: "审核意见",
+    placeholder: "请输入审核意见",
+    required: true,
+    type: "form-textarea",
   });
 }
 
@@ -1020,74 +879,6 @@ function workTaskGroupField(
     type: renderConfig.type,
     options: renderConfig.options,
     meta: renderConfig.meta,
-  };
-}
-
-function addWorkTaskAssignTargetNodes(
-  nodes: WorkTaskFormNode[],
-  values: Record<string, unknown>,
-  fieldMap: Record<string, string>,
-  task: WorkTask,
-  options: WorkOptions,
-) {
-  const assignMode = workTaskAssignMode(task);
-  const departments = workAllowedDepartments(task, options.departments);
-  const departmentFormKey = addWorkTaskSelectNode(nodes, values, fieldMap, {
-    formKey: "assign_department_id",
-    rawKey: "department_id",
-    label: "部门",
-    placeholder: "请选择部门",
-    required: true,
-    options: workDepartmentOptions(departments),
-  });
-  if (assignMode === "staff") {
-    addWorkTaskSelectNode(nodes, values, fieldMap, {
-      formKey: "staff_id",
-      rawKey: "staff_id",
-      label: "人员",
-      placeholder: "请选择人员，不选则自动派给部门负责人",
-      required: false,
-      options: workStaffOptions(options.staffs),
-      meta: workStaffSelectMeta(departmentFormKey),
-    });
-  }
-}
-
-function addWorkTaskCollaborationTargetNode(
-  nodes: WorkTaskFormNode[],
-  values: Record<string, unknown>,
-  fieldMap: Record<string, string>,
-  task: WorkTask,
-  options: WorkOptions,
-) {
-  const formKey = uniqueWorkTaskFormKey("collaboration_targets", fieldMap);
-  values[formKey] = initialWorkCollaborationTargets(task);
-  fieldMap[formKey] = "collaboration_targets";
-  nodes.push({
-    id: `work-task-field-${formKey}`,
-    type: "show-crm-work-collaboration-targets",
-    name: "协作对象",
-    value: `workTaskForm.${formKey}`,
-    mode: "form",
-    meta: {
-      formLayout: "horizontal",
-      departments: workDepartmentOptions(options.departments),
-      staffs: workStaffOptions(options.staffs),
-      defaultName: workTaskName(task),
-    },
-  });
-}
-
-function workStaffSelectMeta(departmentFormKey: string): Record<string, unknown> {
-  return {
-    hiddenWhen: [{ path: `workTaskForm.${departmentFormKey}`, operator: "empty" }],
-    optionFilter: [
-      {
-        field: "department_id",
-        path: `workTaskForm.${departmentFormKey}`,
-        operator: "equals",
-      },
-    ],
   };
 }
 
@@ -1313,215 +1104,8 @@ function workFieldOption(option: WorkFieldOption): WorkCommonOption {
   };
 }
 
-function workDepartmentOptions(
-  departments: WorkDepartmentOption[],
-): WorkCommonOption[] {
-  return departments
-    .map((department) => {
-      const id = textValue(department.id);
-      return id
-        ? {
-            ...department,
-            id,
-            value: displayText(department.department_name || department.name),
-          }
-        : null;
-    })
-    .filter(Boolean) as WorkCommonOption[];
-}
-
-function workStaffOptions(staffs: WorkStaffOption[]): WorkCommonOption[] {
-  return staffs
-    .map((staff) => {
-      const id = textValue(staff.id);
-      return id
-        ? {
-            ...staff,
-            id,
-            department_id: textValue(staff.department_id),
-            value: `${displayText(staff.real_name || staff.name)}${staff.phone ? `（${staff.phone}）` : ""}`,
-          }
-        : null;
-    })
-    .filter(Boolean) as WorkCommonOption[];
-}
-
-function workTaskAssignMode(task: WorkTask): "staff" | "department" {
-  return textValue(task.assign_mode) === "department" ? "department" : "staff";
-}
-
-function workTaskCompleteAssignMode(task: WorkTask): "staff" | "department" {
-  return textValue(task.complete_assign_mode) === "department"
-    ? "department"
-    : "staff";
-}
-
-function workTaskAllowedDepartmentIDSet(task: WorkTask): Set<string> {
-  const raw = task.assign_department_ids;
-  return workDepartmentIDSet(raw);
-}
-
-function workTaskCompleteAssignDepartmentIDSet(task: WorkTask): Set<string> {
-  return workDepartmentIDSet(task.complete_assign_department_ids);
-}
-
-function workDepartmentIDSet(raw: unknown): Set<string> {
-  const values = Array.isArray(raw)
-    ? raw
-    : (() => {
-        const text = textValue(raw);
-        if (!text) return [];
-        try {
-          const parsed = JSON.parse(text) as unknown;
-          return Array.isArray(parsed) ? parsed : [text];
-        } catch {
-          return text.split(",");
-        }
-      })();
-  return new Set(values.map((value) => textValue(value)).filter(Boolean));
-}
-
-function workTaskHasCompleteAssign(task?: WorkTask | null): task is WorkTask {
-  return Boolean(task && positiveTextID(task.complete_assign_task_id));
-}
-
-function workAllowedDepartments(
-  task: WorkTask,
-  departments: WorkDepartmentOption[],
-): WorkDepartmentOption[] {
-  const allowed = workTaskAllowedDepartmentIDSet(task);
-  if (allowed.size === 0) return departments;
-  return departments.filter((department) =>
-    allowed.has(textValue(department.id)),
-  );
-}
-
-function workCompleteAssignDepartments(
-  task: WorkTask,
-  departments: WorkDepartmentOption[],
-): WorkDepartmentOption[] {
-  const allowed = workTaskCompleteAssignDepartmentIDSet(task);
-  if (allowed.size === 0) return departments;
-  return departments.filter((department) =>
-    allowed.has(textValue(department.id)),
-  );
-}
-
-function workDepartmentLabel(department?: WorkDepartmentOption | null): string {
-  if (!department) return "";
-  return displayText(
-    department.department_name || department.name || department.id,
-    "未命名部门",
-  );
-}
-
-function workStaffLabel(staff?: WorkStaffOption | null): string {
-  if (!staff) return "";
-  return displayText(staff.real_name || staff.name || staff.id, "未命名人员");
-}
-
-function workStaffsInDepartment(
-  staffs: WorkStaffOption[],
-  departmentID: string,
-): WorkStaffOption[] {
-  if (!departmentID) return [];
-  return staffs.filter(
-    (staff) => textValue(staff.department_id) === departmentID,
-  );
-}
-
-function workSingleStaffID(staffs: WorkStaffOption[]): string {
-  return staffs.length === 1 ? textValue(staffs[0].id) : "";
-}
-
-function workTaskCanSelectCollaborationTargets(task: WorkTask): boolean {
-  return workTaskIsCollaborate(task) && !workTaskIsTodo(task) && !workTaskIsCollaborationReview(task);
-}
-
-function initialWorkCollaborationTargets(
-  task: WorkTask,
-): WorkCollaborationTarget[] {
-  return normalizeWorkCollaborationTargets(task.collaboration_items);
-}
-
-function normalizeWorkCollaborationTargets(
-  value: unknown,
-): WorkCollaborationTarget[] {
-  return normalizeWorkCollaborationTargetRows(value)
-    .filter((target) => !workCollaborationTargetIsEmpty(target));
-}
-
-function normalizeWorkCollaborationTargetRows(
-  value: unknown,
-): WorkCollaborationTarget[] {
-  return workRecordArray(value).map((row) => workCollaborationTargetFromRecord(row));
-}
-
-function workRecordArray(value: unknown): Record<string, unknown>[] {
-  if (Array.isArray(value)) {
-    return value.filter(workIsRecord);
-  }
-  const raw = textValue(value);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.filter(workIsRecord) : [];
-  } catch {
-    return [];
-  }
-}
-
 function workIsRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function workCollaborationTargetFromRecord(
-  row: Record<string, unknown>,
-): WorkCollaborationTarget {
-  const explicitStaffLocked = row["staff_locked"] ?? row["staffLocked"];
-  return {
-    key:
-      textValue(row["key"]) ||
-      textValue(row["target_key"]) ||
-      textValue(row["targetKey"]),
-    name:
-      textValue(row["name"]) ||
-      textValue(row["task_name"]) ||
-      textValue(row["sub_task_name"]),
-    department_id:
-      positiveTextID(row["department_id"]) ||
-      positiveTextID(row["assignee_department_id"]),
-    staff_id:
-      positiveTextID(row["staff_id"]) ||
-      positiveTextID(row["assignee_staff_id"]),
-    form_id: positiveTextID(row["form_id"]),
-    completion_mode:
-      textValue(row["completion_mode"]) ||
-      textValue(row["completionMode"]) ||
-      "submit",
-    staff_locked:
-      typeof explicitStaffLocked === "boolean"
-        ? explicitStaffLocked
-        : Boolean(
-            positiveTextID(row["staff_id"]) ||
-              positiveTextID(row["assignee_staff_id"]),
-          ),
-    required:
-      typeof row["required"] === "boolean"
-        ? row["required"]
-        : row["required"] !== false,
-    sort: Number(row["sort"]) > 0 ? Number(row["sort"]) : 0,
-  };
-}
-
-function workCollaborationTargetIsEmpty(
-  target: WorkCollaborationTarget,
-): boolean {
-  return (
-    !textValue(target.department_id) &&
-    !textValue(target.staff_id) &&
-    !textValue(target.form_id)
-  );
 }
 
 function openWorkDetail(
@@ -1723,7 +1307,6 @@ type WorkQuickFilter =
   | "all"
   | "hasTasks"
   | "missingAsset"
-  | "collaboration"
   | "archived";
 
 type WorkCustomerPageState = {
@@ -2190,6 +1773,8 @@ function WorkGlobalTaskButtons({
   if (tasks.length === 0) {
     return null;
   }
+  const actionableTasks = tasks.filter((task) => !workTaskIsRule(task));
+  if (actionableTasks.length === 0) return null;
 
   const openTask = (task: WorkTask) => {
     void openRowTask(null, task, store);
@@ -2201,10 +1786,10 @@ function WorkGlobalTaskButtons({
         align === "end" ? "justify-end" : ""
       }`}
     >
-      {tasks.map((task) => (
+      {actionableTasks.map((task) => (
         <Button
           type="button"
-          key={textValue(task.id)}
+          key={workTaskKey(task)}
           size="sm"
           onClick={() => openTask(task)}
         >
@@ -3434,25 +3019,43 @@ function WorkItemActions({
         <UserRound className="h-4 w-4" />
         详情
       </Button>
-      {tasks.map((task, index) => (
-        <Button
-          type="button"
-          key={workTaskKey(task)}
-          variant={index === 0 ? "default" : "outline"}
-          size="sm"
-          className={
-            index === 0
-              ? "min-w-0 justify-start shadow-none"
-              : "min-w-0 justify-start border-transparent bg-muted/35 shadow-none hover:bg-muted/60"
-          }
-          onClick={() => openRowTask(customer, task, store, asset)}
-        >
-          <ClipboardList className="h-4 w-4" />
-          <span className="max-w-[9rem] truncate">
-            {workTaskButtonLabel(task)}
-          </span>
-        </Button>
-      ))}
+      {tasks.map((task, index) =>
+        workTaskIsRule(task) ? (
+          <div
+            key={workTaskKey(task)}
+            className="flex min-w-0 items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-left text-amber-900"
+            title={textValue(task.result) || "等待资料满足核验条件"}
+          >
+            <RefreshCw className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">
+                {workTaskButtonLabel(task)}
+              </span>
+              <span className="block truncate text-xs opacity-80">
+                {textValue(task.result) || "等待资料满足核验条件"}
+              </span>
+            </span>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            key={workTaskKey(task)}
+            variant={index === 0 ? "default" : "outline"}
+            size="sm"
+            className={
+              index === 0
+                ? "min-w-0 justify-start shadow-none"
+                : "min-w-0 justify-start border-transparent bg-muted/35 shadow-none hover:bg-muted/60"
+            }
+            onClick={() => openRowTask(customer, task, store, asset)}
+          >
+            <ClipboardList className="h-4 w-4" />
+            <span className="max-w-[9rem] truncate">
+              {workTaskButtonLabel(task)}
+            </span>
+          </Button>
+        ),
+      )}
     </div>
   );
 }
@@ -3973,7 +3576,9 @@ function WorkCustomerOverview({
     target.current_stage_name || target.stage_name,
     "-",
   );
-  const pendingTodoCount = workCollaborationRequiredPendingCount(todos);
+  const pendingTodoCount = todos.filter(
+    (todo) => textValue(todo.status) === "pending",
+  ).length;
   const businessObject = workOverviewPrimaryBusinessObject(primaryAsset);
   const completenessItems = workOverviewCompletenessItems(
     customer,
@@ -4438,148 +4043,6 @@ function workOverviewFinanceSummary(
     )
     .slice(0, 3);
   return values.length > 0 ? values.join("；") : "-";
-}
-
-function WorkCollaborationReviewPanel({
-  task,
-  store,
-}: {
-  task: WorkTask;
-  store?: StoreLike;
-}) {
-  const todos = workCollaborationReviewTodos(task.collaboration_todos);
-  const doneCount = todos.filter((todo) => textValue(todo.status) === "done")
-    .length;
-  const requiredPendingCount = workCollaborationRequiredPendingCount(todos);
-
-  return (
-    <section className="mb-5 grid gap-3">
-      <div>
-        <h3 className="text-[15px] font-semibold leading-6">协作内容</h3>
-        <p className="text-sm leading-6 text-muted-foreground">
-          {todos.length > 0
-            ? requiredPendingCount > 0
-              ? `已完成 ${doneCount}/${todos.length}，还有 ${requiredPendingCount} 个必做待办未完成`
-              : `已完成 ${doneCount}/${todos.length}，必做待办已完成`
-            : "暂无协作内容，请刷新列表后重试"}
-        </p>
-      </div>
-      {todos.length > 0 ? (
-        <div className="grid gap-2">
-          {todos.map((todo, index) => (
-            <WorkCollaborationTodoCard
-              key={textValue(todo.id) || `todo-${index}`}
-              todo={todo}
-              store={store}
-            />
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function WorkCollaborationTodoCard({
-  todo,
-  store,
-}: {
-  todo: WorkTodo;
-  store?: StoreLike;
-}) {
-  const done = textValue(todo.status) === "done";
-  const operation = todo.completed_operation;
-  const summaryItems = Array.isArray(todo.completed_summary_items)
-    ? todo.completed_summary_items
-    : Array.isArray(operation?.summary_items)
-      ? operation.summary_items
-      : [];
-  const visibleSummary = summaryItems
-    .filter((item) => !workRecordSummaryItemEmpty(item))
-    .slice(0, 4);
-  const assignee = [
-    textValue(todo.assignee_department_name),
-    textValue(todo.assignee_staff_name),
-  ]
-    .filter(Boolean)
-    .join(" / ");
-
-  return (
-    <article className="rounded-md bg-muted/20 px-4 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="break-words text-sm font-semibold leading-6">
-              {displayText(todo.sub_task_name || todo.task_name, "协作待办")}
-            </span>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium leading-5 ${
-                done
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "bg-amber-50 text-amber-700"
-              }`}
-            >
-              {displayText(todo.status_name, done ? "已完成" : "待处理")}
-            </span>
-            {todo.required ? (
-              <span className="rounded-full bg-background px-2 py-0.5 text-[11px] leading-5 text-muted-foreground">
-                必做
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground">
-            {assignee ? <span>{assignee}</span> : null}
-            {todo.form_name ? <span>{todo.form_name}</span> : null}
-          </div>
-        </div>
-        {operation ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => openWorkRecordDetail(operation, store)}
-          >
-            查看资料
-          </Button>
-        ) : null}
-      </div>
-      {visibleSummary.length > 0 ? (
-        <div className="mt-3 grid gap-1.5 text-sm sm:grid-cols-2">
-          {visibleSummary.map((item, index) => (
-            <WorkCollaborationSummaryLine
-              key={textValue(item.key || item.label || index)}
-              item={item}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="mt-2 text-sm leading-6 text-muted-foreground/80">
-          {done ? "已完成，暂无可展示摘要" : "暂未提交资料"}
-        </div>
-      )}
-    </article>
-  );
-}
-
-function WorkCollaborationSummaryLine({
-  item,
-}: {
-  item: WorkOperationSummaryItem;
-}) {
-  const files = normalizeUploadItems(item.files);
-  const value =
-    textValue(item.value_type) === "files" && files.length > 0
-      ? `${files.length} 个附件`
-      : displayText(item.value, "-");
-  return (
-    <div className="flex min-w-0 gap-2">
-      <span className="w-20 shrink-0 truncate text-muted-foreground">
-        {displayText(item.label, "-")}
-      </span>
-      <span className="min-w-0 flex-1 break-words font-medium text-foreground/85">
-        {value}
-      </span>
-    </div>
-  );
 }
 
 function WorkDetailPanelSection({
@@ -5048,18 +4511,16 @@ function workOperationBadgeText(operation: WorkOperation): string {
   if (resultValue === "progress") return "进度";
   const taskType = textValue(operation.task_type || operation["task.task_type"]);
   switch (taskType) {
-    case "decision":
-      return "决策";
-    case "collaborate":
-      return "协作";
-    case "assign":
-      return "派单";
-    case "create":
-      return "建档";
-    case "booking":
-      return "预约";
+    case "todo":
+      return "事项";
+    case "form":
+      return "资料";
+    case "approval":
+      return "审核";
+    case "rule":
+      return "核验";
     default:
-      return resultValue && resultValue !== "success" ? "结果" : "记录";
+      return taskType ? "任务" : "流程";
   }
 }
 
@@ -5070,22 +4531,24 @@ function workOperationResultName(operation: WorkOperation): string {
   if (resultName) return resultName;
 
   switch (textValue(operation.result_value)) {
-    case "success":
-      return "成功";
     case "progress":
       return "保存进度";
-    case "auto_failed":
-      return "自动执行失败";
-    case "pending":
-      return "待确认";
-    case "reserved":
-      return "已预定";
+    case "completed":
+      return "已完成";
+    case "submitted":
+      return "已提交";
+    case "approved":
+      return "审核通过";
+    case "passed":
+      return "核验通过";
+    case "failed":
+      return "核验未通过";
     case "canceled":
       return "已取消";
     case "rejected":
-      return "已拒绝";
-    case "done":
-      return "已完成";
+      return "审核驳回";
+    case "entered":
+      return "进入阶段";
     default:
       return displayText(operation.result_value, "记录");
   }
@@ -5097,6 +4560,20 @@ function workOperationTone(operation: WorkOperation): {
   dot: string;
 } {
   const resultValue = textValue(operation.result_value);
+  if (resultValue === "rejected" || resultValue === "failed") {
+    return {
+      badge: "bg-red-50 text-red-700",
+      border: "border-red-200/80",
+      dot: "bg-red-500",
+    };
+  }
+  if (resultValue === "approved" || resultValue === "passed") {
+    return {
+      badge: "bg-emerald-50 text-emerald-700",
+      border: "border-emerald-200/80",
+      dot: "bg-emerald-500",
+    };
+  }
   if (resultValue === "progress") {
     return {
       badge: "bg-amber-50 text-amber-700",
@@ -5106,35 +4583,29 @@ function workOperationTone(operation: WorkOperation): {
   }
   const taskType = textValue(operation.task_type || operation["task.task_type"]);
   switch (taskType) {
-    case "decision":
+    case "todo":
       return {
-        badge: "bg-primary/10 text-primary",
-        border: "border-primary/20",
-        dot: "bg-primary",
+        badge: "bg-muted text-foreground",
+        border: "border-border/60",
+        dot: "bg-foreground/60",
       };
-    case "collaborate":
-      return {
-        badge: "bg-orange-50 text-orange-700",
-        border: "border-orange-200/80",
-        dot: "bg-orange-500",
-      };
-    case "assign":
+    case "form":
       return {
         badge: "bg-sky-50 text-sky-700",
         border: "border-sky-200/80",
         dot: "bg-sky-500",
       };
-    case "create":
+    case "approval":
       return {
-        badge: "bg-emerald-50 text-emerald-700",
-        border: "border-emerald-200/80",
-        dot: "bg-emerald-500",
+        badge: "bg-amber-50 text-amber-700",
+        border: "border-amber-200/80",
+        dot: "bg-amber-500",
       };
-    case "booking":
+    case "rule":
       return {
-        badge: "bg-violet-50 text-violet-700",
-        border: "border-violet-200/80",
-        dot: "bg-violet-500",
+        badge: "bg-teal-50 text-teal-700",
+        border: "border-teal-200/80",
+        dot: "bg-teal-500",
       };
     default:
       return {
@@ -5205,179 +4676,65 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
   const [aiFilling, setAiFilling] = useState(false);
   const [aiPromptOpen, setAiPromptOpen] = useState(false);
   const [aiInstruction, setAiInstruction] = useState("");
-  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
-  const [assignOptions, setAssignOptions] = useState<WorkOptions | null>(null);
-  const [assignLoading, setAssignLoading] = useState(false);
-  const [assignDepartmentID, setAssignDepartmentID] = useState("");
-  const [assignStaffID, setAssignStaffID] = useState("");
-  const [assignError, setAssignError] = useState("");
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const isCollaborationReview = task
-    ? workTaskIsCollaborationReview(task)
-    : false;
-  const reviewTodos = task
-    ? workCollaborationReviewTodos(task.collaboration_todos)
-    : [];
-  const reviewRequiredPendingCount =
-    workCollaborationRequiredPendingCount(reviewTodos);
-  const canConfirmCollaborationReview =
-    !isCollaborationReview ||
-    (reviewTodos.length > 0 && reviewRequiredPendingCount === 0);
   const canSaveProgress = task ? workTaskAllowsProgress(task) : false;
   const canCompleteDirectly = task ? workTaskNeedsCompleteAction(task) : false;
   const canAIFill = task ? workTaskCanAIFill(task) : false;
   const footerTargets = useWorkTaskModalFooterTargets(
     contentRef,
-    canAIFill || canSaveProgress || isCollaborationReview || canCompleteDirectly,
-    canSaveProgress || isCollaborationReview || canCompleteDirectly,
+    canAIFill || canCompleteDirectly,
+    canCompleteDirectly,
   );
-
-  useEffect(() => {
-    setAssignDialogOpen(false);
-    setAssignDepartmentID("");
-    setAssignStaffID("");
-    setAssignError("");
-  }, [task?.id]);
 
   const close = useCallback(() => {
     setWorkModalOpen(store, "dialog.workTask", false);
   }, [store]);
 
-  const openAssignDialog = useCallback(async () => {
-    if (!task || assignLoading) return;
-    setAssignError("");
-    setAssignDialogOpen(true);
-    const completeAssignMode = workTaskCompleteAssignMode(task);
-    const applyDefaultAssignTarget = (options: WorkOptions) => {
-      const departments = workCompleteAssignDepartments(
-        task,
-        options.departments,
-      );
-      if (assignDepartmentID || departments.length !== 1 || !departments[0]?.id) {
-        return;
-      }
-      const departmentID = textValue(departments[0].id);
-      setAssignDepartmentID(departmentID);
-      if (completeAssignMode === "staff") {
-        setAssignStaffID(
-          workSingleStaffID(
-            workStaffsInDepartment(options.staffs, departmentID),
-          ),
-        );
-      }
-    };
-    if (assignOptions) {
-      applyDefaultAssignTarget(assignOptions);
-      return;
-    }
-    setAssignLoading(true);
-    try {
-      const payload = await workApi<Partial<WorkOptions>>("/crm/work/options");
-      const options = {
-        departments: Array.isArray(payload.departments)
-          ? payload.departments
-          : [],
-        staffs: Array.isArray(payload.staffs) ? payload.staffs : [],
-        forms: Array.isArray(payload.forms) ? payload.forms : [],
-      };
-      setAssignOptions(options);
-      applyDefaultAssignTarget(options);
-    } catch (error) {
-      setAssignError(errorMessage(error, "派单选项加载失败"));
-    } finally {
-      setAssignLoading(false);
-    }
-  }, [assignDepartmentID, assignLoading, assignOptions, task]);
-
-  const submit = useCallback(async (
-    mode: "complete" | "progress" = canSaveProgress ? "progress" : "complete",
-    completeAssign?: WorkCompleteAssignSelection,
-  ) => {
-    if (!task) return false;
-    if (submitting) return false;
-    clearCurrentWorkTaskFormErrors(store);
-    if (
-      !validateCurrentWorkTaskForm(store, {
-        allowMissingRequired: mode === "progress",
-      })
-    ) {
-      return false;
-    }
-    if (workTaskIsCollaborationReview(task) && mode === "complete") {
-      const todos = workCollaborationReviewTodos(task.collaboration_todos);
-      const requiredPendingCount = workCollaborationRequiredPendingCount(todos);
-      if (todos.length === 0) {
-        toast.error("暂无协作内容，请刷新后重试");
+  const submit = useCallback(
+    async (mode: "complete" | "progress" = "complete") => {
+      if (!task || submitting) return false;
+      clearCurrentWorkTaskFormErrors(store);
+      if (
+        !validateCurrentWorkTaskForm(store, {
+          allowMissingRequired: mode === "progress",
+        })
+      ) {
         return false;
       }
-      if (requiredPendingCount > 0) {
-        toast.error(`还有 ${requiredPendingCount} 个必做协作待办未完成`);
-        return false;
-      }
-    }
-    if (
-      mode === "complete" &&
-      workTaskHasCompleteAssign(task) &&
-      !completeAssign
-    ) {
-      await openAssignDialog();
-      return false;
-    }
-    if (!confirmWorkTaskSubmit(task, mode)) return false;
+      if (!confirmWorkTaskSubmit(task, mode)) return false;
 
-    setSubmitting(true);
-    try {
-      const result = await workApi<{ asset_id?: string | number }>(
-        "/crm/work/execute",
-        {
-        method: "POST",
-        body: JSON.stringify({
-          task_id: task.id,
-          todo_id: positiveTextID(task.todo_id) || undefined,
-          customer_id: workCustomerID(customer),
-          asset_id: workAssetID(asset),
-          submit_mode: mode,
-          values: {
-            ...collectWorkTaskSubmitValues(store),
-            submit_mode: mode,
-            collaboration_confirm: workTaskIsCollaborationReview(task) || undefined,
-          },
-        }),
-      });
-      if (completeAssign && workTaskHasCompleteAssign(task)) {
+      setSubmitting(true);
+      try {
         await workApi("/crm/work/execute", {
           method: "POST",
           body: JSON.stringify({
-            task_id: task.complete_assign_task_id,
+            task_id: task.id,
+            todo_id: positiveTextID(task.todo_id) || undefined,
             customer_id: workCustomerID(customer),
-            asset_id: positiveTextID(result.asset_id) || workAssetID(asset),
-            values: completeAssign,
+            asset_id: workAssetID(asset),
+            submit_mode: mode,
+            values: {
+              ...collectWorkTaskSubmitValues(store),
+              submit_mode: mode,
+            },
           }),
         });
+        toast.success(workTaskSubmitSuccessMessage(task, mode));
+        notifyWorkRefresh();
+        close();
+      } catch (error) {
+        const message = errorMessage(error);
+        if (!applyWorkTaskSubmitError(store, message)) {
+          toast.error(message || "保存失败");
+        }
+        return false;
+      } finally {
+        setSubmitting(false);
       }
-      toast.success(workTaskSubmitSuccessMessage(task, mode));
-      notifyWorkRefresh();
-      close();
-    } catch (error) {
-      const message = errorMessage(error);
-      if (!applyWorkTaskSubmitError(store, message)) {
-        toast.error(message || "保存失败");
-      }
-      return false;
-    } finally {
-      setSubmitting(false);
-    }
-    return true;
-  }, [
-    asset,
-    canSaveProgress,
-    close,
-    customer,
-    openAssignDialog,
-    store,
-    submitting,
-    task,
-  ]);
+      return true;
+    },
+    [asset, close, customer, store, submitting, task],
+  );
 
   const aiFill = useCallback(async (instruction = "") => {
     if (!task || aiFilling || submitting) return;
@@ -5426,190 +4783,6 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
   }, [submit]);
 
   if (!task) return null;
-  const assignMode = workTaskCompleteAssignMode(task);
-  const assignDepartments = assignOptions
-    ? workCompleteAssignDepartments(task, assignOptions.departments)
-    : [];
-  const assignStaffs =
-    assignOptions
-      ? workStaffsInDepartment(assignOptions.staffs, assignDepartmentID)
-      : [];
-  const selectedAssignDepartment = assignDepartments.find(
-    (department) => textValue(department.id) === assignDepartmentID,
-  );
-  const assignDepartmentLabel =
-    workDepartmentLabel(selectedAssignDepartment) ||
-    (assignLoading ? "正在加载部门" : "暂无可选部门");
-  const selectAssignDepartment = (departmentID: string) => {
-    setAssignDepartmentID(departmentID);
-    if (assignMode !== "staff") {
-      setAssignStaffID("");
-      return;
-    }
-    setAssignStaffID(
-      workSingleStaffID(
-        workStaffsInDepartment(assignOptions?.staffs || [], departmentID),
-      ),
-    );
-  };
-  const canConfirmCompleteAssign =
-    Boolean(assignDepartmentID) &&
-    (assignMode !== "staff" || Boolean(assignStaffID));
-  const confirmCompleteAssign = () => {
-    if (!assignDepartmentID) {
-      setAssignError("请选择派单部门");
-      return;
-    }
-    if (assignMode === "staff" && !assignStaffID) {
-      setAssignError("请选择处理人员");
-      return;
-    }
-    setAssignError("");
-    void submit("complete", {
-      department_id: assignDepartmentID,
-      staff_id: assignStaffID,
-    });
-  };
-  const completeAssignDialog = (
-    <Dialog
-      open={assignDialogOpen}
-      onOpenChange={(open) => {
-        if (!submitting) setAssignDialogOpen(open);
-      }}
-    >
-      <DialogContent className="max-w-lg gap-0 overflow-hidden p-0">
-        <DialogHeader className="border-b px-6 py-5 text-left">
-          <p className="text-xs font-medium text-muted-foreground">
-            确认完成后派单
-          </p>
-          <DialogTitle className="text-xl">
-            {textValue(task.complete_assign_task_name) || "确认派单"}
-          </DialogTitle>
-          <DialogDescription>
-            保存本次资料后，系统会把客户推进到该派单任务。
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-5 px-6 py-5">
-          {assignLoading ? (
-            <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              正在加载可派单人员...
-            </div>
-          ) : null}
-          <section className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">派单部门</span>
-              {assignDepartments.length === 1 ? (
-                <span className="text-xs text-muted-foreground">
-                  已按任务配置限定
-                </span>
-              ) : null}
-            </div>
-            {assignDepartments.length <= 1 ? (
-              <div className="rounded-lg bg-muted px-3 py-2 text-sm">
-                {assignDepartmentLabel}
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {assignDepartments.map((department) => {
-                  const departmentID = textValue(department.id);
-                  const selected = departmentID === assignDepartmentID;
-                  return (
-                    <button
-                      key={departmentID}
-                      type="button"
-                      className={[
-                        "rounded-lg border px-3 py-2 text-sm transition-colors",
-                        selected
-                          ? "border-foreground bg-foreground text-background"
-                          : "border-border bg-background hover:bg-muted/70",
-                      ].join(" ")}
-                      disabled={assignLoading}
-                      onClick={() => selectAssignDepartment(departmentID)}
-                    >
-                      {workDepartmentLabel(department)}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-          {assignMode === "staff" ? (
-            <section className="space-y-2">
-              <span className="text-sm font-medium">处理人员</span>
-              {assignStaffs.length === 0 ? (
-                <div className="rounded-lg bg-muted px-3 py-3 text-sm text-muted-foreground">
-                  {assignDepartmentID ? "该部门暂无可选人员" : "请先选择部门"}
-                </div>
-              ) : (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {assignStaffs.map((staff) => {
-                    const staffID = textValue(staff.id);
-                    const selected = staffID === assignStaffID;
-                    return (
-                      <button
-                        key={staffID}
-                        type="button"
-                        className={[
-                          "flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors",
-                          selected
-                            ? "border-foreground bg-muted/60"
-                            : "border-border bg-background hover:bg-muted",
-                        ].join(" ")}
-                        disabled={assignLoading}
-                        onClick={() => setAssignStaffID(staffID)}
-                      >
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
-                          <UserRound className="h-4 w-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">
-                            {workStaffLabel(staff)}
-                          </span>
-                          {staff.phone ? (
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {staff.phone}
-                            </span>
-                          ) : null}
-                        </span>
-                        {selected ? <Check className="h-4 w-4" /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          ) : (
-              <div className="rounded-lg bg-muted px-3 py-3 text-sm text-muted-foreground">
-                该任务配置为派单到部门，不需要选择具体人员。
-              </div>
-          )}
-          {assignError ? (
-            <p className="text-sm text-destructive">{assignError}</p>
-          ) : null}
-        </div>
-        <div className="flex justify-end gap-2 border-t px-6 py-4">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setAssignDialogOpen(false)}
-            disabled={submitting}
-          >
-            取消
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={confirmCompleteAssign}
-            disabled={submitting || assignLoading || !canConfirmCompleteAssign}
-          >
-            确认派单
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
   const aiFillControl = canAIFill ? (
     <div className="relative">
       <Button
@@ -5672,15 +4845,6 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
         确认完成
       </Button>
     </>
-  ) : isCollaborationReview ? (
-    <Button
-      type="button"
-      size="sm"
-      onClick={() => void submit("complete")}
-      disabled={submitting || aiFilling || !canConfirmCollaborationReview}
-    >
-      确认完成
-    </Button>
   ) : canCompleteDirectly ? (
     <Button
       type="button"
@@ -5688,16 +4852,12 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
       onClick={() => void submit("complete")}
       disabled={submitting || aiFilling}
     >
-      确认完成
+      {workTaskIsApproval(task) ? "提交审核" : "完成任务"}
     </Button>
   ) : null;
 
   return (
     <div ref={contentRef} className="contents">
-      {completeAssignDialog}
-      {isCollaborationReview && task ? (
-        <WorkCollaborationReviewPanel task={task} store={store} />
-      ) : null}
       {footerTargets?.actions
         ? createPortal(
             <>
@@ -5707,11 +4867,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
             footerTargets.actions,
           )
         : null}
-      {(canAIFill ||
-        canSaveProgress ||
-        isCollaborationReview ||
-        canCompleteDirectly) &&
-      !footerTargets ? (
+      {(canAIFill || canCompleteDirectly) && !footerTargets ? (
         <div className="mt-4 flex items-center justify-between gap-3 border-t pt-4">
           <div />
           <div className="flex items-center gap-2">
@@ -6073,149 +5229,6 @@ function findWorkTaskModalFooter(form: Element | null): HTMLElement | null {
   return submitButton?.parentElement || null;
 }
 
-export function ShowCrmWorkCollaborationTargets({
-  item,
-  store,
-  value,
-  setValue,
-  error,
-}: WorkNodeProps) {
-  const meta = item?.meta || {};
-  const departments = normalizeWorkCommonOptions(meta["departments"]);
-  const staffs = normalizeWorkCommonOptions(meta["staffs"]);
-  const defaultName = textValue(meta["defaultName"]) || "协作子任务";
-  const targets = workCollaborationTargetRowsForEdit(value);
-  const errorMessage =
-    error ||
-    (item?.value
-      ? workStoreValue<Record<string, string>>(store, "errors", {})[
-          item.value
-        ]
-      : "");
-
-  const updateTargets = useCallback(
-    (nextTargets: WorkCollaborationTarget[]) => {
-      setValue?.(nextTargets);
-    },
-    [setValue],
-  );
-
-  const updateTarget = useCallback(
-    (
-      index: number,
-      patch: Partial<WorkCollaborationTarget>,
-    ) => {
-      updateTargets(
-        targets.map((target, targetIndex) =>
-          targetIndex === index
-            ? {
-                ...target,
-                ...patch,
-              }
-            : target,
-        ),
-      );
-    },
-    [targets, updateTargets],
-  );
-
-  return (
-    <div className="w-full space-y-3">
-      <div className="overflow-hidden rounded-lg border border-border/70 bg-background">
-        <div className="hidden border-b bg-muted/30 text-xs font-medium text-muted-foreground md:grid md:grid-cols-3">
-          <div className="px-3 py-2">子任务</div>
-          <div className="px-3 py-2">目标部门</div>
-          <div className="px-3 py-2">处理人员</div>
-        </div>
-        {targets.length === 0 ? (
-          <div className="px-3 py-4 text-sm text-muted-foreground">
-            请先在后台配置协作对象
-          </div>
-        ) : null}
-        {targets.map((target, index) => {
-          const staffOptions = collaborationStaffOptions(
-            staffs,
-            target.department_id,
-          );
-          const departmentName = workOptionValueByID(
-            departments,
-            target.department_id,
-          );
-          const selectedStaffName = workOptionValueByID(staffs, target.staff_id);
-          const staffLocked = Boolean(target.staff_locked && target.staff_id);
-          return (
-            <div
-              key={index}
-              className="grid gap-2 border-b px-3 py-3 last:border-b-0 md:grid-cols-3 md:items-center md:py-2"
-            >
-              <div className="space-y-1 md:space-y-0">
-                <div className="text-xs font-medium text-muted-foreground md:hidden">
-                  子任务
-                </div>
-                <div className="rounded-md border border-transparent py-2 text-sm text-foreground break-words">
-                  {target.name || defaultName}
-                </div>
-              </div>
-              <div className="space-y-1 md:space-y-0">
-                <div className="text-xs font-medium text-muted-foreground md:hidden">
-                  目标部门
-                </div>
-                <div className="rounded-md border border-transparent py-2 text-sm text-foreground break-words">
-                  {departmentName || target.department_id || "-"}
-                </div>
-              </div>
-              <div className="space-y-1 md:space-y-0">
-                <div className="text-xs font-medium text-muted-foreground md:hidden">
-                  处理人员
-                </div>
-                {staffLocked ? (
-                  <div className="rounded-md border border-transparent py-2 text-sm text-foreground break-words">
-                    {selectedStaffName || target.staff_id || "-"}
-                  </div>
-                ) : (
-                  <select
-                    className={inputClassName}
-                    value={target.staff_id}
-                    disabled={!target.department_id}
-                    onChange={(event) =>
-                      updateTarget(index, { staff_id: event.target.value })
-                    }
-                  >
-                    <option value="">
-                      {target.department_id
-                        ? "请选择处理人员"
-                        : "请先配置目标部门"}
-                    </option>
-                    {staffOptions.map((staff) => (
-                      <option key={staff.id} value={staff.id}>
-                        {staff.value}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <p className="text-xs text-muted-foreground">
-        协作对象由后台任务配置决定；后台未指定处理人员时，需要选择目标部门内的处理人员。
-      </p>
-      {errorMessage ? (
-        <p className="text-xs text-destructive">{errorMessage}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function workCollaborationTargetRowsForEdit(
-  value: unknown,
-): WorkCollaborationTarget[] {
-  return normalizeWorkCollaborationTargetRows(value).filter(
-    (target) => !workCollaborationTargetIsEmpty(target),
-  );
-}
-
 function normalizeWorkCommonOptions(value: unknown): WorkCommonOption[] {
   return Array.isArray(value)
     ? value
@@ -6233,38 +5246,13 @@ function normalizeWorkCommonOptions(value: unknown): WorkCommonOption[] {
     : [];
 }
 
-function collaborationStaffOptions(
-  staffs: WorkCommonOption[],
-  departmentID: string,
-): WorkCommonOption[] {
-  const selectedDepartmentID = textValue(departmentID);
-  if (!selectedDepartmentID) return [];
-  return staffs.filter(
-    (staff) => textValue(staff.department_id) === selectedDepartmentID,
-  );
-}
-
-function workOptionValueByID(
-  options: WorkCommonOption[],
-  id: unknown,
-): string {
-  const selectedID = textValue(id);
-  if (!selectedID) return "";
-  return textValue(
-    options.find((option) => textValue(option.id) === selectedID)?.value,
-  );
-}
-
 function validateCurrentWorkTaskForm(
   store: StoreLike | undefined,
   options: { allowMissingRequired?: boolean } = {},
 ): boolean {
+  if (options.allowMissingRequired) return true;
   const validateForm = currentWorkStoreState(store)?.validateForm;
-  if (
-    !options.allowMissingRequired &&
-    typeof validateForm === "function" &&
-    !validateForm()
-  ) {
+  if (typeof validateForm === "function" && !validateForm()) {
     return false;
   }
   return validateCurrentWorkTaskDomainRules(store);
@@ -6278,19 +5266,7 @@ function validateCurrentWorkTaskDomainRules(
     setCurrentWorkTaskFormErrors(store, groupErrors);
     return false;
   }
-
-  const collaborationError = currentWorkTaskCollaborationTargetsError(store);
-  if (!collaborationError) return true;
-
-  const errorKey = currentWorkTaskFormErrorKey(store, "collaboration_targets");
-  if (errorKey) {
-    setCurrentWorkTaskFormErrors(store, {
-      [errorKey]: collaborationError,
-    });
-  } else {
-    toast.error(collaborationError);
-  }
-  return false;
+  return true;
 }
 
 function currentWorkTaskGroupFieldErrors(
@@ -6338,35 +5314,6 @@ function workTaskClientValueEmpty(value: unknown): boolean {
   return textValue(value) === "";
 }
 
-function currentWorkTaskCollaborationTargetsError(
-  store: StoreLike | undefined,
-): string {
-  const fieldMap = workStoreValue<Record<string, string>>(
-    store,
-    workTaskFieldMapPath,
-    {},
-  );
-  const formKey = Object.entries(fieldMap).find(
-    ([, rawKey]) => workTaskRawMainField(rawKey) === "collaboration_targets",
-  )?.[0];
-  if (!formKey) return "";
-
-  const formValues = workStoreValue<Record<string, unknown>>(
-    store,
-    workTaskFormDataPath,
-    {},
-  );
-  const targets = normalizeWorkCollaborationTargets(formValues[formKey]);
-  if (targets.length === 0) return "请先在后台配置协作对象";
-  if (targets.some((target) => !target.department_id)) {
-    return "协作子任务目标部门不能为空";
-  }
-  if (targets.some((target) => !target.staff_id)) {
-    return "请选择协作子任务处理人员";
-  }
-  return "";
-}
-
 function collectWorkTaskSubmitValues(
   store: StoreLike | undefined,
 ): Record<string, unknown> {
@@ -6382,31 +5329,11 @@ function collectWorkTaskSubmitValues(
   );
   return Object.entries(fieldMap).reduce<Record<string, unknown>>(
     (values, [formKey, rawKey]) => {
-      values[rawKey] =
-        workTaskRawMainField(rawKey) === "collaboration_targets"
-          ? submitWorkCollaborationTargets(formValues[formKey])
-          : formValues[formKey];
+      values[rawKey] = formValues[formKey];
       return values;
     },
     {},
   );
-}
-
-function submitWorkCollaborationTargets(value: unknown): Record<string, unknown>[] {
-  return normalizeWorkCollaborationTargets(value).map((target) => {
-    const result: Record<string, unknown> = {
-      name: target.name,
-      department_id: target.department_id,
-      staff_id: target.staff_id,
-      required: target.required,
-      sort: target.sort,
-    };
-    if (target.key) result.key = target.key;
-    if (target.form_id) result.form_id = target.form_id;
-    if (target.completion_mode) result.completion_mode = target.completion_mode;
-    if (target.staff_locked) result.staff_locked = target.staff_locked;
-    return result;
-  });
 }
 
 function applyWorkTaskAIFillValues(
@@ -6525,14 +5452,9 @@ function workTaskSubmitErrorField(message: string): string {
   if (message.includes("微信") || message.includes("wechat")) return "wechat";
   if (message.includes("身份证") || message.includes("id_card"))
     return "id_card";
-  if (
-    message.includes("协作子任务") ||
-    message.includes("协作对象") ||
-    message.includes("目标部门") ||
-    message.includes("处理人员")
-  ) {
-    return "collaboration_targets";
-  }
+  if (message.includes("审核意见")) return "opinion";
+  if (message.includes("审核结果")) return "approval_result";
+  if (message.includes("办理结果")) return "result";
   return "";
 }
 

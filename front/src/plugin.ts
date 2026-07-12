@@ -31,11 +31,6 @@ export default defineFrontPlugin({
         default: mod.ShowCrmWorkTaskForm,
       })),
     ),
-    "show-crm-work-collaboration-targets": lazyNode(() =>
-      loadWorkAuth().then((mod) => ({
-        default: mod.ShowCrmWorkCollaborationTargets,
-      })),
-    ),
     "show-crm-work-task-group-tabs": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
         default: mod.ShowCrmWorkTaskGroupTabs,

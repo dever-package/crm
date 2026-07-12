@@ -76,7 +76,6 @@ type AdminStaffRow = {
   transition_count?: string | number;
   operation_count?: string | number;
   todo_done_count?: string | number;
-  points?: string | number;
   last_active_at?: string;
   total?: string | number;
 };
@@ -190,7 +189,7 @@ const adminStatsModeTitles: Record<
   },
   performance: {
     title: "绩效统计",
-    description: "基于任务完成、阶段流转、协作待办和任务积分统计人员产出。",
+    description: "基于任务完成、阶段流转、操作记录和待办完成统计人员产出。",
   },
 };
 
@@ -334,7 +333,7 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
           {mode === "all" ? (
             <AdminSectionTitle
               title="绩效统计"
-              description="基于任务完成、阶段流转、协作待办和任务积分统计人员产出。"
+              description="基于任务完成、阶段流转、操作记录和待办完成统计人员产出。"
             />
           ) : null}
           <AdminStaffRanking rows={summary.staff_output || summary.staff_ranking || []} />
@@ -931,7 +930,7 @@ function AdminNodeBacklog({ rows }: { rows: AdminBacklogRow[] }) {
         <div>
           <h3 className="text-base font-semibold leading-6">节点积压</h3>
           <p className="text-sm leading-6 text-muted-foreground">
-            按当前阶段统计停留天数、协作待办和超期对象。
+            按当前阶段统计停留天数、待办任务和超期对象。
           </p>
         </div>
         <AlertTriangle className="h-5 w-5 shrink-0 text-muted-foreground/70" />
@@ -1165,7 +1164,7 @@ function AdminStaffRanking({ rows }: { rows: AdminStaffRow[] }) {
         <div>
           <h3 className="text-base font-semibold leading-6">人员产出</h3>
           <p className="text-sm leading-6 text-muted-foreground">
-            近 14 天任务、流转、协作完成和积分排行。
+            近 14 天任务、流转、操作和待办完成情况。
           </p>
         </div>
         <ListChecks className="h-5 w-5 shrink-0 text-muted-foreground/70" />
@@ -1174,15 +1173,14 @@ function AdminStaffRanking({ rows }: { rows: AdminStaffRow[] }) {
         {rows.length === 0 ? (
           <AdminEmptyText>暂无人员产出数据</AdminEmptyText>
         ) : (
-          <table className="w-full min-w-[920px] text-sm">
+          <table className="w-full min-w-[820px] text-sm">
             <thead className="bg-muted/50 text-left text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-medium">人员</th>
                 <th className="px-4 py-3 font-medium">任务完成</th>
                 <th className="px-4 py-3 font-medium">阶段流转</th>
                 <th className="px-4 py-3 font-medium">操作记录</th>
-                <th className="px-4 py-3 font-medium">协作完成</th>
-                <th className="px-4 py-3 font-medium">积分</th>
+                <th className="px-4 py-3 font-medium">待办完成</th>
                 <th className="px-4 py-3 font-medium">合计</th>
                 <th className="px-4 py-3 font-medium">最近产出</th>
               </tr>
@@ -1195,7 +1193,6 @@ function AdminStaffRanking({ rows }: { rows: AdminStaffRow[] }) {
                   <td className="px-4 py-3">{formatNumber(row.transition_count)}</td>
                   <td className="px-4 py-3">{formatNumber(row.operation_count)}</td>
                   <td className="px-4 py-3">{formatNumber(row.todo_done_count)}</td>
-                  <td className="px-4 py-3">{formatNumber(row.points)}</td>
                   <td className="px-4 py-3 font-semibold">{formatNumber(row.total)}</td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {formatWorkDate(row.last_active_at)}

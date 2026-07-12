@@ -38,11 +38,6 @@ func (Work) GetMe(c *server.Context) error {
 	return crmJSON(c, data, err)
 }
 
-func (Work) GetOptions(c *server.Context) error {
-	data, err := workService.Options(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
-	return crmJSON(c, data, err)
-}
-
 func (Work) GetCustomers(c *server.Context) error {
 	data, err := workService.Customers(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
 		"keyword":       c.Input("keyword"),

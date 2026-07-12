@@ -34,7 +34,6 @@ type adminSummaryStaffStat struct {
 	TransitionCount int
 	OperationCount  int
 	TodoDoneCount   int
-	Points          float64
 	LastActiveAt    time.Time
 }
 
@@ -593,7 +592,6 @@ func adminSummaryStaffOutput(ctx context.Context, events []*crmmodel.StatEvent, 
 			"transition_count": stat.TransitionCount,
 			"operation_count":  stat.OperationCount,
 			"todo_done_count":  stat.TodoDoneCount,
-			"points":           stat.Points,
 			"last_active_at":   stat.LastActiveAt,
 			"total":            adminSummaryStaffTotal(stat),
 		})

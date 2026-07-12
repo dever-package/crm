@@ -453,17 +453,6 @@ func (WorkService) Tasks(ctx context.Context, staff *WorkStaffSession, customerI
 	return result, nil
 }
 
-func (WorkService) Options(ctx context.Context, staff *WorkStaffSession) (map[string]any, error) {
-	if staff == nil || staff.ID == 0 {
-		return nil, fmt.Errorf("请先登录")
-	}
-	return map[string]any{
-		"departments": workDepartmentOptions(ctx),
-		"staffs":      workStaffOptions(ctx),
-		"forms":       workFormOptions(ctx),
-	}, nil
-}
-
 func (WorkService) Execute(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
 	var result map[string]any
 	err := orm.Transaction(ctx, func(txCtx context.Context) error {
@@ -1070,7 +1059,6 @@ var workTaskListFields = []string{
 	"task_name",
 	"task_type",
 	"form_id",
-	"business_object_mode",
 	"business_object_type_id",
 	"business_object_type_name",
 	"todo_id",
@@ -3403,11 +3391,6 @@ func attachWorkTaskBusinessObjectConfig(ctx context.Context, task map[string]any
 	}
 	task["business_object_type_id"] = typeID
 	task["business_object_type_name"] = workBusinessObjectTypeName(ctx, typeID)
-	mode := normalizeWorkBusinessObjectMode(inputText(task["business_object_mode"]))
-	if mode == "" {
-		mode = "create"
-	}
-	task["business_object_mode"] = mode
 }
 
 func workFormBusinessObjectTypeID(ctx context.Context, fields []map[string]any) uint64 {
@@ -3426,17 +3409,6 @@ func workFormBusinessObjectTypeID(ctx context.Context, fields []map[string]any) 
 		return cate.BusinessObjectTypeID
 	}
 	return 0
-}
-
-func normalizeWorkBusinessObjectMode(mode string) string {
-	switch strings.TrimSpace(mode) {
-	case "select", "select_existing", "existing":
-		return "select"
-	case "create", "create_new", "":
-		return "create"
-	default:
-		return "create"
-	}
 }
 
 func workDataFieldOptionsForField(ctx context.Context, field *crmmodel.DataField) []map[string]any {
@@ -3551,44 +3523,6 @@ func workActionValues(payload map[string]any) map[string]any {
 		}
 	}
 	return values
-}
-
-func workDepartmentOptions(ctx context.Context) []map[string]any {
-	rows := crmmodel.NewDepartmentModel().SelectMap(ctx, map[string]any{"status": crmmodel.StatusEnabled})
-	result := make([]map[string]any, 0, len(rows))
-	for _, row := range rows {
-		id := inputUint64(row["id"])
-		name := inputText(row["name"])
-		if id == 0 || name == "" {
-			continue
-		}
-		result = append(result, map[string]any{"id": id, "name": name})
-	}
-	return result
-}
-
-func workStaffOptions(ctx context.Context) []map[string]any {
-	rows := crmmodel.NewStaffModel().SelectMap(ctx, map[string]any{"status": crmmodel.StatusEnabled})
-	result := make([]map[string]any, 0, len(rows))
-	for _, row := range rows {
-		id := inputUint64(row["id"])
-		name := inputText(row["name"])
-		if id == 0 || name == "" {
-			continue
-		}
-		result = append(result, map[string]any{
-			"id":            id,
-			"name":          name,
-			"phone":         inputText(row["phone"]),
-			"department_id": inputUint64(row["department_id"]),
-		})
-	}
-	return result
-}
-
-func workFormOptions(ctx context.Context) []map[string]any {
-	rows := crmmodel.NewFormModel().SelectMap(ctx, map[string]any{"status": crmmodel.StatusEnabled})
-	return namedWorkOptions(rows)
 }
 
 func workFieldInputKey(field *crmmodel.FormField) string {

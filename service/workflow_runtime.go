@@ -243,11 +243,10 @@ func advanceAssetProgressIfReady(ctx context.Context, progressID uint64) error {
 
 	if stage := nextEnabledStage(ctx, progress.WorkflowID, progress.StageID); stage != nil {
 		workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{
-			"id":     progress.WorkflowID,
-			"status": crmmodel.StatusEnabled,
+			"id": progress.WorkflowID,
 		})
 		if workflow == nil {
-			return fmt.Errorf("当前流程不存在或已停用")
+			return fmt.Errorf("当前流程不存在")
 		}
 		recordWorkStageChange(ctx, progress, progress.StageID, stage.ID, "entered")
 		return enterWorkflowStage(ctx, progress, workflow, stage)

@@ -102,38 +102,35 @@ export type WorkTaskFieldRenderConfig = {
 
 export type WorkTask = {
   id?: string | number;
+  task_id?: string | number;
   name?: string;
   task_name?: string;
   todo_id?: string | number;
   todo_status?: string;
   todo_required?: boolean;
   todo_sort?: string | number;
+  status?: string;
+  status_name?: string;
   assigned_at?: string;
+  due_at?: string;
+  result?: string;
+  can_operate?: boolean;
+  unassigned?: boolean;
+  workflow_id?: string | number;
+  workflow_name?: string;
+  stage_id?: string | number;
+  stage_name?: string;
+  customer_id?: string | number;
+  asset_id?: string | number;
   assignee_department_id?: string | number;
+  assignee_department_name?: string;
   assignee_staff_id?: string | number;
-  action_type?: string;
-  task_action?: string;
+  assignee_staff_name?: string;
   task_type?: string;
-  trigger_type?: string;
-  assign_mode?: string;
-  assign_department_ids?: Array<string | number> | string;
-  collaboration_items?: Array<Record<string, unknown>> | string;
-  collaboration_complete_mode?: string;
-  completion_mode?: string;
-  business_object_mode?: string;
   business_object_type_id?: string | number;
   business_object_type_name?: string;
-  complete_assign_task_id?: string | number;
-  complete_assign_task_name?: string;
-  complete_assign_mode?: string;
-  complete_assign_department_ids?: Array<string | number> | string;
-  decision_mode?: string;
-  confirm_message?: string;
-  success_message?: string;
   form_id?: string | number;
   form?: WorkForm | null;
-  collaboration_review?: boolean;
-  collaboration_todos?: WorkTodo[];
 };
 
 export type WorkCustomer = {
@@ -236,6 +233,8 @@ export type WorkOperation = {
   id?: string | number;
   asset_id?: string | number;
   customer_id?: string | number;
+  workflow_id?: string | number;
+  stage_id?: string | number;
   task_type?: string;
   result_value?: string;
   stage_code?: string;
@@ -259,30 +258,30 @@ export type WorkOperation = {
 
 export type WorkTodo = {
   id?: string | number;
+  todo_id?: string | number;
+  task_id?: string | number;
+  workflow_id?: string | number;
+  workflow_name?: string;
+  stage_id?: string | number;
+  stage_name?: string;
   customer_id?: string | number;
   asset_id?: string | number;
-  source_task_id?: string | number;
-  parent_operation_log_id?: string | number;
-  sub_task_name?: string;
   task_name?: string;
+  task_type?: string;
   form_id?: string | number;
-  completion_mode?: string;
-  task_points?: string | number;
   assignee_department_id?: string | number;
   assignee_department_name?: string;
   assignee_staff_id?: string | number;
   assignee_staff_name?: string;
-  required?: boolean;
-  sort?: string | number;
+  todo_required?: boolean;
+  todo_sort?: string | number;
   status?: string;
   status_name?: string;
   can_operate?: boolean;
   assigned_at?: string;
+  due_at?: string;
+  result?: string;
   completed_at?: string;
-  completed_operation_log_id?: string | number;
-  completed_operation?: WorkOperation;
-  completed_summary_items?: WorkOperationSummaryItem[];
-  form_name?: string;
   created_at?: string;
   updated_at?: string;
   [key: string]: unknown;
@@ -350,26 +349,6 @@ export type WorkSearchFilters = {
   wechat: string;
   assetNo: string;
   status: string;
-};
-
-export type WorkDepartmentOption = {
-  id?: string | number;
-  name?: string;
-  department_name?: string;
-};
-
-export type WorkStaffOption = {
-  id?: string | number;
-  name?: string;
-  real_name?: string;
-  phone?: string;
-  department_id?: string | number;
-};
-
-export type WorkOptions = {
-  departments: WorkDepartmentOption[];
-  staffs: WorkStaffOption[];
-  forms: WorkCommonOption[];
 };
 
 export type WorkCommonOption = {

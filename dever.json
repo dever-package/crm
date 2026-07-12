@@ -67,7 +67,7 @@
         "config": {
           "name": "CRM 工作台",
           "subtitle": "客户中心",
-          "description": "CRM 前台任务与协作入口",
+          "description": "CRM 前台客户与任务入口",
           "logo": "crm/assets/work/images/logo.svg",
           "favicon": "crm/assets/work/images/favicon.svg"
         },
