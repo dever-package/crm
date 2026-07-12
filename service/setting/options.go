@@ -18,13 +18,49 @@ type OptionService struct{}
 var ensureBaseDataTemplateCatesOnce sync.Once
 
 func (OptionService) ProviderLoadWorkflowOptions(c *server.Context, _ []any) any {
-	rows := crmmodel.NewWorkflowModel().SelectMap(contextFromServer(c), map[string]any{
-		"status": crmmodel.StatusEnabled,
-	}, map[string]any{
+	return loadWorkflowOptions(contextFromServer(c))
+}
+
+func (OptionService) ProviderLoadWorkflowPageState(c *server.Context, _ []any) any {
+	workflowID := optionUint64(c, nil, "workflow_id", "workflowId")
+	workflows := loadWorkflowOptions(contextFromServer(c))
+	if !hasOptionID(workflows, workflowID) {
+		workflowID = 0
+		if len(workflows) > 0 {
+			workflowID = util.ToUint64(workflows[0]["id"])
+		}
+	}
+
+	workflowValue := any("")
+	if workflowID > 0 {
+		workflowValue = workflowID
+	}
+
+	return map[string]any{
+		"workflow_id": workflowValue,
+		"stage_id":    "",
+		"keyword":     optionString(c, nil, "keyword"),
+	}
+}
+
+func loadWorkflowOptions(ctx context.Context) []map[string]any {
+	rows := crmmodel.NewWorkflowModel().SelectMap(ctx, map[string]any{}, map[string]any{
 		"field": "main.id, main.name, main.status, main.sort",
 		"order": "main.sort asc, main.id asc",
 	})
 	return loadNamedConfigOptions(rows)
+}
+
+func hasOptionID(options []map[string]any, optionID uint64) bool {
+	if optionID == 0 {
+		return false
+	}
+	for _, option := range options {
+		if util.ToUint64(option["id"]) == optionID {
+			return true
+		}
+	}
+	return false
 }
 
 func (OptionService) ProviderLoadStageOptions(c *server.Context, params []any) any {

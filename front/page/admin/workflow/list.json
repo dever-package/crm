@@ -9,20 +9,27 @@
     "type": "container",
     "children": {
       "page-header": {
-        "type": "header"
+        "type": "header",
+        "className": "gap-4",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto flex shrink-0 flex-wrap items-center justify-end gap-2"
+          }
+        }
       },
       "page-main": {
         "type": "main",
         "className": "flex flex-1 flex-col gap-5 sm:gap-6",
         "children": {
+          "workflow-tabs-row": {
+            "type": "container",
+            "className": "flex min-w-0 items-center overflow-x-auto pb-1"
+          },
           "content-shell": {
             "type": "container",
-            "className": "grid grid-cols-1 gap-4 xl:grid-cols-[minmax(13rem,0.7fr)_minmax(15rem,0.9fr)_minmax(0,2fr)]",
+            "className": "grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]",
             "children": {
-              "workflow-column": {
-                "type": "container",
-                "className": "min-w-0"
-              },
               "stage-column": {
                 "type": "container",
                 "className": "min-w-0"
@@ -37,7 +44,7 @@
                   },
                   "task-table": {
                     "type": "container",
-                    "className": "overflow-hidden rounded-md border bg-background"
+                    "className": "overflow-x-auto rounded-md border bg-background"
                   }
                 }
               }
@@ -58,122 +65,87 @@
         "className": "min-w-0 flex-1"
       }
     ],
-    "workflow-column": [
+    "header-actions": [
       {
-        "type": "show-category-list",
-        "id": "crm-workflow-list",
-        "value": "search.workflow_id",
-        "option": {
-          "model": "crm.NewWorkflowModel",
-          "labelField": "name",
-          "order": "sort asc,id asc",
-          "pageSize": 200,
-          "extraFields": [
-            "status",
-            "sort"
+        "type": "show-button",
+        "name": "新增流程",
+        "className": "shrink-0",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "icon": "plus"
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.createWorkflow",
+            "value": true
+          }
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "编辑流程",
+        "className": "shrink-0",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "square-pen",
+          "hiddenWhen": [
+            {
+              "path": "search.workflow_id",
+              "operator": "empty"
+            }
           ]
         },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.editWorkflow",
+            "value": true
+          }
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "删除流程",
+        "className": "shrink-0 text-destructive hover:text-destructive",
         "meta": {
-          "title": "流程",
-          "remote": true,
-          "defaultFirst": true,
-          "queryKey": "workflow_id",
-          "sortable": true,
-          "sortField": "sort",
-          "sortChangeAction": {
-            "type": "save",
-            "path": "crm/workflow/update",
-            "params": {
-              "_partial": true,
-              "id": "$row.id",
-              "sort": "$value"
-            },
-            "before": {
-              "service": "crm.setting.CrmHook.BeforeSaveWorkflow"
-            }
-          },
-          "statusField": "status",
-          "statusDisplay": "select",
-          "statusChangeAction": {
-            "type": "save",
-            "path": "crm/workflow/update",
-            "params": {
-              "_partial": true,
-              "id": "$row.id",
-              "status": "$value"
-            },
-            "before": {
-              "service": "crm.setting.CrmHook.BeforeSaveWorkflow"
-            }
-          },
-          "statusCases": [
+          "variant": "outline",
+          "size": "sm",
+          "icon": "trash-2",
+          "hiddenWhen": [
             {
-              "value": 1,
-              "text": "启用",
-              "tone": "success"
-            },
-            {
-              "value": 2,
-              "text": "停用",
-              "tone": "muted"
-            }
-          ],
-          "createButton": {
-            "name": "新增流程",
-            "icon": "plus",
-            "variant": "outline",
-            "size": "sm",
-            "action": {
-              "click": {
-                "type": "modal",
-                "key": "dialog.createWorkflow",
-                "value": true
-              }
-            }
-          },
-          "buttons": [
-            {
-              "icon": "square-pen",
-              "variant": "ghost",
-              "size": "sm",
-              "description": "编辑流程",
-              "action": {
-                "click": [
-                  {
-                    "type": "data",
-                    "key": "actionTarget.workflowId",
-                    "value": "$row.id"
-                  },
-                  {
-                    "type": "modal",
-                    "key": "dialog.editWorkflow",
-                    "value": true
-                  }
-                ]
-              }
-            },
-            {
-              "icon": "trash-2",
-              "variant": "ghost",
-              "size": "sm",
-              "description": "删除流程",
-              "className": "text-destructive hover:text-destructive",
-              "action": {
-                "click": [
-                  {
-                    "type": "data",
-                    "key": "actionTarget.deleteWorkflowId",
-                    "value": "$row.id"
-                  },
-                  {
-                    "type": "modal",
-                    "key": "dialog.deleteWorkflow",
-                    "value": true
-                  }
-                ]
-              }
+              "path": "search.workflow_id",
+              "operator": "empty"
             }
           ]
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.deleteWorkflow",
+            "value": true
+          }
+        }
+      }
+    ],
+    "workflow-tabs-row": [
+      {
+        "type": "nav-tab",
+        "value": "search.workflow_id",
+        "option": {
+          "service": "crm.setting.OptionService.LoadWorkflowOptions",
+          "valueField": "id",
+          "labelField": "name",
+          "pageSize": 200
+        },
+        "meta": {
+          "target": "data.search.workflow_id",
+          "variant": "pill",
+          "remoteSearch": true,
+          "queryKey": "workflow_id",
+          "searchLayoutId": "task-toolbar"
         }
       }
     ],
@@ -190,6 +162,12 @@
         },
         "meta": {
           "title": "阶段",
+          "hiddenWhen": [
+            {
+              "path": "search.workflow_id",
+              "operator": "empty"
+            }
+          ],
           "remote": true,
           "defaultFirst": true,
           "queryKey": "stage_id",
@@ -303,7 +281,15 @@
         "type": "form-input",
         "placeholder": "搜索任务名称...",
         "value": "search.keyword",
-        "mode": "search"
+        "mode": "search",
+        "meta": {
+          "hiddenWhen": [
+            {
+              "path": "search.workflow_id",
+              "operator": "empty"
+            }
+          ]
+        }
       },
       {
         "type": "show-button",
@@ -311,7 +297,13 @@
         "meta": {
           "variant": "default",
           "size": "sm",
-          "searchSubmit": true
+          "searchSubmit": true,
+          "hiddenWhen": [
+            {
+              "path": "search.workflow_id",
+              "operator": "empty"
+            }
+          ]
         }
       },
       {
@@ -321,7 +313,13 @@
         "meta": {
           "variant": "default",
           "size": "sm",
-          "icon": "plus"
+          "icon": "plus",
+          "hiddenWhen": [
+            {
+              "path": "search.workflow_id",
+              "operator": "empty"
+            }
+          ]
         },
         "action": {
           "click": {
@@ -344,6 +342,12 @@
           "externalPagination": true,
           "savePath": "crm/task/update",
           "rowKey": "id",
+          "hiddenWhen": [
+            {
+              "path": "search.workflow_id",
+              "operator": "empty"
+            }
+          ],
           "columns": [
             {
               "name": "任务",
@@ -454,7 +458,15 @@
         }
       },
       {
-        "type": "show-page"
+        "type": "show-page",
+        "meta": {
+          "hiddenWhen": [
+            {
+              "path": "search.workflow_id",
+              "operator": "empty"
+            }
+          ]
+        }
       }
     ],
     "feedback-shell": [
@@ -483,7 +495,7 @@
             "confirmText": "保存"
           },
           "pageRouteQuery": {
-            "id": "data.actionTarget.workflowId"
+            "id": "data.search.workflow_id"
           },
           "size": "sm",
           "bodyClassName": "py-2"
@@ -568,7 +580,7 @@
         "action": {
           "confirm": {
             "type": "delete",
-            "params": "data.actionTarget.deleteWorkflowId",
+            "params": "data.search.workflow_id",
             "before": {
               "service": "crm.setting.CrmHook.BeforeDeleteWorkflow"
             }
@@ -617,9 +629,7 @@
   },
   "data": {
     "search": {
-      "workflow_id": "",
-      "stage_id": "",
-      "keyword": ""
+      "service": "crm.setting.OptionService.LoadWorkflowPageState"
     },
     "table": {
       "model": "crm.NewTaskModel",
@@ -635,10 +645,8 @@
       ]
     },
     "actionTarget": {
-      "workflowId": "",
       "stageId": "",
       "taskId": "",
-      "deleteWorkflowId": "",
       "deleteStageId": "",
       "deleteTaskId": ""
     }
