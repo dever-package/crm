@@ -31,6 +31,7 @@ import {
   getRuntimeSite,
   getWorkEntryPath,
   inputClassName,
+  normalizeWorkDetailSections,
   outlineButton,
   positiveTextID,
   primaryButton,
@@ -60,6 +61,7 @@ import {
   type WorkCustomerMode,
   type WorkCustomerScope,
   type WorkDataCompletenessTemplate,
+  type WorkDetailSection,
   type WorkDisplayField,
   type WorkFieldOption,
   type WorkFormField,
@@ -87,6 +89,14 @@ import {
   type WorkCustomerListRowView,
   type WorkCustomerListTaskView,
 } from "./work-customer-list";
+import {
+  WorkCustomerDetailContextHeader,
+  WorkCustomerDetailData,
+  WorkCustomerDetailStyles,
+  WorkCustomerFlowTimeline,
+  type WorkCustomerDetailHeaderView,
+  type WorkCustomerFlowEntryView,
+} from "./work-customer-detail";
 import { WorkFlowActions } from "./work-flow-actions";
 import {
   buildFeishuOAuthURL,
@@ -1137,6 +1147,7 @@ type WorkDetailTargetResponse = {
   list?: WorkOperation[];
   todos?: WorkTodo[];
   flow?: WorkFlowDetail | null;
+  detail_sections?: WorkDetailSection[];
 };
 
 function setWorkDetailTarget(
@@ -3371,6 +3382,7 @@ function useWorkDetailData(
   const [operations, setOperations] = useState<WorkOperation[]>([]);
   const [todos, setTodos] = useState<WorkTodo[]>([]);
   const [flow, setFlow] = useState<WorkFlowDetail | null>(null);
+  const [detailSections, setDetailSections] = useState<WorkDetailSection[]>([]);
   const [loading, setLoading] = useState(false);
 
   const reload = useCallback(async () => {
@@ -3380,6 +3392,7 @@ function useWorkDetailData(
       setOperations([]);
       setTodos([]);
       setFlow(null);
+      setDetailSections([]);
       return;
     }
     setLoading(true);
@@ -3395,11 +3408,13 @@ function useWorkDetailData(
       setOperations(list);
       setTodos(Array.isArray(data?.todos) ? data.todos : []);
       setFlow(data?.flow ?? null);
+      setDetailSections(normalizeWorkDetailSections(data?.detail_sections));
     } catch (error) {
       toast.error(errorMessage(error, "详情加载失败"));
       setOperations([]);
       setTodos([]);
       setFlow(null);
+      setDetailSections([]);
     } finally {
       setLoading(false);
     }
@@ -3416,6 +3431,7 @@ function useWorkDetailData(
     setOperations([]);
     setTodos([]);
     setFlow(null);
+    setDetailSections([]);
   }, [assetID, customerID]);
 
   useEffect(() => {
@@ -3432,7 +3448,59 @@ function useWorkDetailData(
     };
   }, [customerID, reload]);
 
-  return { customer, asset, operations, todos, flow, loading, reload };
+  return {
+    customer,
+    asset,
+    operations,
+    todos,
+    flow,
+    detailSections,
+    loading,
+    reload,
+  };
+}
+
+function workCustomerDetailPrimaryTask(
+  customer: WorkCustomer,
+  asset?: WorkAsset | null,
+): WorkTask | undefined {
+  const tasks = asset
+    ? workAssetRowTasks(asset)
+    : workCustomerRowTasks(customer);
+  return tasks.find((task) => !workTaskIsRule(task));
+}
+
+function workCustomerDetailHeaderView(
+  customer: WorkCustomer,
+  asset: WorkAsset | null | undefined,
+  flow: WorkFlowDetail | null,
+  primaryTask?: WorkTask,
+): WorkCustomerDetailHeaderView {
+  const target = asset || customer;
+  const stageName =
+    textValue(flow?.stage_name) ||
+    textValue(target.stage_name || target.current_stage_name);
+  const ownerName = textValue(
+    flow?.owner_staff_name ||
+      target.owner_staff_name ||
+      primaryTask?.assignee_staff_name ||
+      primaryTask?.assignee_department_name,
+  );
+  return {
+    customerName: workCustomerTitle(customer),
+    statusName: stageName || "未进入流程",
+    customerNo: workCustomerNo(customer),
+    phone: workCustomerPhone(customer),
+    assetNo: asset ? workAssetNo(asset) : "-",
+    workflowName: textValue(flow?.workflow_name) || "未进入流程",
+    stageName: stageName || "未进入流程",
+    ownerName: ownerName || "暂未分配",
+    stageDays: workPositiveNumber(target.stage_days),
+    hasStage: Boolean(stageName),
+    primaryTaskLabel: primaryTask
+      ? workTaskButtonLabel(primaryTask)
+      : undefined,
+  };
 }
 
 function WorkCustomerDetailContent({
@@ -3450,8 +3518,17 @@ function WorkCustomerDetailContent({
     customer: detailCustomer,
     operations,
     todos,
+    flow,
+    detailSections,
     loading: loadingDetail,
   } = useWorkDetailData(customer, null, store);
+  const primaryTask = workCustomerDetailPrimaryTask(detailCustomer);
+  const headerView = workCustomerDetailHeaderView(
+    detailCustomer,
+    null,
+    flow,
+    primaryTask,
+  );
 
   useEffect(() => {
     setActiveTab("overview");
@@ -3459,7 +3536,16 @@ function WorkCustomerDetailContent({
   }, [customerID]);
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-5">
+      <WorkCustomerDetailStyles />
+      <WorkCustomerDetailContextHeader
+        view={headerView}
+        onOpenPrimaryTask={
+          primaryTask
+            ? () => void openRowTask(detailCustomer, primaryTask, store)
+            : undefined
+        }
+      />
       <WorkDetailTabs activeTab={activeTab} onChange={setActiveTab} />
 
       <div>
@@ -3480,7 +3566,10 @@ function WorkCustomerDetailContent({
             store={store}
           />
         ) : (
-          <WorkCustomerMainInfo customer={detailCustomer} />
+          <WorkCustomerDetailData
+            customer={detailCustomer}
+            sections={detailSections}
+          />
         )}
       </div>
     </div>
@@ -3506,8 +3595,20 @@ function WorkAssetDetailContent({
     operations,
     todos,
     flow,
+    detailSections,
     loading: loadingDetail,
   } = useWorkDetailData(customer, asset, store);
+  const activeAsset = detailAsset || asset;
+  const primaryTask = workCustomerDetailPrimaryTask(
+    detailCustomer,
+    activeAsset,
+  );
+  const headerView = workCustomerDetailHeaderView(
+    detailCustomer,
+    activeAsset,
+    flow,
+    primaryTask,
+  );
 
   useEffect(() => {
     setActiveTab("overview");
@@ -3515,7 +3616,22 @@ function WorkAssetDetailContent({
   }, [assetID]);
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-5">
+      <WorkCustomerDetailStyles />
+      <WorkCustomerDetailContextHeader
+        view={headerView}
+        onOpenPrimaryTask={
+          primaryTask
+            ? () =>
+                void openRowTask(
+                  detailCustomer,
+                  primaryTask,
+                  store,
+                  activeAsset,
+                )
+            : undefined
+        }
+      />
       <WorkDetailTabs activeTab={activeTab} onChange={setActiveTab} />
 
       <div>
@@ -3540,9 +3656,10 @@ function WorkAssetDetailContent({
             />
           </div>
         ) : (
-          <WorkCustomerMainInfo
+          <WorkCustomerDetailData
             customer={detailCustomer}
-            asset={detailAsset || undefined}
+            asset={activeAsset}
+            sections={detailSections}
           />
         )}
       </div>
@@ -3596,10 +3713,6 @@ function WorkCustomerOverview({
   const primaryAsset = asset || workOverviewPrimaryAsset(customer);
   const target = primaryAsset || customer;
   const taskNames = workOverviewTaskNames(target);
-  const currentStage = displayText(
-    target.current_stage_name || target.stage_name,
-    "-",
-  );
   const pendingTodoCount = todos.filter(
     (todo) => textValue(todo.status) === "pending",
   ).length;
@@ -3614,27 +3727,8 @@ function WorkCustomerOverview({
 
   return (
     <div className="grid gap-5">
-      <section className="rounded-lg bg-muted/20 px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h3 className="break-words text-lg font-semibold leading-7">
-                {workCustomerTitle(customer)}
-              </h3>
-              {renderStatus(target)}
-            </div>
-            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm leading-6 text-muted-foreground">
-              <span>{workCustomerNo(customer)}</span>
-              <span>{workCustomerPhone(customer)}</span>
-              {primaryAsset ? <span>{workAssetNo(primaryAsset)}</span> : null}
-            </div>
-          </div>
-          <div className="text-right text-sm leading-6 text-muted-foreground">
-            <div>当前阶段</div>
-            <div className="font-medium text-foreground">{currentStage}</div>
-          </div>
-        </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="overflow-hidden rounded-md border border-border/60 bg-muted/20">
+        <div className="grid gap-px sm:grid-cols-2 lg:grid-cols-4">
           <WorkOverviewMetric
             label="当前任务"
             value={workOverviewTaskSummary(taskNames)}
@@ -4377,39 +4471,37 @@ function WorkOperationCards({
     (left, right) =>
       workOperationTimeValue(right) - workOperationTimeValue(left),
   );
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        正在加载流程记录
-      </div>
-    );
-  }
-
+  const entries = sortedOperations.map(workCustomerFlowEntryView);
   return (
-    <div className="grid gap-4">
-      <WorkOperationScopeTabs scope={scope} onScopeChange={onScopeChange} />
-
-      {filteredOperations.length === 0 ? (
-        <WorkEmptyText>
-          {scope === "mine" ? "暂无我的流程记录" : "暂无流程记录"}
-        </WorkEmptyText>
-      ) : (
-        <div className="relative grid gap-3 md:gap-0">
-          <span className="pointer-events-none absolute bottom-0 left-[5px] top-0 w-px bg-border/60 md:left-1/2 md:-translate-x-px" />
-          {sortedOperations.map((operation, index) => (
-            <WorkOperationCard
-              key={workOperationTimelineKey(operation, index)}
-              operation={operation}
-              side={index % 2 === 0 ? "left" : "right"}
-              onOpen={() => openWorkRecordDetail(operation, store)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    <WorkCustomerFlowTimeline
+      entries={entries}
+      loading={loading}
+      scope={scope}
+      onScopeChange={onScopeChange}
+      onOpen={(entry) => openWorkRecordDetail(entry.operation, store)}
+    />
   );
+}
+
+function workCustomerFlowEntryView(
+  operation: WorkOperation,
+  index: number,
+): WorkCustomerFlowEntryView {
+  const tone = workOperationTone(operation);
+  return {
+    id: workOperationTimelineKey(operation, index),
+    title: workOperationTitle(operation),
+    description: workOperationDescription(operation),
+    badge: workOperationBadgeText(operation),
+    badgeClassName: tone.badge,
+    dotClassName: tone.dot,
+    stageName: workOperationStageLabel(operation),
+    operatorName: textValue(
+      operation.operator_name || operation["operator_staff.name"],
+    ),
+    time: formatWorkDate(operation.created_at || operation.create_time),
+    operation,
+  };
 }
 
 function WorkOperationScopeTabs({

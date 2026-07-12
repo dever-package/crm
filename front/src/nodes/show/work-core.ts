@@ -619,6 +619,12 @@ export function textValue(value: unknown): string {
   return String(value).trim();
 }
 
+export function workIsRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
 export function errorMessage(error: unknown, fallback = "操作失败"): string {
   if (error instanceof Error && error.message) return error.message;
   return fallback;
@@ -944,6 +950,44 @@ export function positiveTextID(value: unknown): string {
 export function displayText(value: unknown, fallback = "-"): string {
   const text = textValue(value);
   return text || fallback;
+}
+
+function normalizeWorkDetailFields(value: unknown): WorkDetailField[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(workIsRecord).map((field) => ({
+    key: textValue(field.key),
+    label: displayText(field.label),
+    value: field.value,
+    valueType: textValue(field.value_type) || "text",
+    empty: Boolean(field.empty),
+    group: textValue(field.group),
+    files: Array.isArray(field.files) ? field.files : [],
+  }));
+}
+
+export function normalizeWorkDetailSections(
+  value: unknown,
+): WorkDetailSection[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(workIsRecord).map((section) => {
+    const rawTargetType = textValue(section.target_type);
+    const targetType: WorkDetailSection["targetType"] =
+      rawTargetType === "asset" || rawTargetType === "business_object"
+        ? rawTargetType
+        : "customer";
+    return {
+      id: textValue(section.id),
+      name: displayText(section.name),
+      targetType,
+      templateId: section.template_id as string | number | undefined,
+      objectId: section.object_id as string | number | undefined,
+      objectName: textValue(section.object_name),
+      filled: Number(section.filled) || 0,
+      total: Number(section.total) || 0,
+      percent: Number(section.percent) || 0,
+      fields: normalizeWorkDetailFields(section.fields),
+    };
+  });
 }
 
 export function formatWorkDate(value: unknown): string {

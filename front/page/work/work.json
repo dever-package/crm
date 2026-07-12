@@ -59,7 +59,7 @@
           "assistant": false,
           "side": "right",
           "width": "52rem",
-          "bodyClassName": "px-6 py-2"
+          "bodyClassName": "crm-customer-detail-drawer-body px-6 py-2"
         }
       },
       {
