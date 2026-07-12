@@ -11,6 +11,7 @@ type Stage struct {
 	WorkflowID        uint64    `dorm:"type:bigint;not null;default:0;comment:所属流程"`
 	Name              string    `dorm:"type:varchar(128);not null;comment:阶段名称"`
 	OwnerDepartmentID uint64    `dorm:"type:bigint;not null;default:0;comment:默认负责部门"`
+	AssignmentMode    string    `dorm:"type:varchar(32);not null;default:'auto';comment:分配方式"`
 	Sort              int       `dorm:"type:int;not null;default:100;comment:排序"`
 	Status            int16     `dorm:"type:smallint;not null;default:2;comment:状态"`
 	CreatedAt         time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
@@ -28,7 +29,8 @@ func NewStageModel() *orm.Model[Stage] {
 		Order:    "sort asc,id asc",
 		Database: "default",
 		Options: map[string]any{
-			"status": statusOptions,
+			"assignment_mode": stageAssignmentModeOptions,
+			"status":          statusOptions,
 		},
 		Relations: []orm.Relation{
 			workflowRelation,

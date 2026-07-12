@@ -17,9 +17,14 @@ var simpleTaskTypes = map[string]bool{
 }
 
 var simpleTaskAssigneeModes = map[string]bool{
-	crmmodel.TaskAssigneeStage:      true,
-	crmmodel.TaskAssigneeDepartment: true,
-	crmmodel.TaskAssigneeStaff:      true,
+	crmmodel.TaskAssigneeStage:  true,
+	crmmodel.TaskAssigneeAuto:   true,
+	crmmodel.TaskAssigneeManual: true,
+}
+
+var stageAssignmentModes = map[string]bool{
+	crmmodel.StageAssignmentAuto:   true,
+	crmmodel.StageAssignmentManual: true,
 }
 
 func (CrmHook) ProviderBeforeSaveWorkflow(c *server.Context, params []any) any {
@@ -30,11 +35,17 @@ func (CrmHook) ProviderBeforeSaveWorkflow(c *server.Context, params []any) any {
 	partial := isPartialOrInlineCrmRecord(record, "status", "sort")
 	trimCrmStringField(record, "name", partial)
 	validateConfigName(record, partial, "流程名称不能为空。")
+	ctx := contextFromServer(c)
 	defaultCrmInt(record, "sort", 100, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusDisabled, partial)
+	defaultCrmBool(record, "default_entry", false, partial)
+	defaultCrmInt(record, "next_workflow_id", 0, partial)
+	effective := effectiveWorkflowConfig(ctx, record, partial)
+	validateWorkflowNext(ctx, util.ToUint64(record["id"]), util.ToUint64(effective["next_workflow_id"]))
 	if recordEnablesConfig(record, partial) {
-		validateWorkflowCanEnable(contextFromServer(c), util.ToUint64(record["id"]))
+		validateWorkflowCanEnable(ctx, util.ToUint64(record["id"]))
 	}
+	normalizeWorkflowDefaultEntry(ctx, record, effective, partial)
 	return record
 }
 
@@ -45,17 +56,38 @@ func (CrmHook) ProviderBeforeSaveStage(c *server.Context, params []any) any {
 	}
 	partial := isPartialOrInlineCrmRecord(record, "status", "sort")
 	trimCrmStringField(record, "name", partial)
+	trimCrmStringField(record, "assignment_mode", partial)
 	validateConfigName(record, partial, "阶段名称不能为空。")
 
 	ctx := contextFromServer(c)
-	workflowID := effectiveStageWorkflowID(ctx, record, partial)
+	effective := effectiveStageConfig(ctx, record, partial)
+	workflowID := util.ToUint64(effective["workflow_id"])
 	if workflowID == 0 || crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": workflowID}) == nil {
 		panicCrmField("form.workflow_id", "所属流程不存在。")
 	}
 	if shouldNormalizeCrmField(record, "workflow_id", partial) {
 		record["workflow_id"] = workflowID
 	}
-	defaultCrmInt(record, "owner_department_id", 0, partial)
+	assignmentMode := util.ToStringTrimmed(effective["assignment_mode"])
+	if assignmentMode == "" {
+		assignmentMode = crmmodel.StageAssignmentAuto
+		if shouldNormalizeCrmField(record, "assignment_mode", partial) {
+			record["assignment_mode"] = assignmentMode
+		}
+	}
+	if !stageAssignmentModes[assignmentMode] {
+		panicCrmField("form.assignment_mode", "阶段分配方式无效。")
+	}
+	departmentID := util.ToUint64(effective["owner_department_id"])
+	if departmentID == 0 || crmmodel.NewDepartmentModel().Find(ctx, map[string]any{
+		"id":     departmentID,
+		"status": crmmodel.StatusEnabled,
+	}) == nil {
+		panicCrmField("form.owner_department_id", "请选择已启用的阶段负责部门。")
+	}
+	if shouldNormalizeCrmField(record, "owner_department_id", partial) {
+		record["owner_department_id"] = departmentID
+	}
 	defaultCrmInt(record, "sort", 100, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusDisabled, partial)
 	if recordEnablesConfig(record, partial) {
@@ -115,6 +147,82 @@ func recordEnablesConfig(record map[string]any, partial bool) bool {
 		int16(util.ToIntDefault(record["status"], 0)) == crmmodel.StatusEnabled
 }
 
+func effectiveWorkflowConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
+	effective := map[string]any{
+		"default_entry":    false,
+		"next_workflow_id": uint64(0),
+	}
+	if partial {
+		if workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); workflow != nil {
+			effective["default_entry"] = workflow.DefaultEntry
+			effective["next_workflow_id"] = workflow.NextWorkflowID
+		}
+	}
+	for key, value := range record {
+		effective[key] = value
+	}
+	return effective
+}
+
+func normalizeWorkflowDefaultEntry(ctx context.Context, record map[string]any, effective map[string]any, partial bool) {
+	workflowID := util.ToUint64(record["id"])
+	filters := map[string]any{"default_entry": true}
+	if workflowID > 0 {
+		filters["id"] = map[string]any{"!=": workflowID}
+	}
+	otherDefaultCount := crmmodel.NewWorkflowModel().Count(ctx, filters)
+	isDefault := configBool(effective["default_entry"])
+	forced := false
+	if !isDefault && otherDefaultCount == 0 {
+		isDefault = true
+		forced = true
+	}
+	if shouldNormalizeCrmField(record, "default_entry", partial) || forced {
+		record["default_entry"] = isDefault
+		effective["default_entry"] = isDefault
+	}
+	if isDefault && otherDefaultCount > 0 {
+		crmmodel.NewWorkflowModel().Update(ctx, filters, map[string]any{"default_entry": false})
+	}
+}
+
+func configBool(value any) bool {
+	if flag, ok := value.(bool); ok {
+		return flag
+	}
+	return util.ToIntDefault(value, 0) != 0 || util.ToStringTrimmed(value) == "true"
+}
+
+func validateWorkflowNext(ctx context.Context, workflowID, nextWorkflowID uint64) {
+	if nextWorkflowID == 0 {
+		return
+	}
+	if workflowID > 0 && nextWorkflowID == workflowID {
+		panicCrmField("form.next_workflow_id", "后续流程不能选择当前流程。")
+	}
+	next := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": nextWorkflowID})
+	if next == nil {
+		panicCrmField("form.next_workflow_id", "后续流程不存在。")
+	}
+	visited := map[uint64]bool{}
+	if workflowID > 0 {
+		visited[workflowID] = true
+	}
+	for next != nil {
+		if visited[next.ID] {
+			panicCrmField("form.next_workflow_id", "后续流程不能形成循环。")
+		}
+		visited[next.ID] = true
+		if next.NextWorkflowID == 0 {
+			return
+		}
+		next = crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": next.NextWorkflowID})
+		if next == nil {
+			panicCrmField("form.next_workflow_id", "后续流程配置指向了不存在的流程。")
+		}
+	}
+}
+
 func validateWorkflowCanEnable(ctx context.Context, workflowID uint64) {
 	if workflowID == 0 || crmmodel.NewStageModel().Count(ctx, map[string]any{
 		"workflow_id": workflowID,
@@ -134,14 +242,19 @@ func validateStageCanEnable(ctx context.Context, stageID uint64) {
 	}
 }
 
-func effectiveStageWorkflowID(ctx context.Context, record map[string]any, partial bool) uint64 {
-	if workflowID := util.ToUint64(record["workflow_id"]); workflowID > 0 || !partial {
-		return workflowID
+func effectiveStageConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
+	effective := map[string]any{"assignment_mode": crmmodel.StageAssignmentAuto}
+	if partial {
+		if stage := crmmodel.NewStageModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); stage != nil {
+			effective["workflow_id"] = stage.WorkflowID
+			effective["owner_department_id"] = stage.OwnerDepartmentID
+			effective["assignment_mode"] = stage.AssignmentMode
+		}
 	}
-	if stage := crmmodel.NewStageModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); stage != nil {
-		return stage.WorkflowID
+	for key, value := range record {
+		effective[key] = value
 	}
-	return 0
+	return effective
 }
 
 func effectiveTaskConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
@@ -157,7 +270,6 @@ func effectiveTaskConfig(ctx context.Context, record map[string]any, partial boo
 				"task_type":              task.TaskType,
 				"assignee_mode":          task.AssigneeMode,
 				"assignee_department_id": task.AssigneeDepartmentID,
-				"assignee_staff_id":      task.AssigneeStaffID,
 				"form_id":                task.FormID,
 				"script_id":              task.ScriptID,
 				"status":                 task.Status,
@@ -227,27 +339,11 @@ func normalizeSimpleTaskAssignee(ctx context.Context, record map[string]any, eff
 		}
 		if shouldWrite {
 			record["assignee_department_id"] = uint64(0)
-			record["assignee_staff_id"] = uint64(0)
 		}
-	case crmmodel.TaskAssigneeDepartment:
+	case crmmodel.TaskAssigneeAuto, crmmodel.TaskAssigneeManual:
 		departmentID := util.ToUint64(effective["assignee_department_id"])
 		if validateTarget && (departmentID == 0 || crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": departmentID, "status": crmmodel.StatusEnabled}) == nil) {
-			panicCrmField("form.assignee_department_id", "指定部门任务必须选择已启用的部门。")
-		}
-		if shouldWrite || shouldNormalizeCrmField(record, "assignee_staff_id", partial) {
-			record["assignee_staff_id"] = uint64(0)
-		}
-	case crmmodel.TaskAssigneeStaff:
-		staffID := util.ToUint64(effective["assignee_staff_id"])
-		staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": staffID, "status": crmmodel.StatusEnabled})
-		if validateTarget && staff == nil {
-			panicCrmField("form.assignee_staff_id", "指定人员任务必须选择已启用的人员。")
-		}
-		if staff == nil {
-			return
-		}
-		if shouldWrite || shouldNormalizeCrmField(record, "assignee_staff_id", partial) {
-			record["assignee_department_id"] = staff.DepartmentID
+			panicCrmField("form.assignee_department_id", "自动或手动分配任务必须选择已启用的目标部门。")
 		}
 	}
 }
@@ -258,6 +354,15 @@ func (CrmHook) ProviderBeforeDeleteWorkflow(c *server.Context, params []any) any
 		panicCrmField("form.id", "流程不存在。")
 	}
 	ctx := contextFromServer(c)
+	if crmmodel.NewWorkflowModel().Count(ctx, map[string]any{"next_workflow_id": id}) > 0 {
+		panicCrmField("form.id", "该流程被其他流程设为后续流程，请先取消引用。")
+	}
+	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": id})
+	if workflow != nil && workflow.DefaultEntry && crmmodel.NewWorkflowModel().Count(ctx, map[string]any{
+		"id": map[string]any{"!=": id},
+	}) > 0 {
+		panicCrmField("form.id", "请先将另一个流程设为默认入口。")
+	}
 	if crmmodel.NewCustomerStageModel().Count(ctx, map[string]any{"workflow_id": id, "status": crmmodel.ProgressStatusActive}) > 0 ||
 		crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{"workflow_id": id, "status": crmmodel.WorkTodoStatusPending}) > 0 {
 		panicCrmField("form.id", "流程正在使用中，不能删除；可以先停用。")

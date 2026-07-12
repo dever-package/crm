@@ -20,14 +20,20 @@ const (
 )
 
 const (
-	TaskAssigneeStage      = "stage"
-	TaskAssigneeDepartment = "department"
-	TaskAssigneeStaff      = "staff"
+	TaskAssigneeStage  = "stage"
+	TaskAssigneeAuto   = "auto"
+	TaskAssigneeManual = "manual"
 )
 
 const (
-	ProgressStatusActive    = "active"
-	ProgressStatusCompleted = "completed"
+	StageAssignmentAuto   = "auto"
+	StageAssignmentManual = "manual"
+)
+
+const (
+	ProgressStatusActive     = "active"
+	ProgressStatusCompleted  = "completed"
+	ProgressStatusTerminated = "terminated"
 )
 
 const (
@@ -247,14 +253,20 @@ var taskTypeOptions = []map[string]any{
 }
 
 var taskAssigneeModeOptions = []map[string]any{
-	{"id": TaskAssigneeStage, "value": "跟随阶段负责部门"},
-	{"id": TaskAssigneeDepartment, "value": "指定部门"},
-	{"id": TaskAssigneeStaff, "value": "指定人员"},
+	{"id": TaskAssigneeStage, "value": "跟随阶段负责人"},
+	{"id": TaskAssigneeAuto, "value": "自动分配到部门"},
+	{"id": TaskAssigneeManual, "value": "由当前负责人手动分配"},
+}
+
+var stageAssignmentModeOptions = []map[string]any{
+	{"id": StageAssignmentAuto, "value": "自动分配"},
+	{"id": StageAssignmentManual, "value": "手动分配"},
 }
 
 var progressStatusOptions = []map[string]any{
 	{"id": ProgressStatusActive, "value": "进行中"},
 	{"id": ProgressStatusCompleted, "value": "已完成"},
+	{"id": ProgressStatusTerminated, "value": "已终止"},
 }
 
 var workTodoStatusOptions = []map[string]any{
@@ -315,6 +327,12 @@ var assetRelation = orm.Relation{
 
 var workflowRelation = orm.Relation{
 	Field:      "workflow_id",
+	Option:     "crm.NewWorkflowModel",
+	OptionKeys: []string{"name"},
+}
+
+var nextWorkflowRelation = orm.Relation{
+	Field:      "next_workflow_id",
 	Option:     "crm.NewWorkflowModel",
 	OptionKeys: []string{"name"},
 }

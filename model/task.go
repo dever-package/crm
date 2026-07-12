@@ -14,7 +14,6 @@ type Task struct {
 	Required             bool      `dorm:"not null;default:true;comment:是否必做"`
 	AssigneeMode         string    `dorm:"type:varchar(32);not null;default:'stage';comment:负责方式"`
 	AssigneeDepartmentID uint64    `dorm:"type:bigint;not null;default:0;comment:负责部门"`
-	AssigneeStaffID      uint64    `dorm:"type:bigint;not null;default:0;comment:负责人"`
 	FormID               uint64    `dorm:"type:bigint;not null;default:0;comment:资料表单"`
 	ScriptID             uint64    `dorm:"type:bigint;not null;default:0;comment:核验规则"`
 	DueDays              int       `dorm:"type:int;not null;default:0;comment:办理期限天数"`
@@ -27,7 +26,7 @@ type Task struct {
 type TaskIndex struct {
 	StageStatus    struct{} `index:"stage_id,status,sort,id"`
 	TypeStatus     struct{} `index:"task_type,status,sort,id"`
-	AssigneeStatus struct{} `index:"assignee_department_id,assignee_staff_id,status,id"`
+	AssigneeStatus struct{} `index:"assignee_department_id,status,id"`
 }
 
 func NewTaskModel() *orm.Model[Task] {
@@ -43,7 +42,6 @@ func NewTaskModel() *orm.Model[Task] {
 		Relations: []orm.Relation{
 			stageRelation,
 			assigneeDepartmentRelation,
-			assigneeStaffRelation,
 			formRelation,
 			ruleScriptRelation,
 		},

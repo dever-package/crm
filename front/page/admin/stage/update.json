@@ -73,6 +73,21 @@
         }
       },
       {
+        "type": "form-radio",
+        "name": "进入阶段时",
+        "value": "form.assignment_mode",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "请选择阶段分配方式。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
         "type": "form-number",
         "name": "排序",
         "value": "form.sort",
@@ -102,12 +117,14 @@
         "workflow_id",
         "name",
         "owner_department_id",
+        "assignment_mode",
         "sort",
         "status"
       ],
       "workflow_id": "",
       "name": "",
       "owner_department_id": "",
+      "assignment_mode": "auto",
       "sort": 100,
       "status": 2
     }

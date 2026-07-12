@@ -7,15 +7,17 @@ import (
 )
 
 type Staff struct {
-	ID           uint64    `dorm:"primaryKey;autoIncrement;comment:人员ID"`
-	Name         string    `dorm:"type:varchar(64);not null;comment:姓名"`
-	DepartmentID uint64    `dorm:"type:bigint;not null;default:0;comment:部门"`
-	StaffType    string    `dorm:"type:varchar(32);not null;default:'employee';comment:人员类型"`
-	Phone        string    `dorm:"type:varchar(32);not null;default:'';comment:手机号"`
-	FeishuOpenID string    `dorm:"type:varchar(128);not null;default:'';comment:飞书OpenID"`
-	Password     string    `dorm:"type:varchar(128);not null;default:'';comment:密码"`
-	Status       int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
-	CreatedAt    time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
+	ID             uint64     `dorm:"primaryKey;autoIncrement;comment:人员ID"`
+	Name           string     `dorm:"type:varchar(64);not null;comment:姓名"`
+	DepartmentID   uint64     `dorm:"type:bigint;not null;default:0;comment:部门"`
+	StaffType      string     `dorm:"type:varchar(32);not null;default:'employee';comment:人员类型"`
+	CanDispatch    bool       `dorm:"not null;default:false;comment:流程调度权限"`
+	LastAssignedAt *time.Time `dorm:"null;comment:最近自动分配时间"`
+	Phone          string     `dorm:"type:varchar(32);not null;default:'';comment:手机号"`
+	FeishuOpenID   string     `dorm:"type:varchar(128);not null;default:'';comment:飞书OpenID"`
+	Password       string     `dorm:"type:varchar(128);not null;default:'';comment:密码"`
+	Status         int16      `dorm:"type:smallint;not null;default:1;comment:状态"`
+	CreatedAt      time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
 }
 
 type StaffIndex struct {
@@ -33,6 +35,7 @@ var staffSeed = []map[string]any{
 		"name":          "默认人员",
 		"department_id": DefaultDepartmentID,
 		"staff_type":    StaffTypeLeader,
+		"can_dispatch":  true,
 		"phone":         "13800000000",
 		"password":      "e10adc3949ba59abbe56e057f20f883e",
 		"status":        StatusEnabled,

@@ -74,6 +74,7 @@ func (CrmHook) ProviderBeforeSaveStaff(c *server.Context, params []any) any {
 	}
 	validateStaffUniqueField(ctx, "phone", "form.phone", "该手机号已存在，请更换。", record)
 	validateStaffUniqueField(ctx, "feishu_open_id", "form.feishu_open_id", "该飞书 OpenID 已绑定其他人员。", record)
+	defaultCrmBool(record, "can_dispatch", false, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	return record
 }
@@ -145,6 +146,10 @@ func (CrmHook) ProviderBuildStaffRows(_ *server.Context, params []any) any {
 	}
 	for _, row := range rows {
 		row["staff_type_name"] = staffTypeName(row["staff_type"])
+		row["can_dispatch_name"] = "-"
+		if configBool(row["can_dispatch"]) {
+			row["can_dispatch_name"] = "可调度"
+		}
 	}
 	return rows
 }

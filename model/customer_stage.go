@@ -7,16 +7,19 @@ import (
 )
 
 type CustomerStage struct {
-	ID                uint64    `dorm:"primaryKey;autoIncrement;comment:资产进度ID"`
-	CustomerID        uint64    `dorm:"type:bigint;not null;comment:客户"`
-	AssetID           uint64    `dorm:"type:bigint;not null;comment:客户资产"`
-	WorkflowID        uint64    `dorm:"type:bigint;not null;comment:当前流程"`
-	StageID           uint64    `dorm:"type:bigint;not null;comment:当前阶段"`
-	OwnerDepartmentID uint64    `dorm:"type:bigint;not null;default:0;comment:负责部门"`
-	OwnerStaffID      uint64    `dorm:"type:bigint;not null;default:0;comment:负责人"`
-	Status            string    `dorm:"type:varchar(32);not null;default:'active';comment:进度状态"`
-	StartedAt         time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:开始时间"`
-	UpdatedAt         time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
+	ID                uint64     `dorm:"primaryKey;autoIncrement;comment:资产进度ID"`
+	CustomerID        uint64     `dorm:"type:bigint;not null;comment:客户"`
+	AssetID           uint64     `dorm:"type:bigint;not null;comment:客户资产"`
+	WorkflowID        uint64     `dorm:"type:bigint;not null;comment:当前流程"`
+	StageID           uint64     `dorm:"type:bigint;not null;comment:当前阶段"`
+	OwnerDepartmentID uint64     `dorm:"type:bigint;not null;default:0;comment:负责部门"`
+	OwnerStaffID      uint64     `dorm:"type:bigint;not null;default:0;comment:负责人"`
+	Status            string     `dorm:"type:varchar(32);not null;default:'active';comment:进度状态"`
+	StartedAt         time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:阶段开始时间"`
+	CompletedAt       *time.Time `dorm:"null;comment:流程完成时间"`
+	TerminatedAt      *time.Time `dorm:"null;comment:流程终止时间"`
+	TerminatedReason  string     `dorm:"type:text;not null;default:'';comment:终止原因"`
+	UpdatedAt         time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
 }
 
 type CustomerStageIndex struct {

@@ -27,13 +27,13 @@
 - 修改：`front/page/admin/task/update.json`
 - 修改：`front/page/admin/staff/update.json`
 
-- [ ] 流程增加唯一默认入口和可选后续流程；校验自引用、循环引用、删除引用和默认入口唯一性。
-- [ ] 阶段增加 `auto/manual` 分配方式，负责部门和分配方式均为必填。
-- [ ] 任务负责方式统一为 `stage/auto/manual`；移除后台固定人员配置，自动/手动任务只配置目标部门。
-- [ ] 人员增加“流程调度”权限；进度增加完成/终止时间和终止原因。
-- [ ] 后台表单只暴露业务人员真正需要的字段，复用现有 Model 选项和 CRUD Hook。
-- [ ] 对修改的 Go 文件执行 `gofmt`，对四个 JSON 文件做语法解析。
-- [ ] 提交：`feat: simplify workflow configuration`
+- [x] 流程增加唯一默认入口和可选后续流程；校验自引用、循环引用、删除引用和默认入口唯一性。
+- [x] 阶段增加 `auto/manual` 分配方式，负责部门和分配方式均为必填。
+- [x] 任务负责方式统一为 `stage/auto/manual`；移除后台固定人员配置，自动/手动任务只配置目标部门。
+- [x] 人员增加“流程调度”权限；进度增加完成/终止时间和终止原因。
+- [x] 后台表单只暴露业务人员真正需要的字段，复用现有 Model 选项和 CRUD Hook。
+- [x] 对修改的 Go 文件执行 `gofmt`，对四个 JSON 文件做语法解析。
+- [x] 提交：`feat: simplify workflow configuration`
 
 ## 任务 2：实现统一的自动与手动分配
 
@@ -111,4 +111,3 @@
 - [ ] 运行 Dever 静态审计（不运行 build/test），重启 `dever run` 并确认 8082 监听。
 - [ ] 汇总人工验证路径和已知边界。
 - [ ] 提交：`chore: finalize simple workflow defaults`
-

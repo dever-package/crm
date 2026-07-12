@@ -151,8 +151,7 @@
         "meta": {
           "formLayout": "horizontal",
           "clearOnChange": [
-            "form.assignee_department_id",
-            "form.assignee_staff_id"
+            "form.assignee_department_id"
           ]
         }
       },
@@ -180,36 +179,6 @@
               "path": "form.assignee_mode",
               "operator": "equals",
               "value": "stage"
-            }
-          ],
-          "clearOnChange": [
-            "form.assignee_staff_id"
-          ]
-        }
-      },
-      {
-        "type": "form-select",
-        "name": "负责人",
-        "value": "form.assignee_staff_id",
-        "mode": "form",
-        "option": {
-          "service": "crm.setting.OptionService.LoadStaffOptions",
-          "valueField": "id",
-          "labelField": "value"
-        },
-        "meta": {
-          "formLayout": "horizontal",
-          "optionParams": {
-            "parentId": "form.assignee_department_id"
-          },
-          "optionReloadPaths": [
-            "form.assignee_department_id"
-          ],
-          "hiddenWhen": [
-            {
-              "path": "form.assignee_mode",
-              "operator": "notEquals",
-              "value": "staff"
             }
           ]
         }
@@ -258,7 +227,6 @@
         "required",
         "assignee_mode",
         "assignee_department_id",
-        "assignee_staff_id",
         "form_id",
         "script_id",
         "due_days",
@@ -271,7 +239,6 @@
       "required": true,
       "assignee_mode": "stage",
       "assignee_department_id": "",
-      "assignee_staff_id": "",
       "form_id": "",
       "script_id": "",
       "due_days": 0,

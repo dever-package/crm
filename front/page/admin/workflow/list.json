@@ -379,11 +379,6 @@
               "type": "show-base"
             },
             {
-              "name": "负责人",
-              "value": "assignee_staff.name",
-              "type": "show-base"
-            },
-            {
               "name": "期限（天）",
               "value": "due_days",
               "type": "show-base"
