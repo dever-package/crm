@@ -176,6 +176,11 @@
               "name": "类型"
             },
             {
+              "value": "can_dispatch_name",
+              "type": "show-base",
+              "name": "流程调度"
+            },
+            {
               "value": "status",
               "name": "状态",
               "type": "form-switch",

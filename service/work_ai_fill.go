@@ -14,26 +14,16 @@ import (
 )
 
 func (WorkService) AIFill(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
-	if staff == nil || staff.ID == 0 {
-		return nil, fmt.Errorf("请先登录")
-	}
-	taskID := firstUint64(payload, "task_id", "taskId")
-	if taskID == 0 {
-		return nil, fmt.Errorf("任务不能为空")
-	}
-	customerID := firstUint64(payload, "customer_id", "customerId")
-	assetID := firstUint64(payload, "asset_id", "assetId")
-	if assetID > 0 && !workCustomerOwnsAsset(ctx, customerID, assetID) {
-		return nil, fmt.Errorf("客户资产不存在")
-	}
-	task := workAllowedTask(ctx, staff, taskID, customerID, assetID, firstUint64(payload, "todo_id", "todoId"))
-	if task == nil {
-		return nil, fmt.Errorf("当前人员无权执行该任务")
-	}
-	formID, err := workAIFillFormID(ctx, staff, task, customerID, assetID, payload)
+	todo, task, err := pendingTodoTaskForStaff(ctx, staff, payload)
 	if err != nil {
 		return nil, err
 	}
+	if task.TaskType != crmmodel.TaskTypeForm || task.FormID == 0 {
+		return nil, fmt.Errorf("当前待办不是资料填写任务")
+	}
+	customerID := todo.CustomerID
+	assetID := todo.AssetID
+	formID := task.FormID
 	fields := workAIFieldsForForm(ctx, formID)
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("当前任务没有可 AI 填写的字段")
@@ -67,30 +57,6 @@ type workAIFillField struct {
 	Options   []map[string]any
 }
 
-func workAIFillFormID(ctx context.Context, staff *WorkStaffSession, task *crmmodel.Task, customerID uint64, assetID uint64, payload map[string]any) (uint64, error) {
-	if task == nil {
-		return 0, nil
-	}
-	todoID := firstUint64(payload, "todo_id", "todoId")
-	if todoID == 0 {
-		return task.FormID, nil
-	}
-	todo := crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
-		"id":     todoID,
-		"status": crmmodel.WorkTodoStatusPending,
-	})
-	if todo == nil {
-		return 0, fmt.Errorf("协作待办不存在或已完成")
-	}
-	if todo.CustomerID != customerID || todo.AssetID != assetID {
-		return 0, fmt.Errorf("协作待办不属于当前客户资产")
-	}
-	if !canOperateWorkTodo(staff, todo) {
-		return 0, fmt.Errorf("当前人员无权完成该协作待办")
-	}
-	return todo.FormID, nil
-}
-
 func workAIFieldsForForm(ctx context.Context, formID uint64) []workAIFillField {
 	if formID == 0 {
 		return nil
@@ -101,30 +67,32 @@ func workAIFieldsForForm(ctx context.Context, formID uint64) []workAIFillField {
 	}
 	rows := crmmodel.NewFormFieldModel().Select(ctx, map[string]any{"form_id": form.ID, "status": crmmodel.StatusEnabled})
 	fields := make([]workAIFillField, 0, len(rows))
-	for _, field := range rows {
-		if field == nil || field.Readonly {
-			continue
+	for _, sourceField := range rows {
+		for _, field := range expandWorkInputFormFields(ctx, sourceField) {
+			if field == nil || field.Readonly {
+				continue
+			}
+			row := map[string]any{
+				"main_field":    field.MainField,
+				"data_field_id": field.DataFieldID,
+			}
+			attachWorkFormFieldOptions(ctx, row)
+			fieldType := inputText(row["field_type"])
+			if workAIFillFieldIsUpload(fieldType) {
+				continue
+			}
+			key := workFieldInputKey(field)
+			if key == "" {
+				continue
+			}
+			fields = append(fields, workAIFillField{
+				Key:       key,
+				Name:      field.Name,
+				FieldType: fieldType,
+				Required:  field.Required,
+				Options:   mapsFromAny(row["options"]),
+			})
 		}
-		row := map[string]any{
-			"main_field":    field.MainField,
-			"data_field_id": field.DataFieldID,
-		}
-		attachWorkFormFieldOptions(ctx, row)
-		fieldType := inputText(row["field_type"])
-		if workAIFillFieldIsUpload(fieldType) {
-			continue
-		}
-		key := workFieldInputKey(field)
-		if key == "" {
-			continue
-		}
-		fields = append(fields, workAIFillField{
-			Key:       key,
-			Name:      field.Name,
-			FieldType: fieldType,
-			Required:  field.Required,
-			Options:   mapsFromAny(row["options"]),
-		})
 	}
 	return fields
 }
@@ -158,6 +126,14 @@ func workAIFillContext(ctx context.Context, staff *WorkStaffSession, task *crmmo
 		customer = crmmodel.NewCustomerModel().FindMap(ctx, map[string]any{"id": customerID})
 		customer["fields"] = workCustomerFieldValues(ctx, customerID)
 	}
+	instruction := strings.TrimSpace(inputText(firstPresent(payload, "instruction", "prompt", "text")))
+	progress := currentWorkCustomerStage(ctx, customerID, assetID)
+	workflowID := uint64(0)
+	stageID := uint64(0)
+	if progress != nil {
+		workflowID = progress.WorkflowID
+		stageID = progress.StageID
+	}
 	return map[string]any{
 		"surface": "crm_workbench_task_form",
 		"staff": map[string]any{
@@ -174,12 +150,14 @@ func workAIFillContext(ctx context.Context, staff *WorkStaffSession, task *crmmo
 		},
 		"fields":         workAIFillFieldPayloads(fields),
 		"current_values": mapFromAny(payload["values"]),
+		"instruction":    instruction,
 		"customer":       customer,
-		"assets":         workDecisionAssets(ctx, customerID),
+		"assets":         workRuleAssets(ctx, customerID),
 		"current": map[string]any{
 			"customer_id": customerID,
 			"asset_id":    assetID,
-			"stage_code":  workCurrentStageCode(currentWorkCustomerStage(ctx, customerID, assetID)),
+			"workflow_id": workflowID,
+			"stage_id":    stageID,
 		},
 		"recent_operations": workAIFillRecentOperations(ctx, customerID, assetID, 10),
 	}

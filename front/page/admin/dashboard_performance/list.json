@@ -1,0 +1,39 @@
+{
+  "page": {
+    "name": "绩效统计",
+    "icon": "trophy",
+    "parent": "crm-dashboard",
+    "sort": 3
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header"
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5"
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "page-main": [
+      {
+        "type": "show-crm-admin-stats",
+        "meta": {
+          "mode": "performance"
+        }
+      }
+    ]
+  },
+  "data": {},
+  "state": {},
+  "action": {}
+}

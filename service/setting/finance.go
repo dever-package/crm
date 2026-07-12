@@ -24,7 +24,7 @@ func (CrmHook) ProviderBeforeSaveFinanceType(_ *server.Context, params []any) an
 			panicCrmField("form.name", "类型名称不能为空。")
 		}
 	}
-	if shouldNormalizeCrmField(record, "code", partial) && !validDataFieldStatKey(util.ToStringTrimmed(record["code"])) {
+	if shouldNormalizeCrmField(record, "code", partial) && !validDataFieldKey(util.ToStringTrimmed(record["code"])) {
 		panicCrmField("form.code", "类型编码只能包含字母、数字、下划线、点和短横线。")
 	}
 	if shouldNormalizeCrmField(record, "direction", partial) && util.ToStringTrimmed(record["direction"]) != crmmodel.FinanceDirectionExpense {

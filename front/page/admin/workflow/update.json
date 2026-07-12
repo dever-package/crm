@@ -1,0 +1,134 @@
+{
+  "page": {
+    "name": "流程编辑",
+    "parent": "crm/workflow/list",
+    "auth": [
+      {
+        "key": "crm/workflow/create",
+        "name": "流程新增",
+        "query": {
+          "id": "empty"
+        }
+      },
+      {
+        "key": "crm/workflow/update",
+        "name": "流程编辑",
+        "query": {
+          "id": "required"
+        }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "name": "流程名称",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "流程名称不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-switch",
+        "name": "默认入口",
+        "value": "form.default_entry",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "trueValue": true,
+          "falseValue": false
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "完成后进入",
+        "value": "form.next_workflow_id",
+        "placeholder": "不选择则流程完成",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewWorkflowModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ]
+        },
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-number",
+        "name": "排序",
+        "value": "form.sort",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "min": 0,
+          "step": 10
+        }
+      },
+      {
+        "type": "form-switch",
+        "name": "启用",
+        "value": "form.status",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "trueValue": 1,
+          "falseValue": 2
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_fields": [
+        "name",
+        "default_entry",
+        "next_workflow_id",
+        "sort",
+        "status"
+      ],
+      "name": "",
+      "default_entry": false,
+      "next_workflow_id": "",
+      "sort": 100,
+      "status": 2
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": {
+        "service": "crm.setting.CrmHook.BeforeSaveWorkflow"
+      }
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "page": {
+    "name": "选项编辑",
+    "parent": "crm/option_set/list",
+    "type": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "dialog-shell": {
+            "type": "container",
+            "className": "w-full"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-input",
+        "name": "选项名",
+        "value": "form.name",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "选项名不能为空。"
+          }
+        ]
+      },
+      {
+        "type": "form-input",
+        "name": "选项值",
+        "value": "form.value",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "选项值不能为空。"
+          }
+        ]
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "name": "",
+      "value": "",
+      "sort": 100,
+      "status": 1
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": {
+        "service": "crm.setting.CrmHook.BeforeSaveOptionSetItem"
+      }
+    }
+  }
+}

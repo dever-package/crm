@@ -1,8 +1,10 @@
 package setting
 
 import (
+	"context"
 	"strings"
 
+	"github.com/shemic/dever/server"
 	"github.com/shemic/dever/util"
 
 	frontaction "github.com/dever-package/front/service/action"
@@ -72,4 +74,11 @@ func trimCrmStringField(record map[string]any, field string, partial bool) {
 
 func panicCrmField(field string, message string) {
 	panic(frontaction.NewFieldError(field, message))
+}
+
+func contextFromServer(c *server.Context) context.Context {
+	if c == nil {
+		return context.Background()
+	}
+	return c.Context()
 }

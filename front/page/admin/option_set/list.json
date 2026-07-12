@@ -1,0 +1,244 @@
+{
+  "page": {
+    "name": "常用选项集",
+    "parent": "crm/data_template/list",
+    "type": 2
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header",
+        "className": "gap-4",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+          }
+        }
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5",
+        "children": {
+          "toolbar-row": {
+            "type": "row",
+            "className": "flex-wrap items-center gap-3"
+          },
+          "table-row": {
+            "type": "container",
+            "className": "overflow-hidden rounded-md border bg-background"
+          },
+          "feedback-shell": {
+            "type": "container"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [],
+    "header-actions": [
+      {
+        "type": "show-button",
+        "name": "新增选项集",
+        "className": "shrink-0",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "icon": "plus"
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.create",
+            "value": true
+          }
+        }
+      }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-input",
+        "placeholder": "搜索选项集名称...",
+        "value": "search.keyword",
+        "mode": "search"
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "searchSubmit": true
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "savePath": "crm/option_set/update",
+          "rowKey": "id",
+          "columns": [
+            {
+              "value": "name",
+              "type": "show-base"
+            },
+            {
+              "name": "选项数量",
+              "value": "items",
+              "type": "show-base",
+              "meta": {
+                "format": "count",
+                "countUnit": "个选项"
+              }
+            },
+            {
+              "value": "status",
+              "type": "form-switch",
+              "meta": {
+                "trueValue": 1,
+                "falseValue": 2
+              }
+            },
+            {
+              "value": "sort",
+              "type": "show-base",
+              "editor": "form-number",
+              "trigger": "doubleClick"
+            },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "编辑",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.optionSetId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.edit",
+                          "value": true
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "icon": "trash-2",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "删除",
+                    "className": "text-destructive hover:text-destructive",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.deleteOptionSetId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.delete",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.create",
+          "pageRoute": "/crm/option_set/update",
+          "title": "新增选项集",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "size": "2xl",
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/option_set/update",
+          "title": "编辑选项集",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "pageRouteQuery": {
+            "id": "data.actionTarget.optionSetId"
+          },
+          "size": "2xl",
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-confirm",
+        "name": "删除选项集",
+        "info": "确认删除这一组选项集吗？删除后无法恢复。",
+        "meta": {
+          "stateKey": "dialog.delete",
+          "successMessage": "选项集已删除"
+        },
+        "action": {
+          "confirm": {
+            "type": "delete",
+            "params": "data.actionTarget.deleteOptionSetId"
+          }
+        }
+      }
+    ]
+  },
+  "data": {
+    "search": {},
+    "table": {
+      "pageSize": 20,
+      "searchFields": [
+        "name"
+      ]
+    },
+    "actionTarget": {
+      "optionSetId": "",
+      "deleteOptionSetId": ""
+    }
+  },
+  "state": {
+    "dialog": {
+      "create": false,
+      "edit": false,
+      "delete": false
+    }
+  },
+  "action": {}
+}

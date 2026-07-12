@@ -1,6 +1,9 @@
 import { defineFrontPlugin, lazyNode } from "@dever/front-plugin";
 
 const loadWorkAuth = () => import("./nodes/show/work-auth");
+const loadWorkLead = () => import("./nodes/show/work-lead");
+const loadWorkShell = () => import("./nodes/show/work-shell");
+const loadAdminStats = () => import("./nodes/show/admin-stats");
 
 export default defineFrontPlugin({
   name: "crm",
@@ -20,14 +23,24 @@ export default defineFrontPlugin({
         default: mod.ShowCrmWorkRefreshButton,
       })),
     ),
+    "show-crm-work-header-actions": lazyNode(() =>
+      loadWorkAuth().then((mod) => ({
+        default: mod.ShowCrmWorkHeaderActions,
+      })),
+    ),
     "show-crm-work-task-form": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
         default: mod.ShowCrmWorkTaskForm,
       })),
     ),
-    "show-crm-work-collaboration-targets": lazyNode(() =>
+    "show-crm-work-task-group-tabs": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
-        default: mod.ShowCrmWorkCollaborationTargets,
+        default: mod.ShowCrmWorkTaskGroupTabs,
+      })),
+    ),
+    "show-crm-work-task-field-section": lazyNode(() =>
+      loadWorkAuth().then((mod) => ({
+        default: mod.ShowCrmWorkTaskFieldSection,
       })),
     ),
     "show-crm-work-task-upload": lazyNode(() =>
@@ -38,6 +51,31 @@ export default defineFrontPlugin({
     "show-crm-work-customer-table": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
         default: mod.ShowCrmWorkCustomerTable,
+      })),
+    ),
+    "show-crm-work-lead-pool": lazyNode(() =>
+      loadWorkLead().then((mod) => ({
+        default: mod.ShowCrmWorkLeadPool,
+      })),
+    ),
+    "show-crm-work-sidebar": lazyNode(() =>
+      loadWorkShell().then((mod) => ({
+        default: mod.ShowCrmWorkSidebar,
+      })),
+    ),
+    "show-crm-work-titlebar": lazyNode(() =>
+      loadWorkShell().then((mod) => ({
+        default: mod.ShowCrmWorkTitlebar,
+      })),
+    ),
+    "show-crm-work-stats": lazyNode(() =>
+      loadWorkAuth().then((mod) => ({
+        default: mod.ShowCrmWorkStats,
+      })),
+    ),
+    "show-crm-admin-stats": lazyNode(() =>
+      loadAdminStats().then((mod) => ({
+        default: mod.ShowCrmAdminStats,
       })),
     ),
     "show-crm-work-detail": lazyNode(() =>

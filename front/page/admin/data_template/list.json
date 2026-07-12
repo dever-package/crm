@@ -72,6 +72,40 @@
             "value": true
           }
         }
+      },
+      {
+        "type": "show-button",
+        "name": "常用选项集",
+        "className": "shrink-0",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "list-checks"
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.optionSet",
+            "value": true
+          }
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "系统用途",
+        "className": "shrink-0",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "sliders-horizontal"
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.dataUsage",
+            "value": true
+          }
+        }
       }
     ],
     "tabs-row": [
@@ -92,6 +126,10 @@
             {
               "label": "客户资产",
               "value": 2
+            },
+            {
+              "label": "租赁记录",
+              "value": 3
             }
           ]
         }
@@ -233,6 +271,28 @@
           },
           "bodyClassName": "px-6 py-2"
         }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.optionSet",
+          "pageRoute": "/crm/option_set/list",
+          "title": "常用选项集",
+          "assistant": false,
+          "size": "3xl",
+          "bodyClassName": "py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.dataUsage",
+          "pageRoute": "/crm/data_usage/list",
+          "title": "系统用途",
+          "assistant": false,
+          "size": "4xl",
+          "bodyClassName": "py-2"
+        }
       }
     ]
   },
@@ -259,7 +319,9 @@
   "state": {
     "dialog": {
       "edit": false,
-      "create": false
+      "create": false,
+      "optionSet": false,
+      "dataUsage": false
     }
   },
   "action": {}

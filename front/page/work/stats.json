@@ -1,0 +1,38 @@
+{
+  "page": {
+    "name": "工作台",
+    "icon": "layout-dashboard",
+    "parent": "crm-work-customer-center",
+    "type": 1,
+    "sort": 0
+  },
+  "layout": {
+    "type": "container",
+    "className": "crm-body-page",
+    "children": {
+      "header": {
+        "type": "container",
+        "className": "mb-4 flex justify-end"
+      },
+      "content": {
+        "type": "container",
+        "className": "min-w-0"
+      }
+    }
+  },
+  "nodes": {
+    "header": [
+      {
+        "type": "show-crm-work-refresh-button"
+      }
+    ],
+    "content": [
+      {
+        "type": "show-crm-work-stats"
+      }
+    ]
+  },
+  "data": {},
+  "state": {},
+  "action": {}
+}

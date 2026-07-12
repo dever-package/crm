@@ -52,8 +52,13 @@
               "type": "state",
               "key": "fieldForm",
               "value": {
+                "name": "",
+                "field_key": "",
                 "field_type": "text",
                 "default_value": "",
+                "option_source": "custom",
+                "option_set_id": "",
+                "children": [],
                 "options": [],
                 "status": 1,
                 "sort": 100
@@ -81,14 +86,14 @@
               "type": "show-base"
             },
             {
+              "name": "字段编码",
+              "value": "field_key",
+              "type": "show-base"
+            },
+            {
               "name": "字段类型",
               "value": "field_type",
               "type": "show-tag"
-            },
-            {
-              "name": "默认值",
-              "value": "default_value",
-              "type": "show-base"
             },
             {
               "name": "排序",
@@ -245,11 +250,15 @@
         },
         {
           "id": "boolean",
-          "value": "是/否"
+          "value": "开关"
         },
         {
           "id": "attachment",
           "value": "附件"
+        },
+        {
+          "id": "group",
+          "value": "分组"
         }
       ]
     }
@@ -258,8 +267,13 @@
     "fieldIndex": -1,
     "deleteFieldIndex": -1,
     "fieldForm": {
+      "name": "",
+      "field_key": "",
       "field_type": "text",
       "default_value": "",
+      "option_source": "custom",
+      "option_set_id": "",
+      "children": [],
       "options": [],
       "status": 1,
       "sort": 100

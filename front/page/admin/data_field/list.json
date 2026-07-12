@@ -118,22 +118,6 @@
               "type": "show-tag"
             },
             {
-              "value": "stat_enabled",
-              "type": "form-switch",
-              "meta": {
-                "trueValue": true,
-                "falseValue": false
-              }
-            },
-            {
-              "value": "stat_type",
-              "type": "show-tag"
-            },
-            {
-              "value": "default_value",
-              "type": "show-base"
-            },
-            {
               "value": "status",
               "type": "form-switch",
               "meta": {

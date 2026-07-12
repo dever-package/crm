@@ -7,37 +7,42 @@ import (
 )
 
 type CustomerStage struct {
-	ID                  uint64    `dorm:"primaryKey;autoIncrement;comment:客户阶段ID"`
-	CustomerID          uint64    `dorm:"type:bigint;not null;comment:客户"`
-	AssetID             uint64    `dorm:"type:bigint;not null;default:0;comment:客户资产"`
-	CurrentStageCode    string    `dorm:"type:varchar(32);not null;default:'';comment:当前阶段"`
-	CurrentDepartmentID uint64    `dorm:"type:bigint;not null;default:0;comment:当前主责部门"`
-	CurrentStaffID      uint64    `dorm:"type:bigint;not null;default:0;comment:当前主责人"`
-	LastOperationLogID  uint64    `dorm:"type:bigint;not null;default:0;comment:最后操作记录"`
-	LastTransitionLogID uint64    `dorm:"type:bigint;not null;default:0;comment:最后流转记录"`
-	LastOperatedAt      time.Time `dorm:"comment:最后操作时间"`
-	ContextJSON         string    `dorm:"type:text;not null;default:'{}';comment:上下文JSON"`
-	CreatedAt           time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
-	UpdatedAt           time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
+	ID                uint64     `dorm:"primaryKey;autoIncrement;comment:资产进度ID"`
+	CustomerID        uint64     `dorm:"type:bigint;not null;comment:客户"`
+	AssetID           uint64     `dorm:"type:bigint;not null;comment:客户资产"`
+	WorkflowID        uint64     `dorm:"type:bigint;not null;comment:当前流程"`
+	StageID           uint64     `dorm:"type:bigint;not null;comment:当前阶段"`
+	OwnerDepartmentID uint64     `dorm:"type:bigint;not null;default:0;comment:负责部门"`
+	OwnerStaffID      uint64     `dorm:"type:bigint;not null;default:0;comment:负责人"`
+	Status            string     `dorm:"type:varchar(32);not null;default:'active';comment:进度状态"`
+	StartedAt         time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:阶段开始时间"`
+	CompletedAt       *time.Time `dorm:"null;comment:流程完成时间"`
+	TerminatedAt      *time.Time `dorm:"null;comment:流程终止时间"`
+	TerminatedReason  string     `dorm:"type:text;not null;default:'';comment:终止原因"`
+	UpdatedAt         time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
 }
 
 type CustomerStageIndex struct {
 	CustomerAsset struct{} `unique:"customer_id,asset_id"`
-	StageDept     struct{} `index:"current_stage_code,current_department_id,current_staff_id,id"`
-	StaffStage    struct{} `index:"current_staff_id,current_stage_code,id"`
+	WorkflowStage struct{} `index:"workflow_id,stage_id,status,id"`
+	OwnerStatus   struct{} `index:"owner_department_id,owner_staff_id,status,id"`
 }
 
 func NewCustomerStageModel() *orm.Model[CustomerStage] {
-	return orm.LoadModel[CustomerStage]("客户阶段", "crm_customer_stage", orm.ModelConfig{
+	return orm.LoadModel[CustomerStage]("资产流程进度", "crm_asset_progress", orm.ModelConfig{
 		Index:    CustomerStageIndex{},
 		Order:    "id desc",
 		Database: "default",
+		Options: map[string]any{
+			"status": progressStatusOptions,
+		},
 		Relations: []orm.Relation{
 			customerRelation,
 			assetRelation,
-			currentStageRelation,
-			currentDepartmentRelation,
-			currentStaffRelation,
+			workflowRelation,
+			stageRelation,
+			ownerDepartmentRelation,
+			ownerStaffRelation,
 		},
 	})
 }

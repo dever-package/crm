@@ -1,45 +1,106 @@
 {
   "page": {
-    "name": "CRM 工作台",
+    "name": "客户列表",
     "icon": "briefcase-business",
+    "parent": "crm-work-customer-center",
     "type": 1,
-    "sort": 1
+    "sort": 2
   },
   "layout": {
     "type": "container",
-    "className": "min-h-svh bg-muted/30 p-4 md:p-6",
+    "className": "crm-body-page",
     "children": {
       "header": {
         "type": "container",
-        "className": "mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+        "className": "hidden"
       },
       "content": {
         "type": "container",
-        "className": "rounded-md border bg-background p-4 shadow-sm md:p-5"
+        "className": "min-w-0"
+      },
+      "feedback-shell": {
+        "type": "container"
       }
     }
   },
   "nodes": {
-    "header": [
-      {
-        "type": "show-title",
-        "name": "CRM 工作台",
-        "description": "客户任务与协作处理"
-      },
-      {
-        "type": "show-crm-work-refresh-button"
-      },
-      {
-        "type": "show-crm-work-tasks"
-      }
-    ],
+    "header": [],
     "content": [
       {
         "type": "show-crm-work-customer-table"
       }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.workTask",
+          "formSection": "work-task-form-section",
+          "title": "处理任务",
+          "titlePath": "data.actionTarget.workTaskName",
+          "assistant": false,
+          "size": "xl",
+          "width": "64rem",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "bodyClassName": "crm-work-task-modal-body max-h-[70vh] overflow-y-auto px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-drawer",
+        "meta": {
+          "stateKey": "drawer.workDetail",
+          "formSection": "work-detail-section",
+          "title": "客户详情",
+          "titlePath": "data.actionTarget.workDetailName",
+          "descriptionPath": "data.actionTarget.workDetailDescription",
+          "assistant": false,
+          "side": "right",
+          "width": "52rem",
+          "bodyClassName": "px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.workRecordDetail",
+          "formSection": "work-record-detail-section",
+          "title": "任务记录",
+          "titlePath": "data.actionTarget.workRecordDetailName",
+          "descriptionPath": "data.actionTarget.workRecordDetailDescription",
+          "assistant": false,
+          "size": "lg",
+          "width": "48rem",
+          "footer": {
+            "close": true,
+            "closeText": "关闭"
+          },
+          "bodyClassName": "max-h-[70vh] overflow-y-auto px-6 py-2"
+        }
+      }
+    ],
+    "work-detail-section": [
+      {
+        "type": "show-crm-work-detail"
+      }
+    ],
+    "work-record-detail-section": [
+      {
+        "type": "show-crm-work-record-detail"
+      }
     ]
   },
   "data": {},
-  "state": {},
+  "state": {
+    "dialog": {
+      "workTask": false,
+      "workRecordDetail": false
+    },
+    "drawer": {
+      "workDetail": false
+    }
+  },
   "action": {}
 }

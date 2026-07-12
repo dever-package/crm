@@ -21,6 +21,13 @@
             "sort": 10,
             "children": [
               {
+                "key": "crm-dashboard",
+                "name": "数据看板",
+                "icon": "chart-column",
+                "type": 1,
+                "sort": 0
+              },
+              {
                 "key": "crm-customer-manage",
                 "name": "客户管理",
                 "icon": "contact-round",
@@ -48,12 +55,34 @@
       "work": {
         "api": "crm/work",
         "page": "work",
+        "auth": [
+          {
+            "key": "crm-work-customer-center",
+            "name": "客户中心",
+            "icon": "contact-round",
+            "type": 1,
+            "sort": 1
+          }
+        ],
         "config": {
           "name": "CRM 工作台",
-          "subtitle": "客户任务工作台",
-          "description": "CRM 前台任务与协作入口",
+          "subtitle": "客户中心",
+          "description": "CRM 前台客户与任务入口",
           "logo": "crm/assets/work/images/logo.svg",
           "favicon": "crm/assets/work/images/favicon.svg"
+        },
+        "setting": {
+          "appearance": {
+            "theme": "light",
+            "sidebar": "floating",
+            "layout": "default",
+            "direction": "ltr"
+          },
+          "runtime": {
+            "skin": "default",
+            "routerMode": "history",
+            "shell": "app"
+          }
         },
         "access": {
           "mode": "login",

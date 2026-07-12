@@ -52,8 +52,8 @@ func (CrmHook) ProviderLoadWorkOperations(c *server.Context, _ []any) any {
 func (CrmHook) ProviderBuildOperationLogRows(_ *server.Context, params []any) any {
 	rows := rowsFromProviderParams(params)
 	for _, row := range rows {
-		row["task_type_name"] = taskTypeName(row["task_type"])
-		row["result_value_name"] = operationResultName(row["result_value"])
+		row["task_type_name"] = crmservice.WorkTaskTypeName(util.ToStringTrimmed(row["task_type"]))
+		row["result_value_name"] = crmservice.WorkOperationResultName(util.ToStringTrimmed(row["result_value"]))
 	}
 	return rows
 }

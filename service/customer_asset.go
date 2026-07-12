@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/shemic/dever/orm"
 
 	crmmodel "github.com/dever-package/crm/model"
 )
@@ -31,20 +34,40 @@ func (CustomerAssetService) Create(ctx context.Context, payload map[string]any) 
 	if assetStatusID == 0 {
 		assetStatusID = crmmodel.DefaultAssetStatusID
 	}
-	now := time.Now()
-	assetID := uint64(crmmodel.NewCustomerAssetModel().Insert(ctx, map[string]any{
-		"asset_no":        assetNo,
-		"asset_name":      assetName,
-		"customer_id":     customerID,
-		"asset_status_id": assetStatusID,
-		"remark":          firstText(payload, "remark"),
-		"created_at":      now,
-		"updated_at":      now,
-	}))
-	if assetID == 0 {
-		return nil, fmt.Errorf("客户资产创建失败")
+	ownerStaffID := firstUint64(payload, "owner_staff_id", "ownerStaffId")
+	var assetID uint64
+	workflowWarning := ""
+	err := orm.Transaction(ctx, func(txCtx context.Context) error {
+		now := time.Now()
+		assetID = uint64(crmmodel.NewCustomerAssetModel().Insert(txCtx, map[string]any{
+			"asset_no":        assetNo,
+			"asset_name":      assetName,
+			"customer_id":     customerID,
+			"asset_status_id": assetStatusID,
+			"remark":          firstText(payload, "remark"),
+			"created_at":      now,
+			"updated_at":      now,
+		}))
+		if assetID == 0 {
+			return fmt.Errorf("客户资产创建失败")
+		}
+		if err := startAssetWorkflow(txCtx, customerID, assetID, ownerStaffID); err != nil {
+			if errors.Is(err, ErrNoAvailableWorkflow) {
+				workflowWarning = err.Error()
+				return nil
+			}
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return map[string]any{"id": assetID}, nil
+	result := map[string]any{"id": assetID}
+	if workflowWarning != "" {
+		result["workflow_warning"] = workflowWarning
+	}
+	return result, nil
 }
 
 func (CustomerAssetService) Detail(ctx context.Context, assetID uint64) (map[string]any, error) {

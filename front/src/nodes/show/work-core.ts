@@ -50,6 +50,25 @@ export type WorkFieldOption = {
   value?: string | number;
 };
 
+export type WorkDisplayField = {
+  key?: string;
+  label?: string;
+  value?: unknown;
+  value_type?: string;
+  files?: UploadFileItem[];
+};
+
+export type WorkDataCompletenessTemplate = {
+  template_id?: string | number;
+  template_name?: string;
+  name?: string;
+  total?: string | number;
+  filled?: string | number;
+  percent?: string | number;
+  missing?: string[];
+  is_probe?: boolean;
+};
+
 export type WorkFormField = {
   id?: string | number;
   name?: string;
@@ -65,6 +84,7 @@ export type WorkFormField = {
   required?: boolean;
   default_value?: string | number;
   options?: WorkFieldOption[];
+  children?: WorkFormField[];
 };
 
 export type WorkForm = {
@@ -82,24 +102,37 @@ export type WorkTaskFieldRenderConfig = {
 
 export type WorkTask = {
   id?: string | number;
+  task_id?: string | number;
   name?: string;
   task_name?: string;
   todo_id?: string | number;
   todo_status?: string;
   todo_required?: boolean;
   todo_sort?: string | number;
+  status?: string;
+  status_name?: string;
   assigned_at?: string;
+  due_at?: string;
+  result?: string;
+  can_operate?: boolean;
+  can_assign?: boolean;
+  can_reassign?: boolean;
+  unassigned?: boolean;
+  required?: boolean;
+  assignee_mode?: "stage" | "auto" | "manual" | string;
+  workflow_id?: string | number;
+  workflow_name?: string;
+  stage_id?: string | number;
+  stage_name?: string;
+  customer_id?: string | number;
+  asset_id?: string | number;
   assignee_department_id?: string | number;
+  assignee_department_name?: string;
   assignee_staff_id?: string | number;
-  action_type?: string;
-  task_action?: string;
+  assignee_staff_name?: string;
   task_type?: string;
-  trigger_type?: string;
-  assign_mode?: string;
-  assign_department_ids?: Array<string | number> | string;
-  collaboration_items?: Array<Record<string, unknown>> | string;
-  collaboration_complete_mode?: string;
-  completion_mode?: string;
+  business_object_type_id?: string | number;
+  business_object_type_name?: string;
   form_id?: string | number;
   form?: WorkForm | null;
 };
@@ -133,6 +166,9 @@ export type WorkCustomer = {
   status_code?: string;
   current_stage_name?: string;
   current_status_name?: string;
+  stage_entered_at?: string;
+  stage_days?: string | number;
+  last_operated_at?: string;
   created_at?: string;
   create_time?: string;
   tasks?: WorkTask[];
@@ -142,6 +178,8 @@ export type WorkCustomer = {
   operations?: WorkOperation[];
   data_values?: Record<string, unknown>;
   data_value_labels?: Record<string, string>;
+  display_fields?: WorkDisplayField[];
+  data_completeness?: WorkDataCompletenessTemplate[];
   [key: string]: unknown;
 };
 
@@ -162,12 +200,36 @@ export type WorkAsset = {
   stage_code?: string;
   current_stage_name?: string;
   current_status_name?: string;
+  stage_entered_at?: string;
+  stage_days?: string | number;
+  last_operated_at?: string;
   remark?: string;
   tasks?: WorkTask[];
   row_tasks?: WorkTask[];
   operations?: WorkOperation[];
   data_values?: Record<string, unknown>;
   data_value_labels?: Record<string, string>;
+  display_fields?: WorkDisplayField[];
+  data_completeness?: WorkDataCompletenessTemplate[];
+  business_objects?: WorkBusinessObject[];
+  [key: string]: unknown;
+};
+
+export type WorkBusinessObject = {
+  id?: string | number;
+  business_object_id?: string | number;
+  business_object_type_id?: string | number;
+  business_object_type_name?: string;
+  object_no?: string;
+  object_name?: string;
+  object_status?: string;
+  status?: string | number;
+  created_at?: string;
+  updated_at?: string;
+  data_values?: Record<string, unknown>;
+  data_value_labels?: Record<string, string>;
+  display_fields?: WorkDisplayField[];
+  data_completeness?: WorkDataCompletenessTemplate[];
   [key: string]: unknown;
 };
 
@@ -175,8 +237,12 @@ export type WorkOperation = {
   id?: string | number;
   asset_id?: string | number;
   customer_id?: string | number;
+  workflow_id?: string | number;
+  stage_id?: string | number;
   task_type?: string;
   result_value?: string;
+  stage_code?: string;
+  stage_name?: string;
   title?: string;
   summary?: string;
   operation_name?: string;
@@ -194,12 +260,126 @@ export type WorkOperation = {
   [key: string]: unknown;
 };
 
+export type WorkTodo = {
+  id?: string | number;
+  todo_id?: string | number;
+  task_id?: string | number;
+  workflow_id?: string | number;
+  workflow_name?: string;
+  stage_id?: string | number;
+  stage_name?: string;
+  customer_id?: string | number;
+  asset_id?: string | number;
+  task_name?: string;
+  task_type?: string;
+  form_id?: string | number;
+  assignee_department_id?: string | number;
+  assignee_department_name?: string;
+  assignee_staff_id?: string | number;
+  assignee_staff_name?: string;
+  todo_required?: boolean;
+  todo_sort?: string | number;
+  status?: string;
+  status_name?: string;
+  can_operate?: boolean;
+  assigned_at?: string;
+  due_at?: string;
+  result?: string;
+  completed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+};
+
+export type WorkFlowAssignee = {
+  id?: string | number;
+  name?: string;
+  department_id?: string | number;
+  active_asset_count?: string | number;
+  pending_task_count?: string | number;
+  last_assigned_at?: string;
+};
+
+export type WorkFlowDetail = {
+  id?: string | number;
+  customer_id?: string | number;
+  asset_id?: string | number;
+  workflow_id?: string | number;
+  workflow_name?: string;
+  stage_id?: string | number;
+  stage_name?: string;
+  stage_assignment_mode?: "auto" | "manual" | string;
+  owner_department_id?: string | number;
+  owner_department_name?: string;
+  owner_staff_id?: string | number;
+  owner_staff_name?: string;
+  status?: "not_started" | "active" | "completed" | "terminated" | string;
+  started_at?: string;
+  completed_at?: string;
+  terminated_at?: string;
+  terminated_reason?: string;
+  pending_required_count?: string | number;
+  is_current_owner?: boolean;
+  can_dispatch?: boolean;
+  can_complete_stage?: boolean;
+  ready_to_complete?: boolean;
+  can_terminate?: boolean;
+  can_change_owner?: boolean;
+  tasks?: WorkTask[];
+  next_terminal?: boolean;
+  next_workflow_id?: string | number;
+  next_workflow_name?: string;
+  next_stage_id?: string | number;
+  next_stage_name?: string;
+  next_department_id?: string | number;
+  next_assignment_mode?: "auto" | "manual" | string;
+  next_owner_required?: boolean;
+  configuration_error?: string;
+};
+
 export type WorkOperationSummaryItem = {
   key?: string;
   label?: string;
   value?: unknown;
   value_type?: string;
   files?: UploadFileItem[];
+  group_id?: string | number;
+  group_label?: string;
+  group_name?: string;
+  groupId?: string | number;
+  groupLabel?: string;
+  groupName?: string;
+};
+
+export type WorkSummaryMetric = {
+  key?: string;
+  name?: string;
+  value?: string | number;
+  description?: string;
+};
+
+export type WorkSummaryBreakdown = {
+  key?: string;
+  name?: string;
+  count?: string | number;
+  percent?: string | number;
+};
+
+export type WorkSummaryTrendPoint = {
+  date?: string;
+  label?: string;
+  task_count?: string | number;
+  transition_count?: string | number;
+  operation_count?: string | number;
+};
+
+export type WorkSummary = {
+  metrics?: WorkSummaryMetric[];
+  trend?: WorkSummaryTrendPoint[];
+  stage_breakdown?: WorkSummaryBreakdown[];
+  task_breakdown?: WorkSummaryBreakdown[];
+  recent_operations?: WorkOperation[];
+  generated_at?: string;
 };
 
 export type WorkItem = {
@@ -211,6 +391,7 @@ export type WorkItem = {
 };
 
 export type WorkCustomerMode = "all" | "pending" | "done";
+export type WorkCustomerScope = "mine" | "all";
 
 export type WorkSearchFilters = {
   customerNo: string;
@@ -219,26 +400,6 @@ export type WorkSearchFilters = {
   wechat: string;
   assetNo: string;
   status: string;
-};
-
-export type WorkDepartmentOption = {
-  id?: string | number;
-  name?: string;
-  department_name?: string;
-};
-
-export type WorkStaffOption = {
-  id?: string | number;
-  name?: string;
-  real_name?: string;
-  phone?: string;
-  department_id?: string | number;
-};
-
-export type WorkOptions = {
-  departments: WorkDepartmentOption[];
-  staffs: WorkStaffOption[];
-  forms: WorkCommonOption[];
 };
 
 export type WorkCommonOption = {
@@ -309,6 +470,7 @@ export const workRefreshEvent = "crm-work-refresh";
 export const workTaskFormSectionID = "work-task-form-section";
 export const workTaskFormDataPath = "data.workTaskForm";
 export const workTaskFieldMapPath = "data.actionTarget.workTaskFieldMap";
+let workApiFreshSeq = 0;
 
 const buttonBase =
   "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60";
@@ -381,8 +543,8 @@ export const workCustomerModeConfig: Record<
     emptyDescription: "当前没有需要处理的客户或资产任务",
   },
   done: {
-    emptyTitle: "暂无已完成工作",
-    emptyDescription: "完成客户或资产任务后，会在这里留存记录",
+    emptyTitle: "暂无已结束业务",
+    emptyDescription: "当前没有已完成或已终止的流程",
   },
 };
 
@@ -512,7 +674,7 @@ export function getWorkEntryPath(): string {
   const normalized = basePath.startsWith("/") ? basePath : `/${basePath}`;
   const rawSiteRoot = normalized.replace(/\/(?:login|sign-in|index)\/?$/, "");
   const siteRoot = rawSiteRoot && rawSiteRoot !== "/" ? rawSiteRoot : "/work";
-  return `${siteRoot}/index`;
+  return siteRoot;
 }
 
 export function saveWorkSession(token: string, user: unknown) {
@@ -547,11 +709,21 @@ export async function workApi<T>(
   ensureWorkAuthCookie();
   const method = normalizeWorkApiMethod(init.method);
   const payload = normalizeWorkApiPayload(init.body);
-  const result = (await request(path, method, payload)) as
+  const requestPath = freshWorkApiPath(path, method);
+  const result = (await request(requestPath, method, payload)) as
     | WorkApiResponse<T>
     | T;
 
   return unwrapWorkApiResult(result);
+}
+
+function freshWorkApiPath(path: string, method: WorkApiMethod): string {
+  if (method !== "get") {
+    return path;
+  }
+  workApiFreshSeq += 1;
+  const joiner = path.includes("?") ? "&" : "?";
+  return `${path}${joiner}_r=${Date.now()}_${workApiFreshSeq}`;
 }
 
 function ensureWorkAuthCookie() {

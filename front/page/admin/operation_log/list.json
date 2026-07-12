@@ -42,12 +42,33 @@
         "mode": "search"
       },
       {
+        "type": "form-date",
+        "placeholder": "操作时间",
+        "value": "search.created_at_start",
+        "mode": "search",
+        "meta": {
+          "searchWidth": "select",
+          "range": true,
+          "endValue": "search.created_at_end",
+          "inputType": "datetime-local"
+        }
+      },
+      {
         "type": "show-button",
         "name": "搜索",
         "meta": {
           "variant": "default",
           "size": "sm",
           "searchSubmit": true
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "重置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "to": "/crm/operation_log/list"
         }
       }
     ],
@@ -117,7 +138,11 @@
     ]
   },
   "data": {
-    "search": {},
+    "search": {
+      "keyword": "",
+      "created_at_start": "",
+      "created_at_end": ""
+    },
     "table": {
       "pageSize": 20,
       "service": "crm.setting.CrmHook.BuildOperationLogRows",
@@ -126,6 +151,15 @@
         "content",
         "stage_code",
         "result_value"
+      ],
+      "filterFields": [
+        {
+          "field": "created_at",
+          "type": "date-range",
+          "startKey": "created_at_start",
+          "endKey": "created_at_end",
+          "valueType": "datetime"
+        }
       ]
     }
   },

@@ -1,8 +1,7 @@
 {
   "page": {
     "name": "阶段编辑",
-    "parent": "crm/task/list",
-    "type": 2,
+    "parent": "crm/workflow/list",
     "auth": [
       {
         "key": "crm/stage/create",
@@ -39,26 +38,6 @@
     "dialog-shell": [
       {
         "type": "form-input",
-        "name": "状态码",
-        "value": "form.code",
-        "mode": "form",
-        "validate": [
-          {
-            "type": "required",
-            "message": "状态码不能为空。"
-          },
-          {
-            "type": "model",
-            "except": "$form.id",
-            "message": "状态码已存在。"
-          }
-        ],
-        "meta": {
-          "formLayout": "horizontal"
-        }
-      },
-      {
-        "type": "form-input",
         "name": "阶段名称",
         "value": "form.name",
         "mode": "form",
@@ -74,7 +53,7 @@
       },
       {
         "type": "form-select",
-        "name": "主责部门",
+        "name": "默认负责部门",
         "value": "form.owner_department_id",
         "mode": "form",
         "option": {
@@ -83,15 +62,51 @@
           "order": "sort asc,id asc",
           "pageSize": 200,
           "searchFields": [
-            "code",
             "name"
           ],
           "filters": {
-            "status": "1"
+            "status": 1
           }
         },
         "meta": {
           "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "进入阶段时",
+        "value": "form.assignment_mode",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "请选择阶段分配方式。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-number",
+        "name": "排序",
+        "value": "form.sort",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "min": 0,
+          "step": 10
+        }
+      },
+      {
+        "type": "form-switch",
+        "name": "启用",
+        "value": "form.status",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "trueValue": 1,
+          "falseValue": 2
         }
       }
     ]
@@ -99,14 +114,19 @@
   "data": {
     "form": {
       "_fields": [
-        "code",
+        "workflow_id",
         "name",
-        "owner_department_id"
+        "owner_department_id",
+        "assignment_mode",
+        "sort",
+        "status"
       ],
-      "id": "",
-      "code": "",
+      "workflow_id": "",
       "name": "",
-      "owner_department_id": ""
+      "owner_department_id": "",
+      "assignment_mode": "auto",
+      "sort": 100,
+      "status": 2
     }
   },
   "state": {},

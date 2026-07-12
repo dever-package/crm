@@ -38,11 +38,6 @@ func (Work) GetMe(c *server.Context) error {
 	return crmJSON(c, data, err)
 }
 
-func (Work) GetOptions(c *server.Context) error {
-	data, err := workService.Options(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
-	return crmJSON(c, data, err)
-}
-
 func (Work) GetCustomers(c *server.Context) error {
 	data, err := workService.Customers(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
 		"keyword":       c.Input("keyword"),
@@ -53,7 +48,62 @@ func (Work) GetCustomers(c *server.Context) error {
 		"asset_no":      c.Input("asset_no"),
 		"status":        c.Input("status"),
 		"mode":          c.Input("mode"),
+		"quick_filter":  c.Input("quick_filter"),
+		"quickFilter":   c.Input("quickFilter"),
+		"stage_filter":  c.Input("stage_filter"),
+		"stage":         c.Input("stage"),
+		"task_filter":   c.Input("task_filter"),
+		"task":          c.Input("task"),
+		"scope":         c.Input("scope"),
+		"page":          c.Input("page"),
+		"page_size":     c.Input("page_size"),
+		"pageSize":      c.Input("pageSize"),
+		"limit":         c.Input("limit"),
 	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetLeads(c *server.Context) error {
+	data, err := workService.LeadPool(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"keyword":   c.Input("keyword"),
+		"status":    c.Input("status"),
+		"page":      c.Input("page"),
+		"page_size": c.Input("page_size"),
+		"pageSize":  c.Input("pageSize"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostCreateLead(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.RegisterLead(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostLeadAction(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.ActOnLead(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetCustomerDetail(c *server.Context) error {
+	data, err := workService.CustomerDetail(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"customer_id": c.Input("customer_id"),
+		"customerId":  c.Input("customerId"),
+		"asset_id":    c.Input("asset_id"),
+		"assetId":     c.Input("assetId"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetSummary(c *server.Context) error {
+	data, err := workService.Summary(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
 	return crmJSON(c, data, err)
 }
 
@@ -76,6 +126,53 @@ func (Work) GetTasks(c *server.Context) error {
 	} else {
 		data, err = workService.Tasks(c.Context(), crmservice.CurrentWorkStaff(c.Context()), customerID)
 	}
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetFlowAssignees(c *server.Context) error {
+	data, err := workService.FlowAssignees(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"todo_id":  c.Input("todo_id"),
+		"todoId":   c.Input("todoId"),
+		"asset_id": c.Input("asset_id"),
+		"assetId":  c.Input("assetId"),
+		"target":   c.Input("target"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostAssignFlowTask(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.AssignFlowTask(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostChangeFlowOwner(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.ChangeFlowOwner(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostCompleteFlowStage(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.CompleteFlowStage(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostTerminateFlow(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.TerminateFlow(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
 	return crmJSON(c, data, err)
 }
 

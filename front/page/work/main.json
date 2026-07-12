@@ -5,15 +5,45 @@
   },
   "layout": {
     "type": "container",
-    "className": "min-h-svh bg-background",
+    "className": "crm-body-app",
     "children": {
-      "content": {
+      "sidebar": {
         "type": "container",
-        "className": "min-h-svh"
+        "className": "crm-body-sidebar-slot"
+      },
+      "main": {
+        "type": "container",
+        "className": "crm-body-main",
+        "children": {
+          "frame": {
+            "type": "container",
+            "className": "crm-body-frame",
+            "children": {
+              "titlebar": {
+                "type": "container",
+                "className": "crm-body-titlebar-slot"
+              },
+              "content": {
+                "type": "container",
+                "className": "crm-body-content"
+              }
+            }
+          }
+        }
       }
     }
   },
   "nodes": {
+    "sidebar": [
+      {
+        "type": "show-crm-work-sidebar"
+      }
+    ],
+    "titlebar": [
+      {
+        "type": "show-crm-work-titlebar"
+      }
+    ],
     "content": [
       {
         "type": "app-outlet"

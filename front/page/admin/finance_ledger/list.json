@@ -43,6 +43,25 @@
       },
       {
         "type": "form-select",
+        "placeholder": "业务对象",
+        "value": "search.business_object_id",
+        "mode": "search",
+        "option": {
+          "model": "crm.NewBusinessObjectModel",
+          "labelField": "object_name",
+          "order": "id desc",
+          "pageSize": 200,
+          "searchFields": [
+            "object_no",
+            "object_name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        }
+      },
+      {
+        "type": "form-select",
         "placeholder": "任务",
         "value": "search.task_id",
         "mode": "search",
@@ -98,16 +117,16 @@
         }
       },
       {
-        "type": "form-input",
-        "placeholder": "开始时间 YYYY-MM-DD",
+        "type": "form-date",
+        "placeholder": "创建时间",
         "value": "search.created_at_start",
-        "mode": "search"
-      },
-      {
-        "type": "form-input",
-        "placeholder": "结束时间 YYYY-MM-DD",
-        "value": "search.created_at_end",
-        "mode": "search"
+        "mode": "search",
+        "meta": {
+          "searchWidth": "select",
+          "range": true,
+          "endValue": "search.created_at_end",
+          "inputType": "datetime-local"
+        }
       },
       {
         "type": "show-button",
@@ -148,6 +167,11 @@
             {
               "name": "资产",
               "value": "asset.asset_name",
+              "type": "show-base"
+            },
+            {
+              "name": "业务对象",
+              "value": "business_object.object_name",
               "type": "show-base"
             },
             {
@@ -202,6 +226,7 @@
     "search": {
       "keyword": "",
       "task_id": "",
+      "business_object_id": "",
       "staff_id": "",
       "department_id": "",
       "created_at_start": "",
@@ -216,13 +241,15 @@
       ],
       "filterFields": [
         "task_id",
+        "business_object_id",
         "staff_id",
         "department_id",
         {
           "field": "created_at",
           "type": "date-range",
           "startKey": "created_at_start",
-          "endKey": "created_at_end"
+          "endKey": "created_at_end",
+          "valueType": "datetime"
         }
       ]
     }
