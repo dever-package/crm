@@ -254,6 +254,7 @@ const crmWorkSkin = `
   }
 
   .crm-work-app .crm-work-page button[data-slot="button"] {
+    height: 30px;
     min-height: 30px;
     border-radius: 6px;
     font-size: 12px;
@@ -414,6 +415,205 @@ const crmWorkSkin = `
     padding: 14px;
   }
 
+  body:has(.crm-work-app) [data-slot="dialog-content"],
+  body:has(.crm-work-app) [data-slot="sheet-content"] {
+    --primary: #1a4a35;
+    --primary-foreground: #ffffff;
+    --ring: #6b8d7e;
+    border-color: var(--crm-work-line, #e4e8e6);
+    background: #ffffff;
+    color: #171a19;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, "Noto Sans SC", "PingFang SC", sans-serif;
+    font-size: 12.8px;
+    letter-spacing: 0;
+  }
+
+  body:has(.crm-work-app) [data-slot="dialog-content"] {
+    border-radius: 6px;
+    box-shadow: 0 24px 70px rgba(16, 24, 21, 0.16);
+  }
+
+  body:has(.crm-work-app) [data-slot="sheet-content"] {
+    border-color: #e4e8e6;
+    box-shadow: -12px 0 36px rgba(16, 24, 21, 0.1);
+  }
+
+  body:has(.crm-work-app) [data-slot="dialog-content"] *,
+  body:has(.crm-work-app) [data-slot="sheet-content"] * {
+    letter-spacing: 0;
+  }
+
+  body:has(.crm-work-app) [data-slot="dialog-header"],
+  body:has(.crm-work-app) [data-slot="sheet-header"] {
+    gap: 3px;
+    border-bottom: 1px solid #e4e8e6;
+    padding: 13px 18px;
+  }
+
+  body:has(.crm-work-app) [data-slot="sheet-header"] {
+    padding-right: 22px;
+    padding-left: 22px;
+  }
+
+  body:has(.crm-work-app) [data-slot="dialog-title"],
+  body:has(.crm-work-app) [data-slot="sheet-title"] {
+    color: #171a19;
+    font-size: 14.5px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  body:has(.crm-work-app) [data-slot="dialog-description"],
+  body:has(.crm-work-app) [data-slot="sheet-description"] {
+    color: #6b7370;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  body:has(.crm-work-app) [data-slot="dialog-footer"] {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    border-top: 1px solid #e4e8e6;
+    padding: 11px 18px;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] .text-xs {
+    font-size: 10.5px;
+    line-height: 1.4;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] .text-sm {
+    font-size: 12.8px;
+    line-height: 1.45;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] .text-base {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] .text-lg,
+  body:has(.crm-work-app) [role="dialog"] .text-xl,
+  body:has(.crm-work-app) [role="dialog"] .text-2xl {
+    font-size: 14.5px;
+    line-height: 1.35;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] .text-muted-foreground {
+    color: #6b7370;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] .shadow-sm,
+  body:has(.crm-work-app) [role="dialog"] .shadow-xs {
+    box-shadow: none;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] .rounded-lg,
+  body:has(.crm-work-app) [role="dialog"] .rounded-md {
+    border-radius: 6px;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] input,
+  body:has(.crm-work-app) [role="dialog"] select,
+  body:has(.crm-work-app) [role="dialog"] textarea {
+    border-color: #d2d9d6;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #171a19;
+    font: inherit;
+    font-size: 12px;
+    box-shadow: none;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] input,
+  body:has(.crm-work-app) [role="dialog"] select {
+    height: 34px;
+    min-height: 34px;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] input:focus,
+  body:has(.crm-work-app) [role="dialog"] select:focus,
+  body:has(.crm-work-app) [role="dialog"] textarea:focus {
+    border-color: #7f9f91;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(127, 159, 145, 0.14);
+  }
+
+  body:has(.crm-work-app) [role="dialog"] button[data-slot="button"] {
+    height: 30px;
+    min-height: 30px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow: none;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] button[data-slot="dialog-close"],
+  body:has(.crm-work-app) [role="dialog"] button[data-slot="sheet-close"] {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    border-radius: 6px;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] .crm-work-task-modal-body {
+    padding: 12px 18px;
+  }
+
+  body:has(.crm-work-app) [role="dialog"] .crm-work-task-modal-body > div {
+    margin-bottom: 10px;
+  }
+
+  body:has(.crm-work-app) [data-crm-work-detail="true"],
+  body:has(.crm-work-app) [data-crm-work-record-detail="true"] {
+    color: #171a19;
+    font-size: 12.8px;
+  }
+
+  body:has(.crm-work-app) [data-crm-work-detail="true"] > div,
+  body:has(.crm-work-app) [data-crm-work-record-detail="true"] {
+    gap: 14px;
+  }
+
+  body:has(.crm-work-app) [data-crm-work-detail="true"] section,
+  body:has(.crm-work-app) [data-crm-work-detail="true"] article,
+  body:has(.crm-work-app) [data-crm-work-record-detail="true"] section,
+  body:has(.crm-work-app) [data-crm-work-record-detail="true"] article {
+    border-color: #e4e8e6;
+    box-shadow: none;
+  }
+
+  body:has(.crm-work-app) [data-crm-work-detail="true"] [class*="bg-muted"],
+  body:has(.crm-work-app) [data-crm-work-record-detail="true"] [class*="bg-muted"] {
+    background-color: #fafbfa;
+  }
+
+  body:has(.crm-work-app) [data-crm-work-detail="true"] table,
+  body:has(.crm-work-app) [data-crm-work-record-detail="true"] table {
+    font-size: 12.8px;
+  }
+
+  body:has(.crm-work-app) [data-crm-work-detail="true"] th,
+  body:has(.crm-work-app) [data-crm-work-record-detail="true"] th {
+    color: #6b7370;
+    font-size: 11.5px;
+    font-weight: 500;
+  }
+
+  body:has(.crm-work-app) [data-crm-work-detail="true"] td,
+  body:has(.crm-work-app) [data-crm-work-record-detail="true"] td {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  body:has(.crm-work-app) [data-crm-work-detail="true"] button,
+  body:has(.crm-work-app) [data-crm-work-record-detail="true"] button {
+    font-size: 12px;
+  }
+
   @media (max-width: 767px) {
     .crm-work-app [data-slot="sidebar-inset"] {
       margin: 0;
@@ -441,6 +641,35 @@ const crmWorkSkin = `
     .crm-work-app .crm-work-customers > div:nth-child(2) > form input {
       width: 100%;
       max-width: none;
+    }
+
+    body:has(.crm-work-app) [data-slot="dialog-content"] {
+      width: calc(100vw - 20px);
+      max-width: calc(100vw - 20px);
+      max-height: calc(100svh - 20px);
+    }
+
+    body:has(.crm-work-app) [data-slot="sheet-content"] {
+      width: min(100vw, 42rem);
+      max-width: 100vw;
+    }
+
+    body:has(.crm-work-app) [data-slot="dialog-header"],
+    body:has(.crm-work-app) [data-slot="sheet-header"] {
+      padding: 12px 14px;
+    }
+
+    body:has(.crm-work-app) [data-slot="dialog-footer"] {
+      padding: 10px 14px;
+    }
+
+    body:has(.crm-work-app) [role="dialog"] .crm-work-task-modal-body {
+      padding: 10px 14px;
+    }
+
+    body:has(.crm-work-app) [data-crm-work-detail="true"] > div,
+    body:has(.crm-work-app) [data-crm-work-record-detail="true"] {
+      gap: 12px;
     }
   }
 `;

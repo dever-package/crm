@@ -3130,16 +3130,22 @@ export function ShowCrmWorkDetail({ store }: WorkNodeProps) {
   );
 
   if (!customer) {
-    return <WorkEmptyText>暂无详情</WorkEmptyText>;
-  }
-
-  if (asset) {
     return (
-      <WorkAssetDetailContent customer={customer} asset={asset} store={store} />
+      <div data-crm-work-detail="true" className="crm-work-detail">
+        <WorkEmptyText>暂无详情</WorkEmptyText>
+      </div>
     );
   }
 
-  return <WorkCustomerDetailContent customer={customer} store={store} />;
+  return (
+    <div data-crm-work-detail="true" className="crm-work-detail">
+      {asset ? (
+        <WorkAssetDetailContent customer={customer} asset={asset} store={store} />
+      ) : (
+        <WorkCustomerDetailContent customer={customer} store={store} />
+      )}
+    </div>
+  );
 }
 
 export function ShowCrmWorkRecordDetail({ store }: WorkNodeProps) {
@@ -4923,7 +4929,11 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
   ) : null;
 
   return (
-    <div ref={contentRef} className="contents">
+    <div
+      ref={contentRef}
+      data-crm-work-task-form="true"
+      className="contents"
+    >
       {footerTargets?.actions
         ? createPortal(
             <>
