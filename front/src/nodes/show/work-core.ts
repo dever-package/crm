@@ -394,6 +394,7 @@ export type WorkCustomerMode = "all" | "pending" | "done";
 export type WorkCustomerScope = "mine" | "all";
 
 export type WorkSearchFilters = {
+  keyword: string;
   customerNo: string;
   customerName: string;
   phone: string;
@@ -401,6 +402,38 @@ export type WorkSearchFilters = {
   assetNo: string;
   status: string;
 };
+
+export type WorkStageOption = {
+  id: string;
+  value: string;
+  code?: string;
+  workflowName?: string;
+};
+
+export type WorkDetailField = {
+  key: string;
+  label: string;
+  value?: unknown;
+  valueType?: string;
+  empty?: boolean;
+  group?: string;
+  files?: unknown[];
+};
+
+export type WorkDetailSection = {
+  id: string;
+  name: string;
+  targetType: "customer" | "asset" | "business_object";
+  templateId?: string | number;
+  objectId?: string | number;
+  objectName?: string;
+  filled: number;
+  total: number;
+  percent: number;
+  fields: WorkDetailField[];
+};
+
+export type WorkTaskLayoutMode = "compact" | "workspace";
 
 export type WorkCommonOption = {
   id: string;
@@ -518,6 +551,7 @@ export const workSearchFields: Array<{
 
 export function emptyWorkSearchFilters(): WorkSearchFilters {
   return {
+    keyword: "",
     customerNo: "",
     customerName: "",
     phone: "",

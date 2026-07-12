@@ -361,6 +361,7 @@ function renderWorkItemStatus(item: WorkItem) {
 function workSearchQuery(filters: WorkSearchFilters): string {
   const params = new URLSearchParams();
   const entries: Array<[string, string]> = [
+    ["keyword", filters.keyword],
     ["customer_no", filters.customerNo],
     ["customer_name", filters.customerName],
     ["phone", filters.phone],
@@ -416,6 +417,7 @@ function currentWorkURLParams(): URLSearchParams {
 function workSearchFiltersFromURL(): WorkSearchFilters {
   const params = currentWorkURLParams();
   return {
+    keyword: textValue(params.get("keyword")),
     customerNo: textValue(params.get("customer_no") || params.get("customerNo")),
     customerName: textValue(params.get("customer_name") || params.get("customerName")),
     phone: textValue(params.get("phone")),
@@ -448,7 +450,7 @@ function workCustomerModeFromNode(
   const pathname = textValue(window.location.pathname);
   return pathname.endsWith("/work/done") || pathname.includes("/work/done/")
     ? "done"
-    : "pending";
+    : "all";
 }
 
 function renderStatus(
@@ -1331,9 +1333,9 @@ const workTopFilterOptions: Array<{
   mode: WorkCustomerMode;
   quickFilter: WorkQuickFilter;
 }> = [
+  { key: "all", label: "全部", mode: "all", quickFilter: "all" },
   { key: "pending", label: "待处理", mode: "pending", quickFilter: "all" },
   { key: "done", label: "已结束", mode: "done", quickFilter: "all" },
-  { key: "all", label: "全部", mode: "all", quickFilter: "all" },
 ];
 
 function workTopFilterKey(mode: WorkCustomerMode): string {
