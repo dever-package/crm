@@ -289,7 +289,7 @@ const crmWorkSkin = `
     height: 36px;
     padding: 8px 14px;
     color: var(--crm-work-muted);
-    font-size: 11.5px;
+    font-size: 11.5px !important;
     font-weight: 500;
     line-height: 1.25;
   }
