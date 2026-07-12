@@ -27,7 +27,7 @@ type WorkTodo struct {
 type WorkTodoIndex struct {
 	AssigneeStatus struct{} `index:"assignee_department_id,assignee_staff_id,status,due_at,id"`
 	CustomerStatus struct{} `index:"customer_id,asset_id,status,id"`
-	StageTask      struct{} `index:"asset_id,stage_id,task_id,status,id"`
+	StageTask      struct{} `unique:"asset_id,stage_id,task_id"`
 	WorkflowStatus struct{} `index:"workflow_id,stage_id,status,id"`
 }
 

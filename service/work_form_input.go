@@ -195,50 +195,6 @@ func mergeWorkFormRecordMap(target map[uint64]map[string]any, source map[uint64]
 	}
 }
 
-func workFormTaskResultValue(task *crmmodel.Task, formInput *workFormInput) string {
-	config := mapFromAny(task.ConfigJSON)
-	fieldID := inputUint64(config["result_field_id"])
-	if fieldID == 0 {
-		return workResultSuccess
-	}
-	actual := workFormInputDataFieldValue(formInput, fieldID)
-	if emptyWorkFieldValue(actual) {
-		return "empty"
-	}
-	if workFormResultAllowed(actual, config["success_values"]) {
-		return workResultSuccess
-	}
-	return inputText(actual)
-}
-
-func workFormInputDataFieldValue(formInput *workFormInput, fieldID uint64) any {
-	if formInput == nil || fieldID == 0 {
-		return nil
-	}
-	fieldKey := fmt.Sprintf("%d", fieldID)
-	for _, records := range []map[uint64]map[string]any{formInput.customerDataRecords, formInput.assetDataRecords, formInput.businessObjectDataRecords} {
-		for _, record := range records {
-			if value, exists := record[fieldKey]; exists {
-				return value
-			}
-		}
-	}
-	return nil
-}
-
-func workFormResultAllowed(actual any, expected any) bool {
-	allowed := stringListFromAny(expected)
-	if len(allowed) == 0 {
-		return inputText(actual) == workResultSuccess
-	}
-	for _, value := range allowed {
-		if valuesEqual(actual, value) {
-			return true
-		}
-	}
-	return false
-}
-
 func formInputHasAssetValues(formInput *workFormInput) bool {
 	return formInput != nil && (len(formInput.assetFields) > 0 || len(formInput.assetDataRecords) > 0)
 }
@@ -297,27 +253,6 @@ func ensureWorkFormBusinessObject(ctx context.Context, staff *WorkStaffSession, 
 		"updated_at":              now,
 	}))
 	return objectID, true, nil
-}
-
-func ensureCreatedWorkAssetStage(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, operationID uint64, taskID uint64, createdAsset bool, fallback *crmmodel.CustomerStage) *crmmodel.CustomerStage {
-	if !createdAsset {
-		return fallback
-	}
-	insertWorkCustomerStage(ctx, staff, customerID, assetID, operationID, taskID)
-	if state := currentWorkCustomerStage(ctx, customerID, assetID); state != nil {
-		return state
-	}
-	return fallback
-}
-
-func workEnteredStageCode(createdStage bool, state *crmmodel.CustomerStage, transitionStageCode string) string {
-	if transitionStageCode != "" {
-		return transitionStageCode
-	}
-	if createdStage && state != nil {
-		return state.CurrentStageCode
-	}
-	return ""
 }
 
 func saveWorkFormInput(ctx context.Context, customerID uint64, assetID uint64, formInput *workFormInput) error {

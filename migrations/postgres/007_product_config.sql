@@ -111,8 +111,6 @@ DO $$
 DECLARE
     product_template_id BIGINT;
     product_form_id BIGINT;
-    probe_stage_id BIGINT;
-    product_task_id BIGINT;
     product_auth_id BIGINT;
 BEGIN
     INSERT INTO gjj_crm_data_template (cate_id, name, status, sort)
@@ -183,68 +181,6 @@ BEGIN
         'npl_s_product_reason_summary',
         'npl_submit_pm_confirmation_status'
       );
-
-    SELECT id INTO probe_stage_id
-    FROM gjj_crm_stage
-    WHERE code = 'S04'
-    ORDER BY id
-    LIMIT 1;
-
-    INSERT INTO gjj_crm_task (
-        stage_id, name, task_type, form_id, trigger_type, trigger_task_id,
-        script_id, config_json, sort, status
-    )
-    SELECT
-        probe_stage_id,
-        'NPL产品候选与提交PM',
-        'form',
-        product_form_id,
-        'manual',
-        0,
-        0,
-        jsonb_build_object(
-            'completion_mode', 'manual',
-            'next_stage_code', 'S05',
-            'task_points', 1,
-            'visible_when', jsonb_build_object(
-                'data_field_id', (SELECT id FROM gjj_crm_data_field WHERE field_key = 'signing_business_type_candidate' ORDER BY id LIMIT 1),
-                'operator', 'notEmpty'
-            )
-        )::text,
-        65,
-        1
-    WHERE probe_stage_id IS NOT NULL
-      AND product_form_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM gjj_crm_task WHERE name = 'NPL产品候选与提交PM'
-      );
-
-    SELECT id INTO product_task_id
-    FROM gjj_crm_task
-    WHERE name = 'NPL产品候选与提交PM'
-    ORDER BY id
-    LIMIT 1;
-
-    IF product_task_id IS NOT NULL THEN
-        UPDATE gjj_crm_task
-        SET stage_id = probe_stage_id,
-            task_type = 'form',
-            form_id = product_form_id,
-            trigger_type = 'manual',
-            config_json = jsonb_build_object(
-                'completion_mode', 'manual',
-                'next_stage_code', 'S05',
-                'task_points', 1,
-                'visible_when', jsonb_build_object(
-                    'data_field_id', (SELECT id FROM gjj_crm_data_field WHERE field_key = 'signing_business_type_candidate' ORDER BY id LIMIT 1),
-                    'operator', 'notEmpty'
-                )
-            )::text,
-            sort = 65,
-            status = 1,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = product_task_id;
-    END IF;
 
     INSERT INTO gjj_auth (key, name, icon, path, parent_id, type, sort, source_type, source_name, managed)
     SELECT 'crm/product/list', '产品配置', 'package-check', 'crm/product/list', parent.id, 1, 7, 'page', 'crm', 1

@@ -58,6 +58,7 @@ func startAssetWorkflow(ctx context.Context, customerID, assetID uint64) error {
 	if progress == nil {
 		return fmt.Errorf("资产流程启动失败")
 	}
+	recordWorkStageChange(ctx, progress, 0, stage.ID, "entered")
 	return createStageTodos(ctx, progress, stage)
 }
 
@@ -116,6 +117,10 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 		"status":   crmmodel.StatusEnabled,
 	}, map[string]any{"order": "sort asc,id asc"})
 	now := time.Now()
+	ruleTodos := make([]struct {
+		todo *crmmodel.WorkTodo
+		task *crmmodel.Task
+	}, 0)
 	for _, task := range tasks {
 		if task == nil {
 			continue
@@ -136,7 +141,7 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 			deadline := now.AddDate(0, 0, task.DueDays)
 			dueAt = &deadline
 		}
-		if crmmodel.NewWorkTodoModel().Insert(ctx, map[string]any{
+		todoID := uint64(crmmodel.NewWorkTodoModel().Insert(ctx, map[string]any{
 			"customer_id":            progress.CustomerID,
 			"asset_id":               progress.AssetID,
 			"workflow_id":            progress.WorkflowID,
@@ -150,8 +155,23 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 			"result":                 "",
 			"created_at":             now,
 			"updated_at":             now,
-		}) == 0 {
+		}))
+		if todoID == 0 {
 			return fmt.Errorf("阶段待办创建失败")
+		}
+		if task.TaskType == crmmodel.TaskTypeRule {
+			ruleTodos = append(ruleTodos, struct {
+				todo *crmmodel.WorkTodo
+				task *crmmodel.Task
+			}{
+				todo: crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{"id": todoID}),
+				task: task,
+			})
+		}
+	}
+	for _, current := range ruleTodos {
+		if err := executePendingRuleTodo(ctx, current.todo, current.task); err != nil {
+			return err
 		}
 	}
 	return advanceAssetProgressIfReady(ctx, progress.ID)
@@ -166,10 +186,12 @@ func resolveTaskAssignee(ctx context.Context, stage *crmmodel.Stage, task *crmmo
 		if enabledDepartment(ctx, stage.OwnerDepartmentID) {
 			return stage.OwnerDepartmentID, 0, nil
 		}
+		return 0, 0, fmt.Errorf("阶段负责部门不存在或已停用")
 	case crmmodel.TaskAssigneeDepartment:
 		if enabledDepartment(ctx, task.AssigneeDepartmentID) {
 			return task.AssigneeDepartmentID, 0, nil
 		}
+		return 0, 0, fmt.Errorf("任务负责部门不存在或已停用")
 	case crmmodel.TaskAssigneeStaff:
 		staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
 			"id":     task.AssigneeStaffID,
@@ -178,10 +200,10 @@ func resolveTaskAssignee(ctx context.Context, stage *crmmodel.Stage, task *crmmo
 		if staff != nil {
 			return staff.DepartmentID, staff.ID, nil
 		}
+		return 0, 0, fmt.Errorf("任务负责人不存在或已停用")
 	default:
 		return 0, 0, fmt.Errorf("任务负责方式无效")
 	}
-	return 0, 0, nil
 }
 
 func enabledDepartment(ctx context.Context, departmentID uint64) bool {
@@ -227,17 +249,22 @@ func advanceAssetProgressIfReady(ctx context.Context, progressID uint64) error {
 		if workflow == nil {
 			return fmt.Errorf("当前流程不存在或已停用")
 		}
+		recordWorkStageChange(ctx, progress, progress.StageID, stage.ID, "entered")
 		return enterWorkflowStage(ctx, progress, workflow, stage)
 	}
 
 	workflow := nextEnabledWorkflow(ctx, progress.WorkflowID)
 	for workflow != nil {
 		if stage := firstEnabledStage(ctx, workflow.ID); stage != nil {
+			auditProgress := *progress
+			auditProgress.WorkflowID = workflow.ID
+			recordWorkStageChange(ctx, &auditProgress, progress.StageID, stage.ID, "entered")
 			return enterWorkflowStage(ctx, progress, workflow, stage)
 		}
 		workflow = nextEnabledWorkflow(ctx, workflow.ID)
 	}
 
+	recordWorkStageChange(ctx, progress, progress.StageID, 0, "completed")
 	crmmodel.NewCustomerStageModel().Update(ctx, map[string]any{"id": progress.ID}, map[string]any{
 		"status":     crmmodel.ProgressStatusCompleted,
 		"updated_at": now,

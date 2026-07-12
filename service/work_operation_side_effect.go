@@ -8,64 +8,6 @@ import (
 	crmmodel "github.com/dever-package/crm/model"
 )
 
-func syncWorkTaskPointLedger(ctx context.Context, staff *WorkStaffSession, completion workOperationCompletion) {
-	defer recoverWorkSideEffect("task_point_ledger", completion)
-	if staff == nil || staff.ID == 0 || completion.task == nil || completion.operationID == 0 {
-		return
-	}
-	points := workCompletionTaskPoints(ctx, completion)
-	if points <= 0 {
-		return
-	}
-	model := crmmodel.NewTaskPointLedgerModel()
-	source := crmmodel.TaskPointLedgerSourceTaskComplete
-	if existing := model.Find(ctx, map[string]any{
-		"operation_log_id": completion.operationID,
-		"todo_id":          completion.todoID,
-		"source":           source,
-	}); existing != nil {
-		return
-	}
-	data := map[string]any{
-		"customer_id":      completion.customerID,
-		"asset_id":         completion.assetID,
-		"task_id":          completion.task.ID,
-		"operation_log_id": completion.operationID,
-		"todo_id":          completion.todoID,
-		"points":           points,
-		"staff_id":         staff.ID,
-		"department_id":    staff.DepartmentID,
-		"result_value":     completion.resultValue,
-		"source":           source,
-		"created_at":       workOperationCreatedAt(ctx, completion.operationID),
-	}
-	model.Insert(ctx, data)
-}
-
-func workCompletionTaskPoints(ctx context.Context, completion workOperationCompletion) float64 {
-	if completion.todoID > 0 {
-		if todo := crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{"id": completion.todoID}); todo != nil {
-			return positiveWorkPoints(todo.TaskPoints)
-		}
-		return 0
-	}
-	return workTaskPoints(completion.task)
-}
-
-func workTaskPoints(task *crmmodel.Task) float64 {
-	if task == nil {
-		return 0
-	}
-	return positiveWorkPoints(numericValue(mapFromAny(task.ConfigJSON)["task_points"]))
-}
-
-func positiveWorkPoints(points float64) float64 {
-	if points > 0 {
-		return points
-	}
-	return 0
-}
-
 func syncWorkFinanceLedgers(ctx context.Context, staff *WorkStaffSession, completion workOperationCompletion) {
 	defer recoverWorkSideEffect("finance_ledger", completion)
 	if staff == nil || staff.ID == 0 || completion.task == nil || completion.formInput == nil || completion.operationID == 0 {

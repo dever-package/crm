@@ -92,7 +92,7 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	}
 	taskEnabled := int16(util.ToIntDefault(effective["status"], int(crmmodel.StatusEnabled))) == crmmodel.StatusEnabled
 	normalizeSimpleTaskTarget(ctx, record, effective, partial, taskType, taskEnabled)
-	normalizeSimpleTaskAssignee(ctx, record, effective, partial, taskEnabled)
+	normalizeSimpleTaskAssignee(ctx, record, effective, partial, taskEnabled, stage)
 
 	defaultCrmBool(record, "required", true, partial)
 	defaultCrmInt(record, "due_days", 0, partial)
@@ -211,7 +211,7 @@ func normalizeSimpleTaskTarget(ctx context.Context, record map[string]any, effec
 	}
 }
 
-func normalizeSimpleTaskAssignee(ctx context.Context, record map[string]any, effective map[string]any, partial bool, validateTarget bool) {
+func normalizeSimpleTaskAssignee(ctx context.Context, record map[string]any, effective map[string]any, partial bool, validateTarget bool, stage *crmmodel.Stage) {
 	mode := util.ToStringTrimmed(effective["assignee_mode"])
 	if !simpleTaskAssigneeModes[mode] {
 		panicCrmField("form.assignee_mode", "负责方式无效。")
@@ -219,6 +219,12 @@ func normalizeSimpleTaskAssignee(ctx context.Context, record map[string]any, eff
 	shouldWrite := !partial || shouldNormalizeCrmField(record, "assignee_mode", partial)
 	switch mode {
 	case crmmodel.TaskAssigneeStage:
+		if validateTarget && (stage == nil || stage.OwnerDepartmentID == 0 || crmmodel.NewDepartmentModel().Find(ctx, map[string]any{
+			"id":     stage.OwnerDepartmentID,
+			"status": crmmodel.StatusEnabled,
+		}) == nil) {
+			panicCrmField("form.assignee_mode", "跟随阶段负责部门时，请先为阶段配置已启用的负责部门。")
+		}
 		if shouldWrite {
 			record["assignee_department_id"] = uint64(0)
 			record["assignee_staff_id"] = uint64(0)

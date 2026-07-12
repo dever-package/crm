@@ -15,7 +15,6 @@ type AdminSummaryService struct{}
 
 type adminSummaryStageInfo struct {
 	ID   uint64
-	Code string
 	Name string
 	Sort int
 }
@@ -97,7 +96,7 @@ func adminSummaryMetrics(customers []*crmmodel.Customer, assets []*crmmodel.Cust
 		adminSummaryMetric("assets", "资产总数", len(assets), "客户名下已建立资产"),
 		adminSummaryMetric("stage_targets", "阶段对象", len(stageTargets), "正在阶段流转的客户或资产"),
 		adminSummaryMetric("missing_assets", "未录资产", adminSummaryMissingAssetCustomers(customers, assets), "已建客户但尚未录入资产"),
-		adminSummaryMetric("pending_todos", "协作待办", pendingTodoCount, "当前未完成的协作待办"),
+		adminSummaryMetric("pending_todos", "待办任务", pendingTodoCount, "当前未完成的任务待办"),
 		adminSummaryMetric("tasks_14d", "近14天任务", taskCount, "近14天完成的任务事件"),
 		adminSummaryMetric("transitions_14d", "近14天流转", transitionCount, "近14天阶段流转次数"),
 		adminSummaryMetric("operations_14d", "近14天操作", adminSummaryOperationCountSince(operations, start), "近14天提交的操作记录"),
@@ -306,7 +305,7 @@ func adminSummaryTrendRows(customers []*crmmodel.Customer, assets []*crmmodel.Cu
 		}
 		switch event.EventType {
 		case crmmodel.StatEventTypeTask:
-			if event.ResultValue == workResultProgress || event.ResultValue == workResultAutoFailed {
+			if event.ResultValue == workResultProgress {
 				continue
 			}
 			adminSummaryIncrementTrend(rows, indexes, start, end, event.EventAt, "task_count")
@@ -339,38 +338,34 @@ func adminSummaryTrendStart(days int) time.Time {
 }
 
 func adminSummaryStageFunnel(targets []*crmmodel.CustomerStage, stages []adminSummaryStageInfo) []map[string]any {
-	counts := map[string]int{}
+	counts := map[uint64]int{}
 	for _, target := range targets {
 		if target == nil {
 			continue
 		}
-		code := target.CurrentStageCode
-		if code == "" {
-			code = "_empty"
-		}
-		counts[code]++
+		counts[target.StageID]++
 	}
-	stageByCode := adminSummaryStageByCode(stages)
+	stageByID := adminSummaryStageByID(stages)
 	rows := make([]map[string]any, 0, len(counts))
 	total := len(targets)
 	previous := total
 	for _, stage := range stages {
-		count := counts[stage.Code]
+		count := counts[stage.ID]
 		if count == 0 {
 			continue
 		}
-		row := adminSummaryBreakdownRow(stage.Code, stage.Name, count, total)
+		row := adminSummaryBreakdownRow(adminSummaryStageKey(stage.ID), stage.Name, count, total)
 		adminSummaryAttachDropFields(row, previous, count)
 		rows = append(rows, row)
 		previous = count
-		delete(counts, stage.Code)
+		delete(counts, stage.ID)
 	}
-	for code, count := range counts {
+	for stageID, count := range counts {
 		name := "未进入阶段"
-		if stage, ok := stageByCode[code]; ok && stage.Name != "" {
+		if stage, ok := stageByID[stageID]; ok && stage.Name != "" {
 			name = stage.Name
 		}
-		row := adminSummaryBreakdownRow(code, name, count, total)
+		row := adminSummaryBreakdownRow(adminSummaryStageKey(stageID), name, count, total)
 		adminSummaryAttachDropFields(row, previous, count)
 		rows = append(rows, row)
 	}
@@ -395,41 +390,35 @@ func adminSummaryAttachDropFields(row map[string]any, previousCount int, count i
 }
 
 func adminSummaryNodeBacklog(ctx context.Context, targets []*crmmodel.CustomerStage, stages []adminSummaryStageInfo, tasks []adminSummaryTaskInfo, todos []*crmmodel.WorkTodo) []map[string]any {
-	stageByCode := adminSummaryStageByCode(stages)
-	stats := map[string]*adminSummaryNodeBacklogStat{}
-	targetStageByKey := map[string]string{}
+	stageByID := adminSummaryStageByID(stages)
+	stats := map[uint64]*adminSummaryNodeBacklogStat{}
+	targetStageByKey := map[string]uint64{}
 	for _, target := range targets {
 		if target == nil {
 			continue
 		}
-		code := target.CurrentStageCode
-		if code == "" {
-			code = "_empty"
-		}
-		stat := stats[code]
+		stageID := target.StageID
+		stat := stats[stageID]
 		if stat == nil {
-			stage := stageByCode[code]
-			if stage.Code == "" {
-				stage = adminSummaryStageInfo{Code: code, Name: "未进入阶段"}
+			stage := stageByID[stageID]
+			if stage.ID == 0 {
+				stage = adminSummaryStageInfo{Name: "未进入阶段"}
 			}
 			stat = &adminSummaryNodeBacklogStat{Stage: stage}
-			stats[code] = stat
+			stats[stageID] = stat
 		}
 		stat.Count++
 		stat.Days = append(stat.Days, workStageDwellDays(workStageEnteredAt(ctx, target)))
-		targetStageByKey[adminSummaryTargetKey(target.CustomerID, target.AssetID)] = code
+		targetStageByKey[adminSummaryTargetKey(target.CustomerID, target.AssetID)] = stageID
 	}
 
-	pendingTodosByStage := map[string]int{}
+	pendingTodosByStage := map[uint64]int{}
 	for _, todo := range todos {
 		if todo == nil || todo.Status != crmmodel.WorkTodoStatusPending {
 			continue
 		}
-		code := targetStageByKey[adminSummaryTargetKey(todo.CustomerID, todo.AssetID)]
-		if code == "" {
-			code = "_empty"
-		}
-		pendingTodosByStage[code]++
+		stageID := targetStageByKey[adminSummaryTargetKey(todo.CustomerID, todo.AssetID)]
+		pendingTodosByStage[stageID]++
 	}
 
 	tasksByStage := map[uint64]int{}
@@ -440,13 +429,13 @@ func adminSummaryNodeBacklog(ctx context.Context, targets []*crmmodel.CustomerSt
 	rows := make([]map[string]any, 0, len(stats))
 	total := len(targets)
 	for _, stage := range stages {
-		if stat := stats[stage.Code]; stat != nil {
-			rows = append(rows, adminSummaryNodeBacklogRow(stat, tasksByStage[stage.ID], pendingTodosByStage[stage.Code], total))
-			delete(stats, stage.Code)
+		if stat := stats[stage.ID]; stat != nil {
+			rows = append(rows, adminSummaryNodeBacklogRow(stat, tasksByStage[stage.ID], pendingTodosByStage[stage.ID], total))
+			delete(stats, stage.ID)
 		}
 	}
-	for code, stat := range stats {
-		rows = append(rows, adminSummaryNodeBacklogRow(stat, 0, pendingTodosByStage[code], total))
+	for stageID, stat := range stats {
+		rows = append(rows, adminSummaryNodeBacklogRow(stat, 0, pendingTodosByStage[stageID], total))
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		left := inputInt(rows[i]["stale_7d"])*100000 + inputInt(rows[i]["max_days"])*1000 + inputInt(rows[i]["count"])
@@ -484,7 +473,7 @@ func adminSummaryNodeBacklogRow(stat *adminSummaryNodeBacklogStat, taskCount int
 	if stat.Count > 0 {
 		avgDays = (sumDays + stat.Count/2) / stat.Count
 	}
-	row := adminSummaryBreakdownRow(stat.Stage.Code, stat.Stage.Name, stat.Count, total)
+	row := adminSummaryBreakdownRow(adminSummaryStageKey(stat.Stage.ID), stat.Stage.Name, stat.Count, total)
 	row["task_count"] = taskCount
 	row["pending_todo_count"] = pendingTodoCount
 	row["avg_days"] = avgDays
@@ -496,10 +485,6 @@ func adminSummaryNodeBacklogRow(stat *adminSummaryNodeBacklogStat, taskCount int
 }
 
 func adminSummaryTaskBreakdown(targets []*crmmodel.CustomerStage, stages []adminSummaryStageInfo, tasks []adminSummaryTaskInfo) []map[string]any {
-	stageIDByCode := map[string]uint64{}
-	for _, stage := range stages {
-		stageIDByCode[stage.Code] = stage.ID
-	}
 	tasksByStage := map[uint64][]adminSummaryTaskInfo{}
 	for _, task := range tasks {
 		tasksByStage[task.StageID] = append(tasksByStage[task.StageID], task)
@@ -511,7 +496,7 @@ func adminSummaryTaskBreakdown(targets []*crmmodel.CustomerStage, stages []admin
 		if target == nil {
 			continue
 		}
-		for _, task := range tasksByStage[stageIDByCode[target.CurrentStageCode]] {
+		for _, task := range tasksByStage[target.StageID] {
 			key := task.Type
 			if key == "" {
 				key = "_unknown"
@@ -554,7 +539,7 @@ func adminSummaryStaffOutput(ctx context.Context, events []*crmmodel.StatEvent, 
 		adminSummaryTouchStaffStat(stat, event.EventAt)
 		switch event.EventType {
 		case crmmodel.StatEventTypeTask:
-			if event.ResultValue == workResultProgress || event.ResultValue == workResultAutoFailed {
+			if event.ResultValue == workResultProgress {
 				continue
 			}
 			stat.TaskCount++
@@ -577,14 +562,6 @@ func adminSummaryStaffOutput(ctx context.Context, events []*crmmodel.StatEvent, 
 		stat := adminSummaryStaffStatFor(statsByStaff, todo.AssigneeStaffID)
 		stat.TodoDoneCount++
 		adminSummaryTouchStaffStat(stat, *todo.CompletedAt)
-	}
-	for _, ledger := range crmmodel.NewTaskPointLedgerModel().Select(ctx, map[string]any{}) {
-		if ledger == nil || ledger.StaffID == 0 || ledger.CreatedAt.Before(start) {
-			continue
-		}
-		stat := adminSummaryStaffStatFor(statsByStaff, ledger.StaffID)
-		stat.Points += ledger.Points
-		adminSummaryTouchStaffStat(stat, ledger.CreatedAt)
 	}
 	names := adminSummaryStaffNames(ctx)
 	stats := make([]*adminSummaryStaffStat, 0, len(statsByStaff))
@@ -847,7 +824,6 @@ func adminSummaryStageInfos(ctx context.Context) []adminSummaryStageInfo {
 		}
 		stages = append(stages, adminSummaryStageInfo{
 			ID:   row.ID,
-			Code: row.Code,
 			Name: row.Name,
 			Sort: row.Sort,
 		})
@@ -879,12 +855,19 @@ func adminSummaryTaskInfos(ctx context.Context) []adminSummaryTaskInfo {
 	return tasks
 }
 
-func adminSummaryStageByCode(stages []adminSummaryStageInfo) map[string]adminSummaryStageInfo {
-	result := map[string]adminSummaryStageInfo{}
+func adminSummaryStageByID(stages []adminSummaryStageInfo) map[uint64]adminSummaryStageInfo {
+	result := map[uint64]adminSummaryStageInfo{}
 	for _, stage := range stages {
-		result[stage.Code] = stage
+		result[stage.ID] = stage
 	}
 	return result
+}
+
+func adminSummaryStageKey(stageID uint64) string {
+	if stageID == 0 {
+		return "_empty"
+	}
+	return strconv.FormatUint(stageID, 10)
 }
 
 func adminSummaryTargetKey(customerID uint64, assetID uint64) string {
@@ -924,7 +907,7 @@ func adminSummaryEventCountsSince(events []*crmmodel.StatEvent, start time.Time)
 		}
 		switch event.EventType {
 		case crmmodel.StatEventTypeTask:
-			if event.ResultValue == workResultProgress || event.ResultValue == workResultAutoFailed {
+			if event.ResultValue == workResultProgress {
 				continue
 			}
 			taskCount++

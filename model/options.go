@@ -14,17 +14,9 @@ const (
 
 const (
 	TaskTypeTodo     = "todo"
+	TaskTypeForm     = "form"
 	TaskTypeApproval = "approval"
 	TaskTypeRule     = "rule"
-
-	// Legacy task types remain until the old runtime is removed later in this refactor.
-	TaskTypeCreate      = "create"
-	TaskTypeForm        = "form"
-	TaskTypeAssign      = "assign"
-	TaskTypeCollaborate = "collaborate"
-	TaskTypeDecision    = "decision"
-	TaskTypeBooking     = "booking"
-	TaskTypeSystemRule  = "system_rule"
 )
 
 const (
@@ -39,29 +31,9 @@ const (
 )
 
 const (
-	TaskAssignModeStaff      = "staff"
-	TaskAssignModeDepartment = "department"
-)
-
-const (
-	TaskCompleteAssignTaskID = "complete_assign_task_id"
-)
-
-const (
-	TaskCompletionSubmit = "submit"
-	TaskCompletionManual = "manual"
-)
-
-const (
 	WorkTodoStatusPending  = "pending"
 	WorkTodoStatusDone     = "done"
 	WorkTodoStatusCanceled = "canceled"
-)
-
-const (
-	CollaborationCompleteAll    = "all"
-	CollaborationCompleteAny    = "any"
-	CollaborationCompleteManual = "manual"
 )
 
 const (
@@ -70,29 +42,6 @@ const (
 	ResourceBookingStatusCanceled = "canceled"
 	ResourceBookingStatusRejected = "rejected"
 	ResourceBookingStatusDone     = "done"
-)
-
-const (
-	TaskTriggerManual     = "manual"
-	TaskTriggerAfterTask  = "after_task"
-	TaskTriggerStageEnter = "on_stage_enter"
-)
-
-func TaskTypeSupportsAutoTrigger(taskType string) bool {
-	switch taskType {
-	case TaskTypeAssign, TaskTypeCollaborate, TaskTypeDecision:
-		return true
-	default:
-		return false
-	}
-}
-
-const (
-	StageOwnerKeep            = "keep"
-	StageOwnerAssign          = "assign"
-	StageOwnerFixedDepartment = "fixed_department"
-	StageOwnerFixedStaff      = "fixed_staff"
-	StageOwnerCreator         = "creator"
 )
 
 const (
@@ -176,10 +125,6 @@ const (
 const (
 	FinanceLedgerSourceForm    = "form"
 	FinanceLedgerSourceReverse = "reverse"
-)
-
-const (
-	TaskPointLedgerSourceTaskComplete = "task_complete"
 )
 
 const (
@@ -289,10 +234,6 @@ var financeLedgerSourceOptions = []map[string]any{
 	{"id": FinanceLedgerSourceReverse, "value": "冲正"},
 }
 
-var taskPointLedgerSourceOptions = []map[string]any{
-	{"id": TaskPointLedgerSourceTaskComplete, "value": "任务完成"},
-}
-
 var statEventTypeOptions = []map[string]any{
 	{"id": StatEventTypeTask, "value": "任务"},
 	{"id": StatEventTypeTransition, "value": "流转"},
@@ -328,20 +269,6 @@ var resourceBookingStatusOptions = []map[string]any{
 	{"id": ResourceBookingStatusCanceled, "value": "已取消"},
 	{"id": ResourceBookingStatusRejected, "value": "已拒绝"},
 	{"id": ResourceBookingStatusDone, "value": "已完成"},
-}
-
-var taskTriggerOptions = []map[string]any{
-	{"id": TaskTriggerManual, "value": "手动触发"},
-	{"id": TaskTriggerAfterTask, "value": "任务后触发"},
-	{"id": TaskTriggerStageEnter, "value": "进入阶段触发"},
-}
-
-var stageOwnerModeOptions = []map[string]any{
-	{"id": StageOwnerKeep, "value": "保持当前"},
-	{"id": StageOwnerAssign, "value": "使用分配结果"},
-	{"id": StageOwnerFixedDepartment, "value": "固定部门"},
-	{"id": StageOwnerFixedStaff, "value": "固定人员"},
-	{"id": StageOwnerCreator, "value": "创建人"},
 }
 
 var memberRelationOptions = []map[string]any{
@@ -446,12 +373,6 @@ var operationLogRelation = orm.Relation{
 	OptionKeys: []string{"title", "result_value", "created_at"},
 }
 
-var todoRelation = orm.Relation{
-	Field:      "todo_id",
-	Option:     "crm.NewWorkTodoModel",
-	OptionKeys: []string{"status", "result", "completed_at"},
-}
-
 var financeTypeRelation = orm.Relation{
 	Field:      "finance_type_id",
 	Option:     "crm.NewFinanceTypeModel",
@@ -464,12 +385,6 @@ var stageRelation = orm.Relation{
 	OptionKeys: []string{"name", "workflow_id"},
 }
 
-var triggerTaskRelation = orm.Relation{
-	Field:      "trigger_task_id",
-	Option:     "crm.NewTaskModel",
-	OptionKeys: []string{"name", "task_type"},
-}
-
 var formRelation = orm.Relation{
 	Field:      "form_id",
 	Option:     "crm.NewFormModel",
@@ -480,18 +395,6 @@ var formFieldRelation = orm.Relation{
 	Field:      "form_field_id",
 	Option:     "crm.NewFormFieldModel",
 	OptionKeys: []string{"name"},
-}
-
-var currentStageRelation = orm.Relation{
-	Field:      "current_stage_code",
-	Option:     "crm.NewStageModel",
-	OptionKeys: []string{"code", "name"},
-}
-
-var stageCodeRelation = orm.Relation{
-	Field:      "stage_code",
-	Option:     "crm.NewStageModel",
-	OptionKeys: []string{"code", "name"},
 }
 
 var fromStageRelation = orm.Relation{
@@ -596,18 +499,6 @@ var assigneeDepartmentRelation = orm.Relation{
 	OptionKeys: []string{"name", "code"},
 }
 
-var currentDepartmentRelation = orm.Relation{
-	Field:      "current_department_id",
-	Option:     "crm.NewDepartmentModel",
-	OptionKeys: []string{"name", "code"},
-}
-
-var toDepartmentRelation = orm.Relation{
-	Field:      "to_department_id",
-	Option:     "crm.NewDepartmentModel",
-	OptionKeys: []string{"name", "code"},
-}
-
 var operatorDepartmentRelation = orm.Relation{
 	Field:      "operator_department_id",
 	Option:     "crm.NewDepartmentModel",
@@ -622,12 +513,6 @@ var leaderStaffRelation = orm.Relation{
 
 var staffRelation = orm.Relation{
 	Field:      "staff_id",
-	Option:     "crm.NewStaffModel",
-	OptionKeys: []string{"name", "phone"},
-}
-
-var currentStaffRelation = orm.Relation{
-	Field:      "current_staff_id",
 	Option:     "crm.NewStaffModel",
 	OptionKeys: []string{"name", "phone"},
 }
