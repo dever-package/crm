@@ -1914,13 +1914,13 @@ export function ShowCrmWorkStats() {
 function WorkStatsMetricGrid({ metrics }: { metrics: WorkSummaryMetric[] }) {
   if (metrics.length === 0) {
     return (
-      <div className="rounded-lg border border-border/70 bg-background px-6 py-12 shadow-sm">
+      <div className="rounded-md border border-border/70 bg-background px-5 py-10">
         <WorkEmptyText>暂无统计指标</WorkEmptyText>
       </div>
     );
   }
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border/70 bg-border/70 md:grid-cols-3 min-[1440px]:grid-cols-6">
       {metrics.map((metric) => (
         <WorkStatsMetricCard
           key={textValue(metric.key || metric.name)}
@@ -1943,23 +1943,19 @@ function WorkStatsMetricCard({
   return (
     <button
       type="button"
-      className="rounded-lg border border-border/70 bg-background p-4 text-left shadow-sm transition hover:border-primary/40 hover:bg-muted/10"
+      className="min-h-[94px] bg-background px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       onClick={onOpen}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm leading-5 text-muted-foreground">
-            {displayText(metric.name)}
-          </div>
-          <div className="mt-2 text-3xl font-semibold leading-9 text-foreground">
-            {displayText(metric.value, "0")}
-          </div>
-        </div>
-        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/25 text-muted-foreground">
-          <Icon className="h-5 w-5" />
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs font-medium text-muted-foreground">
+          {displayText(metric.name)}
         </span>
+        <Icon className="h-4 w-4 shrink-0 text-muted-foreground/80" />
       </div>
-      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+      <div className="mt-1.5 text-2xl font-semibold leading-8 text-foreground">
+        {displayText(metric.value, "0")}
+      </div>
+      <p className="mt-1 truncate text-[11px] leading-4 text-muted-foreground">
         {displayText(metric.description)}
       </p>
     </button>
