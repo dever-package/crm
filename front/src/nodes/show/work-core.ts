@@ -440,6 +440,7 @@ export type WorkTaskLayoutMode = "compact" | "workspace";
 
 export type WorkTaskFormField = {
   formKey: string;
+  groupId?: string;
   label: string;
   placeholder: string;
   required: boolean;
@@ -499,6 +500,7 @@ export type WorkTaskUploadProgress = {
 export type WorkTaskFormState = {
   nodes: WorkTaskFormNode[];
   fields: WorkTaskFormField[];
+  layout: WorkTaskLayoutMode;
   values: Record<string, unknown>;
   fieldMap: Record<string, string>;
 };
@@ -535,6 +537,9 @@ export const workTaskFieldMapPath = "data.actionTarget.workTaskFieldMap";
 export const workTaskFormFieldsPath = "data.actionTarget.workTaskFormFields";
 export const workTaskValidationErrorsPath =
   "data.actionTarget.workTaskValidationErrors";
+export const workTaskLayoutPath = "data.actionTarget.workTaskLayout";
+export const workTaskActiveGroupPath =
+  "data.actionTarget.workTaskActiveGroup";
 let workApiFreshSeq = 0;
 
 const buttonBase =

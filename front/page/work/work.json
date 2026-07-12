@@ -45,7 +45,7 @@
             "confirm": true,
             "confirmText": "保存"
           },
-          "bodyClassName": "crm-work-task-modal-body max-h-[70vh] overflow-y-auto px-6 py-2"
+          "bodyClassName": "crm-work-task-modal-body crm-work-task-scroll-area max-h-[70vh] overflow-y-auto px-6 py-2"
         }
       },
       {

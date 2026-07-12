@@ -1,6 +1,7 @@
 import { defineFrontPlugin, lazyNode } from "@dever/front-plugin";
 
 const loadWorkAuth = () => import("./nodes/show/work-auth");
+const loadWorkTaskForm = () => import("./nodes/show/work-task-form");
 const loadWorkLead = () => import("./nodes/show/work-lead");
 const loadWorkShell = () => import("./nodes/show/work-shell");
 const loadAdminStats = () => import("./nodes/show/admin-stats");
@@ -33,13 +34,18 @@ export default defineFrontPlugin({
         default: mod.ShowCrmWorkTaskForm,
       })),
     ),
+    "show-crm-work-task-context": lazyNode(() =>
+      loadWorkTaskForm().then((mod) => ({
+        default: mod.ShowCrmWorkTaskContext,
+      })),
+    ),
     "show-crm-work-task-group-tabs": lazyNode(() =>
-      loadWorkAuth().then((mod) => ({
+      loadWorkTaskForm().then((mod) => ({
         default: mod.ShowCrmWorkTaskGroupTabs,
       })),
     ),
     "show-crm-work-task-field-section": lazyNode(() =>
-      loadWorkAuth().then((mod) => ({
+      loadWorkTaskForm().then((mod) => ({
         default: mod.ShowCrmWorkTaskFieldSection,
       })),
     ),

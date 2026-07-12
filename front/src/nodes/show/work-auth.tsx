@@ -50,10 +50,12 @@ import {
   workTableStickyRightCellClass,
   workTableStickyRightHeadClass,
   workTaskFieldMapPath,
+  workTaskActiveGroupPath,
   workTaskFormDataPath,
   workTaskFormFieldsPath,
   workTaskFormKey,
   workTaskFormSectionID,
+  workTaskLayoutPath,
   workTaskValidationErrorsPath,
   type WorkAIFillResponse,
   type WorkAsset,
@@ -103,8 +105,9 @@ import {
 } from "./work-customer-detail";
 import { WorkFlowActions } from "./work-flow-actions";
 import {
+  focusFirstWorkTaskFormError,
+  workTaskLayoutMode,
   workTaskNodeFormFields,
-  WorkTaskFormStyles,
 } from "./work-task-form";
 import {
   buildFeishuOAuthURL,
@@ -557,6 +560,9 @@ async function prepareWorkTaskForm(
   setWorkStoreValue(store, workTaskFormDataPath, formState.values);
   setWorkStoreValue(store, workTaskFieldMapPath, formState.fieldMap);
   setWorkStoreValue(store, workTaskFormFieldsPath, formState.fields);
+  setWorkStoreValue(store, workTaskLayoutPath, formState.layout);
+  setWorkStoreValue(store, workTaskActiveGroupPath, "");
+  setCurrentWorkTaskFormErrors(store, {});
   replaceWorkTaskFormSection(store, formState.nodes);
 }
 
@@ -615,14 +621,6 @@ function buildWorkTaskFormState(
       }
       sectionFields.push(field);
     }
-    addWorkTaskFieldSectionNodes(
-      nodes,
-      values,
-      fieldMap,
-      sectionFields,
-      customer,
-      asset,
-    );
     addWorkTaskGroupTabsNode(
       nodes,
       values,
@@ -631,8 +629,24 @@ function buildWorkTaskFormState(
       customer,
       asset,
     );
+    addWorkTaskFieldSectionNodes(
+      nodes,
+      values,
+      fieldMap,
+      sectionFields,
+      customer,
+      asset,
+    );
   }
   addWorkTaskActionFields(nodes, values, fieldMap, task);
+
+  const fields = nodes.flatMap(workTaskNodeFormFields);
+  const layout = workTaskLayoutMode(nodes);
+  nodes.unshift({
+    id: "work-task-context",
+    type: "show-crm-work-task-context",
+    meta: { layout },
+  });
 
   nodes.push({
     id: "work-task-submit-controller",
@@ -641,7 +655,8 @@ function buildWorkTaskFormState(
 
   return {
     nodes,
-    fields: nodes.flatMap(workTaskNodeFormFields),
+    fields,
+    layout,
     values,
     fieldMap,
   };
@@ -893,20 +908,22 @@ function workTaskGroupTab(
   customer?: WorkCustomer | null,
   asset?: WorkAsset,
 ): WorkTaskFormGroup | null {
+  const label =
+    textValue(group.label) ||
+    textValue(group.name) ||
+    textValue(group.field_key);
+  const id = workTaskFormKey(workFieldKey(group) || label || "group");
   const children = Array.isArray(group.children) ? group.children : [];
   const fields = children
     .filter((field) => !workFormFieldIsGroup(field))
     .map((field) =>
       workTaskGroupField(field, values, fieldMap, customer, asset),
     )
-    .filter((field): field is WorkTaskFormField => Boolean(field));
+    .filter((field): field is WorkTaskFormField => Boolean(field))
+    .map((field) => ({ ...field, groupId: id }));
   if (fields.length === 0) return null;
-  const label =
-    textValue(group.label) ||
-    textValue(group.name) ||
-    textValue(group.field_key);
   return {
-    id: workTaskFormKey(workFieldKey(group) || label || "group"),
+    id,
     label: label || "分组",
     fields,
   };
@@ -4789,6 +4806,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
           allowMissingRequired: mode === "progress",
         })
       ) {
+        focusFirstWorkTaskFormError(store);
         return false;
       }
       if (!confirmWorkTaskSubmit(task, mode)) return false;
@@ -4948,7 +4966,6 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
 
   return (
     <div ref={contentRef} className="contents">
-      <WorkTaskFormStyles />
       {footerTargets?.actions
         ? createPortal(
             <>
