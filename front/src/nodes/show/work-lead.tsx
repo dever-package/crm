@@ -172,6 +172,7 @@ export function ShowCrmWorkLeadPool() {
 
   return (
     <div className="space-y-4">
+      <WorkLeadPoolStyles />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">待处理 {leadCountByStatus(leads, "pending")} 条，共 {Number(options.total) || leads.length} 条</p>
         <div className="flex items-center gap-2">
@@ -187,19 +188,19 @@ export function ShowCrmWorkLeadPool() {
 
       <section className="overflow-hidden rounded-md border border-border/70 bg-background">
         <form
-          className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-muted/10 px-4 py-3"
+          className="crm-work-lead-search-grid grid gap-2 border-b border-border/70 bg-muted/10 px-4 py-3"
           onSubmit={(event) => {
             event.preventDefault();
             setActiveKeyword(keyword.trim());
           }}
         >
           <Input
-            className="w-[260px] max-w-full"
+            className="w-full"
             placeholder="姓名、手机、微信或线索编号"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
-          <select className={`${inputClassName} w-[150px]`} value={status} onChange={(event) => setStatus(event.target.value)}>
+          <select className={inputClassName} value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">全部状态</option>
             {(options.statuses || []).map((option) => (
               <option key={textValue(option.id)} value={textValue(option.id)}>{displayText(option.name)}</option>
@@ -408,8 +409,8 @@ function CreateLeadDialog({ open, sources, channels, submitting, onOpenChange, o
           <LeadField label="来源"><select className={inputClassName} value={draft.sourceID} onChange={(event) => setDraft({ ...draft, sourceID: event.target.value })}>{sources.map((option) => <option key={textValue(option.id)} value={textValue(option.id)}>{displayText(option.name)}</option>)}</select></LeadField>
           <LeadField label="渠道"><select className={inputClassName} value={draft.channelID} onChange={(event) => setDraft({ ...draft, channelID: event.target.value })}>{channels.map((option) => <option key={textValue(option.id)} value={textValue(option.id)}>{displayText(option.name)}</option>)}</select></LeadField>
           <LeadField label="外部线索ID"><Input placeholder="请输入外部线索ID" value={draft.externalID} onChange={(event) => setDraft({ ...draft, externalID: event.target.value })} /></LeadField>
-          <LeadField label="初始诉求" className="sm:col-span-2"><textarea className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20" placeholder="请输入初始诉求" value={draft.initialNeed} onChange={(event) => setDraft({ ...draft, initialNeed: event.target.value })} /></LeadField>
-          <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>取消</Button><Button type="submit" disabled={submitting || !draft.name.trim() || (!draft.phone.trim() && !draft.wechat.trim())}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}确认录入</Button></div>
+          <LeadField label="初始诉求" className="crm-work-lead-form-wide"><textarea className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20" placeholder="请输入初始诉求" value={draft.initialNeed} onChange={(event) => setDraft({ ...draft, initialNeed: event.target.value })} /></LeadField>
+          <div className="crm-work-lead-form-actions"><Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>取消</Button><Button type="submit" disabled={submitting || !draft.name.trim() || (!draft.phone.trim() && !draft.wechat.trim())}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}确认录入</Button></div>
         </form>
       </DialogContent>
     </Dialog>
@@ -437,6 +438,36 @@ function InvalidateLeadDialog({ lead, reasons, submitting, onClose, onSubmit }: 
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function WorkLeadPoolStyles() {
+  return (
+    <style>{`
+      .crm-work-lead-search-grid {
+        grid-template-columns: minmax(260px, 300px) 180px auto auto;
+        align-items: center;
+        justify-content: start;
+      }
+
+      .crm-work-lead-form-wide,
+      .crm-work-lead-form-actions {
+        grid-column: 1 / -1;
+      }
+
+      .crm-work-lead-form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      @media (max-width: 639px) {
+        .crm-work-lead-search-grid {
+          grid-template-columns: minmax(0, 1fr);
+          justify-content: stretch;
+        }
+      }
+    `}</style>
   );
 }
 
