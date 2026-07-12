@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   BriefcaseBusiness,
   LayoutDashboard,
@@ -12,17 +12,24 @@ import {
 } from "@dever/front-plugin";
 
 type WorkNavItem = {
-  path: string;
+  to: string;
   title: string;
   icon: typeof LayoutDashboard;
 };
 
-const ROUTE_CHANGE_EVENT = "crm-work-route-change";
+type HistoryStateMethod = (
+  data: unknown,
+  unused: string,
+  url?: string | URL | null,
+) => void;
+
+const HISTORY_CHANGE_EVENT = "crm-work-history-change";
+let historyObserverInstalled = false;
 
 const workNavItems: WorkNavItem[] = [
-  { path: "/crm/stats", title: "工作台", icon: LayoutDashboard },
-  { path: "/crm/lead", title: "线索池", icon: UsersRound },
-  { path: "/crm/work", title: "客户列表", icon: BriefcaseBusiness },
+  { to: "/crm/stats", title: "工作台", icon: LayoutDashboard },
+  { to: "/crm/lead", title: "线索池", icon: UsersRound },
+  { to: "/crm/work", title: "客户列表", icon: BriefcaseBusiness },
 ];
 
 export function ShowCrmWorkSidebar() {
@@ -31,15 +38,6 @@ export function ShowCrmWorkSidebar() {
   const pathname = useWorkPath();
   const activePage = useMemo(() => resolveWorkPage(pathname), [pathname]);
   const [collapsed, setCollapsed] = useState(false);
-
-  const openPage = async (path: string) => {
-    try {
-      await navigate({ to: path });
-      notifyRouteChange(readWorkPath() || path);
-    } catch {
-      notifyRouteChange(readWorkPath());
-    }
-  };
 
   return (
     <aside
@@ -67,10 +65,10 @@ export function ShowCrmWorkSidebar() {
       <nav className="crm-body-nav" aria-label="客户中心菜单">
         {workNavItems.map((nav) => (
           <WorkNavButton
-            key={nav.path}
-            active={activePage.path === nav.path}
+            key={nav.to}
+            active={activePage.to === nav.to}
             item={nav}
-            onClick={() => void openPage(nav.path)}
+            onClick={() => void navigate({ to: nav.to })}
           />
         ))}
       </nav>
@@ -116,47 +114,60 @@ function WorkNavButton({
 }
 
 function useWorkPath() {
-  const [pathname, setPathname] = useState(readWorkPath);
-
-  useEffect(() => {
-    const syncLocation = () => setPathname(readWorkPath());
-    const syncNavigation = (event: Event) => {
-      const nextPath = (event as CustomEvent<string>).detail;
-      setPathname(nextPath || readWorkPath());
-    };
-
-    window.addEventListener("popstate", syncLocation);
-    window.addEventListener("hashchange", syncLocation);
-    window.addEventListener(ROUTE_CHANGE_EVENT, syncNavigation);
-
-    return () => {
-      window.removeEventListener("popstate", syncLocation);
-      window.removeEventListener("hashchange", syncLocation);
-      window.removeEventListener(ROUTE_CHANGE_EVENT, syncNavigation);
-    };
-  }, []);
-
-  return pathname;
+  return useSyncExternalStore(subscribeWorkPath, readWorkPath, readWorkPath);
 }
 
 function resolveWorkPage(pathname: string) {
   return (
-    workNavItems.find(
-      ({ path }) => pathname === path || pathname.startsWith(`${path}/`),
-    ) || workNavItems[0]
+    workNavItems.find(({ to }) => workPathMatches(pathname, to)) ||
+    workNavItems[0]
   );
 }
 
 function readWorkPath() {
   return typeof window === "undefined"
-    ? workNavItems[0].path
+    ? workNavItems[0].to
     : window.location.pathname;
 }
 
-function notifyRouteChange(path: string) {
-  window.dispatchEvent(
-    new CustomEvent<string>(ROUTE_CHANGE_EVENT, { detail: path }),
-  );
+function workPathMatches(pathname: string, route: string) {
+  return pathname.endsWith(route) || pathname.includes(`${route}/`);
+}
+
+function subscribeWorkPath(listener: () => void) {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  installHistoryObserver();
+  window.addEventListener(HISTORY_CHANGE_EVENT, listener);
+  window.addEventListener("popstate", listener);
+  window.addEventListener("hashchange", listener);
+
+  return () => {
+    window.removeEventListener(HISTORY_CHANGE_EVENT, listener);
+    window.removeEventListener("popstate", listener);
+    window.removeEventListener("hashchange", listener);
+  };
+}
+
+function installHistoryObserver() {
+  if (historyObserverInstalled || typeof window === "undefined") {
+    return;
+  }
+
+  const history = window.history as History &
+    Record<"pushState" | "replaceState", HistoryStateMethod>;
+
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = history[method].bind(window.history);
+    history[method] = (...args: Parameters<HistoryStateMethod>) => {
+      original(...args);
+      window.dispatchEvent(new Event(HISTORY_CHANGE_EVENT));
+    };
+  }
+
+  historyObserverInstalled = true;
 }
 
 function WorkShellStyles() {

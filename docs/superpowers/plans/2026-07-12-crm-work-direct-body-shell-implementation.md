@@ -24,21 +24,21 @@
 
 ```tsx
 type WorkNavItem = {
-  path: string;
+  to: string;
   title: string;
   icon: typeof LayoutDashboard;
 };
 
 const workNavItems: WorkNavItem[] = [
-  { path: "/crm/stats", title: "工作台", icon: LayoutDashboard },
-  { path: "/crm/lead", title: "线索池", icon: UsersRound },
-  { path: "/crm/work", title: "客户列表", icon: BriefcaseBusiness },
+  { to: "/crm/stats", title: "工作台", icon: LayoutDashboard },
+  { to: "/crm/lead", title: "线索池", icon: UsersRound },
+  { to: "/crm/work", title: "客户列表", icon: BriefcaseBusiness },
 ];
 
 function resolveWorkPage(pathname: string) {
   return (
     workNavItems.find(
-      ({ path }) => pathname === path || pathname.startsWith(`${path}/`),
+      ({ to }) => pathname.endsWith(to) || pathname.includes(`${to}/`),
     ) || workNavItems[0]
   );
 }
@@ -46,27 +46,55 @@ function resolveWorkPage(pathname: string) {
 
 - [ ] **Step 2: 实现路径同步 hook**
 
-使用初始 `window.location.pathname`、`popstate` 和组件内部派发的 `crm-work-route-change` 事件同步活动菜单。点击菜单时调用 Dever 的 `useNavigate()`，不直接操作 `history`：
+Dever 插件 SDK 未公开 TanStack `useLocation`。使用 `useSyncExternalStore` 订阅 `pushState`、`replaceState`、`popstate` 和 `hashchange`，从而覆盖登录重定向、菜单导航与浏览器历史：
 
 ```tsx
-const ROUTE_CHANGE_EVENT = "crm-work-route-change";
+const HISTORY_CHANGE_EVENT = "crm-work-history-change";
+let historyObserverInstalled = false;
+
+type HistoryStateMethod = (
+  data: unknown,
+  unused: string,
+  url?: string | URL | null,
+) => void;
 
 function useWorkPath() {
-  const [path, setPath] = useState(() => window.location.pathname);
-  useEffect(() => {
-    const syncLocation = () => setPath(window.location.pathname);
-    const syncNavigation = (event: Event) => {
-      const nextPath = (event as CustomEvent<string>).detail;
-      setPath(nextPath || window.location.pathname);
+  return useSyncExternalStore(subscribeWorkPath, readWorkPath, readWorkPath);
+}
+
+function subscribeWorkPath(listener: () => void) {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+  installHistoryObserver();
+  window.addEventListener(HISTORY_CHANGE_EVENT, listener);
+  window.addEventListener("popstate", listener);
+  window.addEventListener("hashchange", listener);
+  return () => {
+    window.removeEventListener(HISTORY_CHANGE_EVENT, listener);
+    window.removeEventListener("popstate", listener);
+    window.removeEventListener("hashchange", listener);
+  };
+}
+
+function readWorkPath() {
+  return typeof window === "undefined"
+    ? workNavItems[0].to
+    : window.location.pathname;
+}
+
+function installHistoryObserver() {
+  if (historyObserverInstalled || typeof window === "undefined") return;
+  const history = window.history as History &
+    Record<"pushState" | "replaceState", HistoryStateMethod>;
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = history[method].bind(window.history);
+    history[method] = (...args: Parameters<HistoryStateMethod>) => {
+      original(...args);
+      window.dispatchEvent(new Event(HISTORY_CHANGE_EVENT));
     };
-    window.addEventListener("popstate", syncLocation);
-    window.addEventListener(ROUTE_CHANGE_EVENT, syncNavigation);
-    return () => {
-      window.removeEventListener("popstate", syncLocation);
-      window.removeEventListener(ROUTE_CHANGE_EVENT, syncNavigation);
-    };
-  }, []);
-  return path;
+  }
+  historyObserverInstalled = true;
 }
 ```
 
@@ -80,11 +108,6 @@ export function ShowCrmWorkSidebar() {
   const navigate = useNavigate();
   const pathname = useWorkPath();
   const [collapsed, setCollapsed] = useState(false);
-
-  const openPage = (path: string) => {
-    navigate({ to: path });
-    window.dispatchEvent(new CustomEvent(ROUTE_CHANGE_EVENT, { detail: path }));
-  };
 
   return (
     <aside className={cx("crm-body-sidebar", collapsed && "is-collapsed")}>
@@ -105,17 +128,17 @@ export function ShowCrmWorkSidebar() {
         </button>
       </div>
       <nav className="crm-body-nav" aria-label="CRM 工作台导航">
-        {workNavItems.map(({ path, title, icon: Icon }) => (
+        {workNavItems.map(({ to, title, icon: Icon }) => (
           <button
-            key={path}
+            key={to}
             type="button"
             className={cx(
               "crm-body-nav-item",
-              resolveWorkPage(pathname).path === path && "is-active",
+              resolveWorkPage(pathname).to === to && "is-active",
             )}
-            aria-current={resolveWorkPage(pathname).path === path ? "page" : undefined}
+            aria-current={resolveWorkPage(pathname).to === to ? "page" : undefined}
             title={title}
-            onClick={() => openPage(path)}
+            onClick={() => void navigate({ to })}
           >
             <Icon size={20} strokeWidth={1.85} />
             <span>{title}</span>
@@ -256,7 +279,7 @@ git commit -m "refactor: remove rejected crm work skin markers"
 
 - [ ] **Step 2: 桌面视口逐页检查**
 
-在 1920×1080 下依次访问 `/crm/stats`、`/crm/lead`、`/crm/work`，检查：真实 URL、活动菜单、标题、240px 侧栏、38px 标题栏、白色内容框、无旧通用顶栏和全局搜索。
+在 1920×1080 下依次访问 `/work/crm/stats`、`/work/crm/lead`、`/work/crm/work`，检查：真实 URL、活动菜单、标题、240px 侧栏、38px 标题栏、白色内容框、无旧通用顶栏和全局搜索。
 
 - [ ] **Step 3: 检查折叠和浏览器历史**
 
