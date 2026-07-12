@@ -10,10 +10,6 @@
     "type": "container",
     "className": "crm-body-page",
     "children": {
-      "header": {
-        "type": "container",
-        "className": "mb-4 flex justify-end"
-      },
       "content": {
         "type": "container",
         "className": "min-w-0"
@@ -21,11 +17,6 @@
     }
   },
   "nodes": {
-    "header": [
-      {
-        "type": "show-crm-work-refresh-button"
-      }
-    ],
     "content": [
       {
         "type": "show-crm-work-stats"

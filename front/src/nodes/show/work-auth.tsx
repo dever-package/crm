@@ -1865,24 +1865,33 @@ export function ShowCrmWorkStats() {
   }
 
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-background px-5 py-4 shadow-sm">
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold leading-7">我的工作概览</h2>
-          <p className="text-sm leading-6 text-muted-foreground">
-            统计当前账号可查看客户、资产、待办任务和最近操作。
+          <h2 className="text-sm font-semibold text-foreground">今日概览</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            当前账号的客户、资产、任务与操作汇总
           </p>
         </div>
-        <div className="text-xs text-muted-foreground">
-          更新时间：{formatWorkDate(summary.generated_at)}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">
+            更新于 {formatWorkDate(summary.generated_at)}
+          </span>
+          <ShowCrmWorkRefreshButton />
         </div>
       </div>
 
       <WorkStatsMetricGrid metrics={summary.metrics || []} />
 
-      <WorkStatsTrendCard points={summary.trend || []} />
+      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.75fr)]">
+        <WorkStatsTrendCard points={summary.trend || []} />
+        <WorkStatsRecentOperations
+          operations={summary.recent_operations || []}
+          loading={loading}
+        />
+      </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
         <WorkStatsBreakdownCard
           title="阶段分布"
           description="客户或资产当前所在阶段"
@@ -1898,11 +1907,6 @@ export function ShowCrmWorkStats() {
           drilldownType="task"
         />
       </div>
-
-      <WorkStatsRecentOperations
-        operations={summary.recent_operations || []}
-        loading={loading}
-      />
     </div>
   );
 }
