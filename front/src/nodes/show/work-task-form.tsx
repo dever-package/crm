@@ -68,6 +68,11 @@ export function WorkTaskFormStyles() {
         max-height: calc(100vh - 32px);
       }
 
+      [role="dialog"]:has([data-crm-work-task-layout="compact"]) {
+        width: min(760px, calc(100vw - 32px)) !important;
+        max-width: min(760px, calc(100vw - 32px)) !important;
+      }
+
       .crm-work-task-context {
         position: sticky;
         top: -8px;
