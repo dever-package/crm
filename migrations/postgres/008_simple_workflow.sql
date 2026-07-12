@@ -27,6 +27,8 @@ SET assignee_mode = CASE assignee_mode
     WHEN 'department' THEN 'auto'
     WHEN 'staff' THEN 'manual'
     WHEN 'stage' THEN 'stage'
+    WHEN 'auto' THEN 'auto'
+    WHEN 'manual' THEN 'manual'
     ELSE 'stage'
 END;
 
@@ -290,6 +292,20 @@ BEGIN
         WHERE existing.stage_id = contract_stage_id
           AND existing.name = task.name
     );
+
+    UPDATE gjj_crm_task existing
+    SET assignee_mode = 'auto',
+        assignee_department_id = task.department_id,
+        task_type = 'approval',
+        required = TRUE,
+        status = 1
+    FROM (VALUES
+        ('律师合同审核', lawyer_department_id),
+        ('ALA运营条件确认', ala_department_id),
+        ('财务费用确认', finance_department_id)
+    ) AS task(name, department_id)
+    WHERE existing.stage_id = contract_stage_id
+      AND existing.name = task.name;
 
     INSERT INTO gjj_crm_task (stage_id, name, task_type, required, assignee_mode, assignee_department_id, form_id, script_id, due_days, sort, status)
     SELECT signing_confirm_stage_id, '签约确认', 'approval', TRUE, 'stage', 0, 0, 0, 0, 10, 1
