@@ -171,12 +171,9 @@ export function ShowCrmWorkLeadPool() {
   }
 
   return (
-    <div className="crm-work-leads space-y-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">线索池</h1>
-          <p className="mt-1 text-sm text-muted-foreground">待处理 {leadCountByStatus(leads, "pending")} 条，共 {Number(options.total) || leads.length} 条</p>
-        </div>
+        <p className="text-sm text-muted-foreground">待处理 {leadCountByStatus(leads, "pending")} 条，共 {Number(options.total) || leads.length} 条</p>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" size="icon" title="刷新" onClick={() => void loadLeads()} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />

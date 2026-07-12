@@ -1865,7 +1865,7 @@ export function ShowCrmWorkStats() {
   }
 
   return (
-    <div className="crm-work-stats grid gap-4">
+    <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-background px-5 py-4 shadow-sm">
         <div>
           <h2 className="text-lg font-semibold leading-7">我的工作概览</h2>
@@ -2490,7 +2490,7 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
   };
 
   return (
-    <div className="crm-work-customers space-y-4">
+    <div className="space-y-4">
       <WorkCustomerListHeader
         mode={mode}
         modeCounts={modeCounts}
@@ -3130,22 +3130,16 @@ export function ShowCrmWorkDetail({ store }: WorkNodeProps) {
   );
 
   if (!customer) {
+    return <WorkEmptyText>暂无详情</WorkEmptyText>;
+  }
+
+  if (asset) {
     return (
-      <div data-crm-work-detail="true" className="crm-work-detail">
-        <WorkEmptyText>暂无详情</WorkEmptyText>
-      </div>
+      <WorkAssetDetailContent customer={customer} asset={asset} store={store} />
     );
   }
 
-  return (
-    <div data-crm-work-detail="true" className="crm-work-detail">
-      {asset ? (
-        <WorkAssetDetailContent customer={customer} asset={asset} store={store} />
-      ) : (
-        <WorkCustomerDetailContent customer={customer} store={store} />
-      )}
-    </div>
-  );
+  return <WorkCustomerDetailContent customer={customer} store={store} />;
 }
 
 export function ShowCrmWorkRecordDetail({ store }: WorkNodeProps) {
@@ -4929,11 +4923,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
   ) : null;
 
   return (
-    <div
-      ref={contentRef}
-      data-crm-work-task-form="true"
-      className="contents"
-    >
+    <div ref={contentRef} className="contents">
       {footerTargets?.actions
         ? createPortal(
             <>
