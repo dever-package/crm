@@ -82,6 +82,7 @@ export type WorkFormField = {
   data_template_id?: string | number;
   data_template_cate_id?: string | number;
   required?: boolean;
+  readonly?: boolean;
   default_value?: string | number;
   options?: WorkFieldOption[];
   children?: WorkFormField[];
@@ -96,6 +97,8 @@ export type WorkForm = {
 export type WorkTaskFieldRenderConfig = {
   type: string;
   placeholderPrefix: string;
+  inputType?: "text" | "number" | "date" | "datetime-local";
+  fullWidth?: boolean;
   options?: WorkCommonOption[];
   meta?: Record<string, unknown>;
 };
@@ -435,6 +438,31 @@ export type WorkDetailSection = {
 
 export type WorkTaskLayoutMode = "compact" | "workspace";
 
+export type WorkTaskFormField = {
+  formKey: string;
+  label: string;
+  placeholder: string;
+  required: boolean;
+  readonly?: boolean;
+  type: string;
+  inputType?: "text" | "number" | "date" | "datetime-local";
+  fullWidth?: boolean;
+  options?: WorkCommonOption[];
+  meta?: Record<string, unknown>;
+};
+
+export type WorkTaskFormGroup = {
+  id: string;
+  label: string;
+  fields: WorkTaskFormField[];
+};
+
+export type WorkTaskFormSection = {
+  id: string;
+  label: string;
+  fields: WorkTaskFormField[];
+};
+
 export type WorkCommonOption = {
   id: string;
   value: string;
@@ -470,6 +498,7 @@ export type WorkTaskUploadProgress = {
 
 export type WorkTaskFormState = {
   nodes: WorkTaskFormNode[];
+  fields: WorkTaskFormField[];
   values: Record<string, unknown>;
   fieldMap: Record<string, string>;
 };
@@ -503,6 +532,9 @@ export const workRefreshEvent = "crm-work-refresh";
 export const workTaskFormSectionID = "work-task-form-section";
 export const workTaskFormDataPath = "data.workTaskForm";
 export const workTaskFieldMapPath = "data.actionTarget.workTaskFieldMap";
+export const workTaskFormFieldsPath = "data.actionTarget.workTaskFormFields";
+export const workTaskValidationErrorsPath =
+  "data.actionTarget.workTaskValidationErrors";
 let workApiFreshSeq = 0;
 
 const buttonBase =
@@ -617,6 +649,14 @@ const authCookieMaxAge = 3600 * 24 * 7;
 export function textValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+export function workTaskFormKey(key: string): string {
+  const normalized = key
+    .trim()
+    .replace(/[^a-zA-Z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || "field";
 }
 
 export function workIsRecord(

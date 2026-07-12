@@ -56,9 +56,10 @@ export function ShowCrmWorkTaskUpload({
       ? workStoreValue<unknown>(store, relationPath, undefined)
       : undefined;
   const meta = resolveWorkTaskUploadMeta(item?.meta);
+  const readonly = Boolean(item?.meta?.["readonly"]);
   const files = normalizeWorkTaskUploadItems(relationValue, value, localFiles);
   const remainingCount = Math.max(meta.maxCount - files.length, 0);
-  const disabled = uploading || remainingCount <= 0;
+  const disabled = readonly || uploading || remainingCount <= 0;
 
   const syncFiles = useCallback(
     (nextFiles: UploadFileItem[]) => {
@@ -155,6 +156,7 @@ export function ShowCrmWorkTaskUpload({
         type="file"
         className="hidden"
         multiple
+        disabled={readonly}
         onChange={handleChooseFiles}
       />
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -251,15 +253,17 @@ export function ShowCrmWorkTaskUpload({
                   >
                     <Download className="h-4 w-4" />
                   </button>
-                  <button
-                    type="button"
-                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-muted hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
-                    aria-label="删除附件"
-                    disabled={uploading}
-                    onClick={() => removeFile(file.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {!readonly ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-muted hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="删除附件"
+                      disabled={uploading}
+                      onClick={() => removeFile(file.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>

@@ -17,7 +17,6 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { downloadUploadFile, type UploadFileItem } from "@/lib/upload";
 import { normalizeUploadItems } from "@/lib/resource";
 
@@ -52,7 +51,10 @@ import {
   workTableStickyRightHeadClass,
   workTaskFieldMapPath,
   workTaskFormDataPath,
+  workTaskFormFieldsPath,
+  workTaskFormKey,
   workTaskFormSectionID,
+  workTaskValidationErrorsPath,
   type WorkAIFillResponse,
   type WorkAsset,
   type WorkBusinessObject,
@@ -80,6 +82,8 @@ import {
   type WorkSummaryTrendPoint,
   type WorkTask,
   type WorkTaskFieldRenderConfig,
+  type WorkTaskFormField,
+  type WorkTaskFormGroup,
   type WorkTaskFormNode,
   type WorkTaskFormState,
   type WorkTodo,
@@ -99,15 +103,16 @@ import {
 } from "./work-customer-detail";
 import { WorkFlowActions } from "./work-flow-actions";
 import {
+  workTaskNodeFormFields,
+  WorkTaskFormStyles,
+} from "./work-task-form";
+import {
   buildFeishuOAuthURL,
   getFeishuAuthCode,
   isFeishuClient,
   loadFeishuSDK,
 } from "./feishu-login";
-import {
-  ShowCrmWorkTaskUpload,
-  WorkTaskUploadPreviewDialog,
-} from "./work-upload";
+import { WorkTaskUploadPreviewDialog } from "./work-upload";
 import {
   CrmEChart,
   crmChartAxisColor,
@@ -117,30 +122,12 @@ import {
 } from "./crm-echarts";
 
 export { ShowCrmWorkTaskUpload } from "./work-upload";
+export {
+  ShowCrmWorkTaskFieldSection,
+  ShowCrmWorkTaskGroupTabs,
+} from "./work-task-form";
 
 type StoreLike = WorkStoreLike;
-
-type WorkTaskGroupField = {
-  formKey: string;
-  label: string;
-  placeholder: string;
-  required: boolean;
-  type: string;
-  options?: WorkCommonOption[];
-  meta?: Record<string, unknown>;
-};
-
-type WorkTaskGroupTab = {
-  id: string;
-  label: string;
-  fields: WorkTaskGroupField[];
-};
-
-type WorkTaskFieldSection = {
-  id: string;
-  label: string;
-  fields: WorkTaskGroupField[];
-};
 
 function workCustomerID(customer?: WorkCustomer | null): string {
   return positiveTextID(customer?.id) || positiveTextID(customer?.customer_id);
@@ -569,6 +556,7 @@ async function prepareWorkTaskForm(
   const formState = buildWorkTaskFormState(task, customer, asset);
   setWorkStoreValue(store, workTaskFormDataPath, formState.values);
   setWorkStoreValue(store, workTaskFieldMapPath, formState.fieldMap);
+  setWorkStoreValue(store, workTaskFormFieldsPath, formState.fields);
   replaceWorkTaskFormSection(store, formState.nodes);
 }
 
@@ -651,7 +639,12 @@ function buildWorkTaskFormState(
     type: "show-crm-work-task-form",
   });
 
-  return { nodes, values, fieldMap };
+  return {
+    nodes,
+    fields: nodes.flatMap(workTaskNodeFormFields),
+    values,
+    fieldMap,
+  };
 }
 
 function addWorkTaskBusinessObjectNode(
@@ -665,25 +658,21 @@ function addWorkTaskBusinessObjectNode(
   const existing = workBusinessObjectOptions(asset, task);
   if (existing.length === 0) return;
   const typeName = textValue(task.business_object_type_name) || "运营记录";
-  const formKey = uniqueWorkTaskFormKey("business_object_id", fieldMap);
-  values[formKey] = existing[0].id;
-  fieldMap[formKey] = "business_object_id";
-  nodes.push({
-    id: "work-task-business-object-section",
-    type: "show-crm-work-task-field-section",
-    meta: {
-      title: "关联记录",
-      fields: [
-        {
-          formKey,
-          label: typeName,
-          placeholder: `请选择${typeName}`,
-          required: true,
-          type: "form-select",
-          options: [...existing, { id: "0", value: `新建${typeName}` }],
-        },
-      ],
-    },
+  addWorkTaskConfiguredSection(nodes, values, fieldMap, {
+    id: "business-object",
+    title: "关联记录",
+    fields: [
+      {
+        formKey: "business_object_id",
+        rawKey: "business_object_id",
+        label: typeName,
+        placeholder: `请选择${typeName}`,
+        required: true,
+        type: "form-select",
+        options: [...existing, { id: "0", value: `新建${typeName}` }],
+        initialValue: existing[0].id,
+      },
+    ],
   });
 }
 
@@ -694,35 +683,97 @@ function addWorkTaskActionFields(
   task: WorkTask,
 ) {
   if (workTaskIsTodo(task)) {
-    addWorkTaskTextNode(nodes, values, fieldMap, {
-      formKey: "result",
-      rawKey: "result",
-      label: "办理结果",
-      placeholder: "请输入本次办理结果",
-      required: true,
-      type: "form-textarea",
+    addWorkTaskConfiguredSection(nodes, values, fieldMap, {
+      id: "task-result",
+      title: "办理结果",
+      fields: [
+        {
+          formKey: "result",
+          rawKey: "result",
+          label: "办理结果",
+          placeholder: "请输入本次办理结果",
+          required: true,
+          type: "form-textarea",
+          fullWidth: true,
+        },
+      ],
     });
     return;
   }
   if (!workTaskIsApproval(task)) return;
-  addWorkTaskSelectNode(nodes, values, fieldMap, {
-    formKey: "approval_result",
-    rawKey: "approval_result",
-    label: "审核结果",
-    placeholder: "请选择审核结果",
-    required: true,
-    options: [
-      { id: "approved", value: "通过" },
-      { id: "rejected", value: "驳回" },
+  addWorkTaskConfiguredSection(nodes, values, fieldMap, {
+    id: "approval-result",
+    title: "审核处理",
+    fields: [
+      {
+        formKey: "approval_result",
+        rawKey: "approval_result",
+        label: "审核结果",
+        placeholder: "请选择审核结果",
+        required: true,
+        type: "form-select",
+        options: [
+          { id: "approved", value: "通过" },
+          { id: "rejected", value: "驳回" },
+        ],
+      },
+      {
+        formKey: "opinion",
+        rawKey: "opinion",
+        label: "审核意见",
+        placeholder: "请输入审核意见",
+        required: true,
+        type: "form-textarea",
+        fullWidth: true,
+      },
     ],
   });
-  addWorkTaskTextNode(nodes, values, fieldMap, {
-    formKey: "opinion",
-    rawKey: "opinion",
-    label: "审核意见",
-    placeholder: "请输入审核意见",
-    required: true,
-    type: "form-textarea",
+}
+
+type WorkTaskConfiguredField = Omit<WorkTaskFormField, "formKey"> & {
+  formKey: string;
+  rawKey: string;
+  initialValue?: unknown;
+};
+
+function addWorkTaskConfiguredSection(
+  nodes: WorkTaskFormNode[],
+  values: Record<string, unknown>,
+  fieldMap: Record<string, string>,
+  config: {
+    id: string;
+    title: string;
+    fields: WorkTaskConfiguredField[];
+  },
+) {
+  const fields = config.fields.map((field) => {
+    const formKey = uniqueWorkTaskFormKey(field.formKey, fieldMap);
+    values[formKey] = formatWorkTaskInitialValue({
+      type: field.type,
+      initialValue: field.initialValue,
+    });
+    fieldMap[formKey] = field.rawKey;
+    return {
+      formKey,
+      label: field.label,
+      placeholder: field.placeholder,
+      required: field.required,
+      readonly: field.readonly,
+      type: field.type,
+      inputType: field.inputType,
+      fullWidth: field.fullWidth,
+      options: field.options,
+      meta: field.meta,
+    };
+  });
+  nodes.push({
+    id: `work-task-field-section-${config.id}`,
+    type: "show-crm-work-task-field-section",
+    meta: {
+      id: config.id,
+      title: config.title,
+      fields,
+    },
   });
 }
 
@@ -739,19 +790,12 @@ function addWorkTaskFieldSectionNodes(
   asset?: WorkAsset,
 ) {
   const sections = workTaskFieldSections(fields);
-  if (sections.length <= 1) {
-    for (const field of fields) {
-      addWorkTaskFieldNode(nodes, values, fieldMap, field, customer, asset);
-    }
-    return;
-  }
-
   for (const section of sections) {
     const controls = section.fields
       .map((field) =>
         workTaskGroupField(field, values, fieldMap, customer, asset),
       )
-      .filter((field): field is WorkTaskGroupField => Boolean(field));
+      .filter((field): field is WorkTaskFormField => Boolean(field));
     if (controls.length === 0) continue;
     nodes.push({
       id: `work-task-field-section-${section.id}`,
@@ -829,7 +873,7 @@ function addWorkTaskGroupTabsNode(
     .map((group) =>
       workTaskGroupTab(group, values, fieldMap, customer, asset),
     )
-    .filter((tab): tab is WorkTaskGroupTab => Boolean(tab?.fields.length));
+    .filter((tab): tab is WorkTaskFormGroup => Boolean(tab?.fields.length));
 
   if (tabs.length === 0) return;
 
@@ -848,14 +892,14 @@ function workTaskGroupTab(
   fieldMap: Record<string, string>,
   customer?: WorkCustomer | null,
   asset?: WorkAsset,
-): WorkTaskGroupTab | null {
+): WorkTaskFormGroup | null {
   const children = Array.isArray(group.children) ? group.children : [];
   const fields = children
     .filter((field) => !workFormFieldIsGroup(field))
     .map((field) =>
       workTaskGroupField(field, values, fieldMap, customer, asset),
     )
-    .filter((field): field is WorkTaskGroupField => Boolean(field));
+    .filter((field): field is WorkTaskFormField => Boolean(field));
   if (fields.length === 0) return null;
   const label =
     textValue(group.label) ||
@@ -874,7 +918,7 @@ function workTaskGroupField(
   fieldMap: Record<string, string>,
   customer?: WorkCustomer | null,
   asset?: WorkAsset,
-): WorkTaskGroupField | null {
+): WorkTaskFormField | null {
   const rawKey = workFieldKey(field);
   if (!rawKey) return null;
   const options = Array.isArray(field.options)
@@ -889,7 +933,7 @@ function workTaskGroupField(
       field,
       customer,
       asset,
-      renderConfig.type,
+      renderConfig,
     ),
   });
   fieldMap[formKey] = rawKey;
@@ -898,46 +942,13 @@ function workTaskGroupField(
     label,
     placeholder: `${renderConfig.placeholderPrefix}${label}`,
     required: Boolean(field.required),
+    readonly: Boolean(field.readonly),
     type: renderConfig.type,
+    inputType: renderConfig.inputType,
+    fullWidth: renderConfig.fullWidth,
     options: renderConfig.options,
     meta: renderConfig.meta,
   };
-}
-
-function addWorkTaskFieldNode(
-  nodes: WorkTaskFormNode[],
-  values: Record<string, unknown>,
-  fieldMap: Record<string, string>,
-  field: WorkFormField,
-  customer?: WorkCustomer | null,
-  asset?: WorkAsset,
-) {
-  const rawKey = workFieldKey(field);
-  if (!rawKey) return;
-
-  const formKey = workTaskFormKey(rawKey);
-  const label = textValue(field.label) || textValue(field.name) || rawKey;
-  const options = Array.isArray(field.options)
-    ? field.options.map(workFieldOption)
-    : [];
-  const renderConfig = workTaskFieldRenderConfig(field, options);
-
-  addWorkTaskTextNode(nodes, values, fieldMap, {
-    formKey,
-    rawKey,
-    label,
-    placeholder: `${renderConfig.placeholderPrefix}${label}`,
-    required: Boolean(field.required),
-    type: renderConfig.type,
-    options: renderConfig.options,
-    initialValue: workFieldInitialValue(
-      field,
-      customer,
-      asset,
-      renderConfig.type,
-    ),
-    meta: renderConfig.meta,
-  });
 }
 
 function workTaskFieldRenderConfig(
@@ -945,33 +956,6 @@ function workTaskFieldRenderConfig(
   options: WorkCommonOption[],
 ): WorkTaskFieldRenderConfig {
   const fieldType = textValue(field.field_type);
-  if (options.length > 0) {
-    return {
-      type: "form-select",
-      placeholderPrefix: "请选择",
-      options,
-      meta:
-        fieldType === "multi_select" || fieldType === "checkbox"
-          ? { multiple: true }
-          : undefined,
-    };
-  }
-
-  if (workTaskFieldIsUpload(field)) {
-    return {
-      type: "show-crm-work-task-upload",
-      placeholderPrefix: "请上传",
-      meta: workTaskUploadFieldMeta(field),
-    };
-  }
-
-  if (fieldType === "textarea") {
-    return {
-      type: "form-textarea",
-      placeholderPrefix: "请输入",
-    };
-  }
-
   if (fieldType === "boolean") {
     return {
       type: "form-switch",
@@ -983,8 +967,68 @@ function workTaskFieldRenderConfig(
     };
   }
 
+  if (options.length > 0) {
+    const multiple =
+      fieldType === "multi_select" ||
+      fieldType === "multiple_select" ||
+      fieldType === "checkbox";
+    return {
+      type: "form-select",
+      placeholderPrefix: "请选择",
+      fullWidth: multiple,
+      options,
+      meta: multiple ? { multiple: true } : undefined,
+    };
+  }
+
+  if (workTaskFieldIsUpload(field)) {
+    return {
+      type: "show-crm-work-task-upload",
+      placeholderPrefix: "请上传",
+      fullWidth: true,
+      meta: workTaskUploadFieldMeta(field),
+    };
+  }
+
+  if (fieldType === "textarea") {
+    return {
+      type: "form-textarea",
+      placeholderPrefix: "请输入",
+      fullWidth: true,
+    };
+  }
+
+  if (
+    fieldType === "number" ||
+    fieldType === "decimal" ||
+    fieldType === "money"
+  ) {
+    return {
+      type: "form-input",
+      inputType: "number",
+      placeholderPrefix: "请输入",
+    };
+  }
+
+  if (fieldType === "date") {
+    return {
+      type: "form-input",
+      inputType: "date",
+      placeholderPrefix: "请选择",
+    };
+  }
+
+  if (fieldType === "datetime") {
+    return {
+      type: "form-input",
+      inputType: "datetime-local",
+      placeholderPrefix: "请选择",
+    };
+  }
+
   return {
     type: "form-input",
+    inputType: "text",
     placeholderPrefix: "请输入",
   };
 }
@@ -1009,80 +1053,18 @@ function workTaskUploadFieldMeta(
   };
 }
 
-function addWorkTaskSelectNode(
-  nodes: WorkTaskFormNode[],
-  values: Record<string, unknown>,
-  fieldMap: Record<string, string>,
-  config: {
-    formKey: string;
-    rawKey: string;
-    label: string;
-    placeholder: string;
-    required?: boolean;
-    options: WorkCommonOption[];
-    initialValue?: unknown;
-    meta?: Record<string, unknown>;
-  },
-): string {
-  return addWorkTaskTextNode(nodes, values, fieldMap, {
-    ...config,
-    type: "form-select",
-  });
-}
-
-function addWorkTaskTextNode(
-  nodes: WorkTaskFormNode[],
-  values: Record<string, unknown>,
-  fieldMap: Record<string, string>,
-  config: {
-    formKey: string;
-    rawKey: string;
-    label: string;
-    placeholder: string;
-    required?: boolean;
-    type?: string;
-    options?: WorkCommonOption[];
-    initialValue?: unknown;
-    meta?: Record<string, unknown>;
-  },
-): string {
-  const formKey = uniqueWorkTaskFormKey(config.formKey, fieldMap);
-  values[formKey] = formatWorkTaskInitialValue(config);
-  fieldMap[formKey] = config.rawKey;
-
-  nodes.push({
-    id: `work-task-field-${formKey}`,
-    type: config.type || "form-input",
-    name: config.label,
-    placeholder: config.placeholder,
-    value: `workTaskForm.${formKey}`,
-    mode: "form",
-    ...(config.options ? { option: config.options } : {}),
-    ...(config.required
-      ? {
-          validate: [
-            {
-              type: "required",
-              message: `${config.label}不能为空。`,
-            },
-          ],
-        }
-      : {}),
-    meta: {
-      formLayout: "horizontal",
-      ...(config.type === "form-textarea" ? { rows: 4 } : {}),
-      ...(config.meta || {}),
-    },
-  });
-  return formKey;
-}
-
 function formatWorkTaskInitialValue(config: {
   type?: string;
   initialValue?: unknown;
 }): unknown {
   if (config.type === "show-crm-work-task-upload") {
     return formatUploadInitialValue(config.initialValue);
+  }
+  if (Array.isArray(config.initialValue)) {
+    return config.initialValue.map(textValue).filter(Boolean);
+  }
+  if (typeof config.initialValue === "boolean") {
+    return config.initialValue;
   }
   return formatFormValue(config.initialValue);
 }
@@ -1093,14 +1075,6 @@ function formatUploadInitialValue(value: unknown): unknown {
   if (typeof value === "object") return [value];
   const numericValue = Number(value);
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : [];
-}
-
-function workTaskFormKey(key: string): string {
-  const normalized = key
-    .trim()
-    .replace(/[^a-zA-Z0-9_]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return normalized || "field";
 }
 
 function uniqueWorkTaskFormKey(
@@ -4974,6 +4948,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
 
   return (
     <div ref={contentRef} className="contents">
+      <WorkTaskFormStyles />
       {footerTargets?.actions
         ? createPortal(
             <>
@@ -5000,264 +4975,6 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
       ) : null}
     </div>
   );
-}
-
-export function ShowCrmWorkTaskGroupTabs({ item, store }: WorkNodeProps) {
-  const rawTabs = item?.meta?.["tabs"];
-  const tabs = useMemo(() => normalizeWorkTaskGroupTabs(rawTabs), [rawTabs]);
-  const [activeTabID, setActiveTabID] = useState(tabs[0]?.id || "");
-
-  useEffect(() => {
-    if (tabs.length === 0) return;
-    if (!tabs.some((tab) => tab.id === activeTabID)) {
-      setActiveTabID(tabs[0].id);
-    }
-  }, [activeTabID, tabs]);
-
-  if (tabs.length === 0) return null;
-
-  const activeTab = tabs.find((tab) => tab.id === activeTabID) || tabs[0];
-
-  return (
-    <div className="space-y-4 rounded-md border border-border/70 bg-background p-3">
-      <div className="flex flex-wrap gap-2 border-b border-border/70 pb-3">
-        {tabs.map((tab) => {
-          const active = tab.id === activeTab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              className={`rounded-md px-3 py-1.5 text-sm transition ${
-                active
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-              onClick={() => setActiveTabID(tab.id)}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="space-y-3">
-        {activeTab.fields.map((field) => (
-          <WorkTaskGroupFieldControl
-            key={field.formKey}
-            field={field}
-            store={store}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export function ShowCrmWorkTaskFieldSection({ item, store }: WorkNodeProps) {
-  const section = useMemo(
-    () => normalizeWorkTaskFieldSection(item?.meta),
-    [item?.meta],
-  );
-
-  if (!section || section.fields.length === 0) return null;
-
-  return (
-    <section className="space-y-4 border-t border-border/70 pt-5 first:border-t-0 first:pt-0">
-      <div>
-        <h3 className="text-base font-semibold text-foreground">
-          {section.label}
-        </h3>
-      </div>
-      <div className="space-y-3">
-        {section.fields.map((field) => (
-          <WorkTaskGroupFieldControl
-            key={field.formKey}
-            field={field}
-            store={store}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function WorkTaskGroupFieldControl({
-  field,
-  store,
-}: {
-  field: WorkTaskGroupField;
-  store?: StoreLike;
-}) {
-  const value = workStoreValue<Record<string, unknown>>(
-    store,
-    workTaskFormDataPath,
-    {},
-  )[field.formKey];
-  const error = workStoreValue<Record<string, string>>(store, "errors", {})[
-    `workTaskForm.${field.formKey}`
-  ];
-  const setValue = useCallback(
-    (nextValue: unknown) => {
-      const current = workStoreValue<Record<string, unknown>>(
-        store,
-        workTaskFormDataPath,
-        {},
-      );
-      setWorkStoreValue(store, workTaskFormDataPath, {
-        ...current,
-        [field.formKey]: nextValue,
-      });
-    },
-    [field.formKey, store],
-  );
-
-  return (
-    <label className="grid gap-1.5 text-sm md:grid-cols-[9rem_minmax(0,1fr)] md:items-start">
-      <span className="pt-2 font-medium text-foreground">
-        {field.label}
-        {field.required ? <span className="text-destructive"> *</span> : null}
-      </span>
-      <span className="space-y-1">
-        <WorkTaskGroupInput
-          field={field}
-          value={value}
-          setValue={setValue}
-          store={store}
-          error={error}
-        />
-        {error ? (
-          <span className="block text-xs text-destructive">{error}</span>
-        ) : null}
-      </span>
-    </label>
-  );
-}
-
-function WorkTaskGroupInput({
-  field,
-  value,
-  setValue,
-  store,
-  error,
-}: {
-  field: WorkTaskGroupField;
-  value: unknown;
-  setValue: (value: unknown) => void;
-  store?: StoreLike;
-  error?: string;
-}) {
-  if (field.type === "show-crm-work-task-upload") {
-    return (
-      <ShowCrmWorkTaskUpload
-        item={{
-          id: `group-upload-${field.formKey}`,
-          name: field.label,
-          value: `workTaskForm.${field.formKey}`,
-          placeholder: field.placeholder,
-          meta: field.meta,
-        }}
-        store={store}
-        value={value}
-        setValue={setValue}
-        error={error}
-      />
-    );
-  }
-
-  if (field.type === "form-select") {
-    const multiple = Boolean(field.meta?.["multiple"]);
-    const selectedValues = Array.isArray(value)
-      ? value.map(textValue)
-      : textValue(value)
-        ? [textValue(value)]
-        : [];
-    return (
-      <select
-        className={inputClassName}
-        value={multiple ? selectedValues : selectedValues[0] || ""}
-        multiple={multiple}
-        onChange={(event) => {
-          if (multiple) {
-            setValue(
-              Array.from(event.currentTarget.selectedOptions).map(
-                (option) => option.value,
-              ),
-            );
-            return;
-          }
-          setValue(event.currentTarget.value);
-        }}
-      >
-        {!multiple ? <option value="">{field.placeholder}</option> : null}
-        {(field.options || []).map((option) => (
-          <option key={textValue(option.id)} value={textValue(option.id)}>
-            {displayText(option.value || option.name || option.id)}
-          </option>
-        ))}
-      </select>
-    );
-  }
-
-  if (field.type === "form-textarea") {
-    return (
-      <textarea
-        className={inputClassName}
-        rows={4}
-        placeholder={field.placeholder}
-        value={formatFormValue(value)}
-        onChange={(event) => setValue(event.currentTarget.value)}
-      />
-    );
-  }
-
-  return (
-    <Input
-      placeholder={field.placeholder}
-      value={formatFormValue(value)}
-      onChange={(event) => setValue(event.currentTarget.value)}
-    />
-  );
-}
-
-function normalizeWorkTaskGroupTabs(value: unknown): WorkTaskGroupTab[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(workIsRecord)
-    .map((tab) => ({
-      id: textValue(tab["id"]) || workTaskFormKey(textValue(tab["label"])),
-      label: displayText(tab["label"]),
-      fields: normalizeWorkTaskGroupFields(tab["fields"]),
-    }))
-    .filter((tab) => tab.id && tab.label && tab.fields.length > 0);
-}
-
-function normalizeWorkTaskFieldSection(
-  value: unknown,
-): WorkTaskFieldSection | null {
-  if (!workIsRecord(value)) return null;
-  const label = displayText(value["title"] || value["label"] || value["name"]);
-  const fields = normalizeWorkTaskGroupFields(value["fields"]);
-  if (!label || fields.length === 0) return null;
-  return {
-    id: textValue(value["id"]) || workTaskFormKey(label),
-    label,
-    fields,
-  };
-}
-
-function normalizeWorkTaskGroupFields(value: unknown): WorkTaskGroupField[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(workIsRecord)
-    .map((field) => ({
-      formKey: textValue(field["formKey"]),
-      label: displayText(field["label"]),
-      placeholder: textValue(field["placeholder"]),
-      required: Boolean(field["required"]),
-      type: textValue(field["type"]) || "form-input",
-      options: normalizeWorkCommonOptions(field["options"]),
-      meta: workIsRecord(field["meta"]) ? field["meta"] : undefined,
-    }))
-    .filter((field) => field.formKey && field.label);
 }
 
 type WorkTaskModalFooterTargets = {
@@ -5345,33 +5062,16 @@ function findWorkTaskModalFooter(form: Element | null): HTMLElement | null {
   return submitButton?.parentElement || null;
 }
 
-function normalizeWorkCommonOptions(value: unknown): WorkCommonOption[] {
-  return Array.isArray(value)
-    ? value
-        .filter(workIsRecord)
-        .map((option) => ({
-          ...option,
-          id: textValue(option["id"]),
-          value:
-            textValue(option["value"]) ||
-            textValue(option["name"]) ||
-            textValue(option["label"]) ||
-            textValue(option["real_name"]),
-        }))
-        .filter((option) => option.id && option.value)
-    : [];
-}
-
 function validateCurrentWorkTaskForm(
   store: StoreLike | undefined,
   options: { allowMissingRequired?: boolean } = {},
 ): boolean {
   if (options.allowMissingRequired) return true;
   const validateForm = currentWorkStoreState(store)?.validateForm;
-  if (typeof validateForm === "function" && !validateForm()) {
-    return false;
-  }
-  return validateCurrentWorkTaskDomainRules(store);
+  const hostFormValid =
+    typeof validateForm === "function" ? validateForm() : true;
+  const taskFormValid = validateCurrentWorkTaskDomainRules(store);
+  return hostFormValid && taskFormValid;
 }
 
 function validateCurrentWorkTaskDomainRules(
@@ -5388,39 +5088,23 @@ function validateCurrentWorkTaskDomainRules(
 function currentWorkTaskGroupFieldErrors(
   store: StoreLike | undefined,
 ): Record<string, string> {
-  const nodes = currentWorkStoreState(store)?.schema?.nodes?.[
-    workTaskFormSectionID
-  ];
+  const fields = workStoreValue<WorkTaskFormField[]>(
+    store,
+    workTaskFormFieldsPath,
+    [],
+  );
   const values = workStoreValue<Record<string, unknown>>(
     store,
     workTaskFormDataPath,
     {},
   );
   const errors: Record<string, string> = {};
-  if (!Array.isArray(nodes)) return errors;
-
-  for (const node of nodes) {
-    for (const field of workTaskNodeRequiredFields(node)) {
-      if (!field.required) continue;
-      if (!workTaskClientValueEmpty(values[field.formKey])) continue;
-      errors[`workTaskForm.${field.formKey}`] = `${field.label}不能为空。`;
-    }
+  for (const field of fields) {
+    if (!field.required) continue;
+    if (!workTaskClientValueEmpty(values[field.formKey])) continue;
+    errors[`workTaskForm.${field.formKey}`] = `${field.label}不能为空。`;
   }
   return errors;
-}
-
-function workTaskNodeRequiredFields(
-  node: WorkTaskFormNode | undefined,
-): WorkTaskGroupField[] {
-  if (node?.type === "show-crm-work-task-field-section") {
-    return normalizeWorkTaskGroupFields(node.meta?.["fields"]);
-  }
-  if (node?.type === "show-crm-work-task-group-tabs") {
-    return normalizeWorkTaskGroupTabs(node.meta?.["tabs"]).flatMap(
-      (tab) => tab.fields,
-    );
-  }
-  return [];
 }
 
 function workTaskClientValueEmpty(value: unknown): boolean {
@@ -5521,6 +5205,7 @@ function setCurrentWorkTaskFormErrors(
   store: StoreLike | undefined,
   formErrors: Record<string, string>,
 ) {
+  setWorkStoreValue(store, workTaskValidationErrorsPath, formErrors);
   updateWorkStoreErrors(store, (errors) => ({
     ...withoutCurrentWorkTaskFormErrors(errors),
     ...formErrors,
@@ -5620,13 +5305,33 @@ function workFieldInitialValue(
   field: WorkFormField,
   customer?: WorkCustomer | null,
   asset?: WorkAsset | null,
-  renderType?: string,
+  renderConfig?: WorkTaskFieldRenderConfig,
 ): unknown {
   const rawValue = workEntityFieldValue(field, customer, asset);
-  if (renderType === "show-crm-work-task-upload") return rawValue;
+  if (renderConfig?.type === "show-crm-work-task-upload") return rawValue;
+
+  const options = Array.isArray(field.options) ? field.options : [];
+  if (renderConfig?.meta?.["multiple"]) {
+    const values = Array.isArray(rawValue)
+      ? rawValue
+      : textValue(rawValue)
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+    return values.map((value) => workFieldOptionID(options, value));
+  }
 
   const value = formatFormValue(rawValue);
-  const options = Array.isArray(field.options) ? field.options : [];
+  if (!value || options.length === 0) return value;
+
+  return workFieldOptionID(options, value);
+}
+
+function workFieldOptionID(
+  options: WorkFieldOption[],
+  rawValue: unknown,
+): string {
+  const value = textValue(rawValue);
   if (!value || options.length === 0) return value;
 
   const exactOption = options.find((option) => workOptionID(option) === value);
