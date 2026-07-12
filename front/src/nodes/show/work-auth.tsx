@@ -1865,7 +1865,8 @@ export function ShowCrmWorkStats() {
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="crm-stats-dashboard grid gap-3">
+      <WorkStatsDashboardStyles />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-foreground">今日概览</h2>
@@ -1883,7 +1884,7 @@ export function ShowCrmWorkStats() {
 
       <WorkStatsMetricGrid metrics={summary.metrics || []} />
 
-      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.75fr)]">
+      <div className="crm-stats-dashboard-analysis grid min-w-0 gap-3">
         <WorkStatsTrendCard points={summary.trend || []} />
         <WorkStatsRecentOperations
           operations={summary.recent_operations || []}
@@ -1891,7 +1892,7 @@ export function ShowCrmWorkStats() {
         />
       </div>
 
-      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
+      <div className="crm-stats-dashboard-breakdowns grid min-w-0 gap-3">
         <WorkStatsBreakdownCard
           title="阶段分布"
           description="客户或资产当前所在阶段"
@@ -1911,6 +1912,52 @@ export function ShowCrmWorkStats() {
   );
 }
 
+function WorkStatsDashboardStyles() {
+  return (
+    <style>{`
+      .crm-stats-dashboard-metrics {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+
+      .crm-stats-dashboard-analysis {
+        grid-template-columns: minmax(0, 1.65fr) minmax(320px, 0.75fr);
+      }
+
+      .crm-stats-dashboard-breakdowns {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .crm-stats-dashboard-metric {
+        min-height: 94px;
+      }
+
+      .crm-stats-dashboard-analysis-panel {
+        height: 312px;
+      }
+
+      @media (max-width: 1439px) {
+        .crm-stats-dashboard-metrics {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .crm-stats-dashboard-analysis {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 767px) {
+        .crm-stats-dashboard-metrics {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .crm-stats-dashboard-breakdowns {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    `}</style>
+  );
+}
+
 function WorkStatsMetricGrid({ metrics }: { metrics: WorkSummaryMetric[] }) {
   if (metrics.length === 0) {
     return (
@@ -1920,7 +1967,7 @@ function WorkStatsMetricGrid({ metrics }: { metrics: WorkSummaryMetric[] }) {
     );
   }
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border/70 bg-border/70 md:grid-cols-3 min-[1440px]:grid-cols-6">
+    <div className="crm-stats-dashboard-metrics grid gap-px overflow-hidden rounded-md border border-border/70 bg-border/70">
       {metrics.map((metric) => (
         <WorkStatsMetricCard
           key={textValue(metric.key || metric.name)}
@@ -1943,7 +1990,7 @@ function WorkStatsMetricCard({
   return (
     <button
       type="button"
-      className="min-h-[94px] bg-background px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      className="crm-stats-dashboard-metric bg-background px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       onClick={onOpen}
     >
       <div className="flex items-center justify-between gap-2">
@@ -1977,7 +2024,7 @@ function workStatsMetricDrilldown(metric: WorkSummaryMetric): Record<string, str
 }
 
 function openWorkCustomerList(filters: Record<string, string>) {
-  const base = `${getWorkEntryPath().replace(/\/$/, "")}/work`;
+  const base = `${getWorkEntryPath().replace(/\/$/, "")}/crm/work`;
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     const text = textValue(value);
@@ -2045,7 +2092,7 @@ function WorkStatsPanelHeader({
 function WorkStatsTrendCard({ points }: { points: WorkSummaryTrendPoint[] }) {
   return (
     <section
-      className={`${workStatsPanelClass} flex min-h-0 flex-col xl:h-[312px]`}
+      className={`${workStatsPanelClass} crm-stats-dashboard-analysis-panel flex min-h-0 flex-col`}
     >
       <WorkStatsPanelHeader
         title="近 14 天趋势"
@@ -2246,7 +2293,7 @@ function WorkStatsRecentOperations({
 }) {
   return (
     <section
-      className={`${workStatsPanelClass} flex min-h-0 flex-col xl:h-[312px]`}
+      className={`${workStatsPanelClass} crm-stats-dashboard-analysis-panel flex min-h-0 flex-col`}
     >
       <WorkStatsPanelHeader
         title="最近操作"
