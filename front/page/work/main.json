@@ -5,6 +5,7 @@
   },
   "layout": {
     "type": "container",
+    "className": "crm-work-app",
     "children": {
       "sidebar": {
         "type": "container"
@@ -30,6 +31,9 @@
     "__root__": [
       {
         "type": "app-skip-to-main"
+      },
+      {
+        "type": "show-crm-work-skin"
       }
     ],
     "sidebar": [
