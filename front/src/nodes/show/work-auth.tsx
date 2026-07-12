@@ -2156,31 +2156,20 @@ function WorkStatsBreakdownCard({
   drilldownType: "stage" | "task";
 }) {
   return (
-    <section className="rounded-lg border border-border/70 bg-background p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold leading-6">{title}</h3>
-          <p className="text-sm leading-6 text-muted-foreground">
-            {description}
-          </p>
-        </div>
-        <TrendingUp className="h-5 w-5 shrink-0 text-muted-foreground/70" />
-      </div>
-      <div className="mt-5">
-        {rows.length === 0 ? (
+    <section className={workStatsPanelClass}>
+      <WorkStatsPanelHeader title={title} description={description} />
+      {rows.length === 0 ? (
+        <div className="mt-3">
           <WorkEmptyText>{emptyText}</WorkEmptyText>
-        ) : (
-          <>
-            <WorkStatsBreakdownChart rows={rows} />
-            <WorkStatsBreakdownDrilldowns rows={rows} type={drilldownType} />
-          </>
-        )}
-      </div>
+        </div>
+      ) : (
+        <WorkStatsBreakdownList rows={rows} type={drilldownType} />
+      )}
     </section>
   );
 }
 
-function WorkStatsBreakdownDrilldowns({
+function WorkStatsBreakdownList({
   rows,
   type,
 }: {
@@ -2188,9 +2177,10 @@ function WorkStatsBreakdownDrilldowns({
   type: "stage" | "task";
 }) {
   return (
-    <div className="mt-4 flex flex-wrap gap-2">
-      {rows.slice(0, 8).map((row) => {
+    <div className="mt-3 grid gap-1">
+      {rows.map((row, index) => {
         const value = textValue(row.key || row.name);
+        const percent = workStatsPercent(row.percent);
         const params =
           type === "stage"
             ? { mode: "all", stage_filter: value }
@@ -2198,99 +2188,37 @@ function WorkStatsBreakdownDrilldowns({
         return (
           <button
             type="button"
-            key={`${type}:${value}`}
-            className="rounded-full border border-border/70 bg-background px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+            key={`${type}:${value || index}`}
+            className="group rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => openWorkCustomerList(params)}
           >
-            {displayText(row.name)} · {workStatsNumber(row.count)}
+            <span className="flex items-center justify-between gap-3">
+              <span className="min-w-0 truncate text-xs font-medium text-foreground">
+                {displayText(row.name)}
+              </span>
+              <span className="shrink-0 text-xs font-semibold text-foreground">
+                {workStatsNumber(row.count)}
+                <small className="ml-2 font-normal text-muted-foreground">
+                  {percent}%
+                </small>
+              </span>
+            </span>
+            <span
+              className="mt-1.5 block h-1 overflow-hidden rounded-full bg-muted"
+              aria-hidden="true"
+            >
+              <span
+                className={`block h-full rounded-full ${
+                  type === "stage" ? "bg-blue-600" : "bg-emerald-600"
+                }`}
+                style={{ width: `${percent}%` }}
+              />
+            </span>
           </button>
         );
       })}
     </div>
   );
-}
-
-function WorkStatsBreakdownChart({
-  rows,
-}: {
-  rows: WorkSummaryBreakdown[];
-}) {
-  const option = useMemo(() => buildWorkStatsBreakdownOption(rows), [rows]);
-  return (
-    <CrmEChart
-      option={option}
-      height={Math.max(220, rows.length * 42 + 72)}
-      minWidth={520}
-      ariaLabel="统计分布"
-    />
-  );
-}
-
-function buildWorkStatsBreakdownOption(
-  rows: WorkSummaryBreakdown[],
-): EChartsOption {
-  return {
-    animationDuration: 240,
-    grid: {
-      left: 8,
-      right: 52,
-      top: 8,
-      bottom: 8,
-      containLabel: true,
-    },
-    tooltip: {
-      trigger: "item",
-      confine: true,
-      borderColor: crmChartAxisColor,
-      backgroundColor: "#ffffff",
-      textStyle: { color: "#0f172a" },
-      formatter: (params) => {
-        const index = Number((params as { dataIndex?: number }).dataIndex) || 0;
-        const row = rows[index];
-        return [
-          displayText(row?.name),
-          `数量：${workStatsNumber(row?.count)} 个`,
-          `占比：${workStatsPercent(row?.percent)}%`,
-        ].join("<br/>");
-      },
-    },
-    xAxis: {
-      type: "value",
-      minInterval: 1,
-      axisLabel: { color: crmChartTextColor },
-      splitLine: { lineStyle: { color: crmChartSplitLineColor } },
-    },
-    yAxis: {
-      type: "category",
-      inverse: true,
-      data: rows.map((row) => displayText(row.name)),
-      axisTick: { show: false },
-      axisLine: { lineStyle: { color: crmChartAxisColor } },
-      axisLabel: {
-        color: crmChartTextColor,
-        width: 110,
-        overflow: "truncate",
-      },
-    },
-    series: [
-      {
-        name: "数量",
-        type: "bar",
-        barWidth: 14,
-        data: rows.map((row) => workStatsNumber(row.count)),
-        label: {
-          show: true,
-          position: "right",
-          formatter: "{c} 个",
-          color: crmChartTextColor,
-        },
-        itemStyle: {
-          color: "#2563eb",
-          borderRadius: [0, 6, 6, 0],
-        },
-      },
-    ],
-  };
 }
 
 function workPositiveNumber(value: unknown): number {
