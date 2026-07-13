@@ -117,7 +117,7 @@ func (OptionService) ProviderLoadDataTemplateCates(c *server.Context, _ []any) a
 	rows := crmmodel.NewDataTemplateCateModel().SelectMap(ctx, map[string]any{
 		"status": crmmodel.StatusEnabled,
 	}, dataTemplateCateSelectOptions())
-	return loadCrmCateOptions(rows)
+	return loadCrmCateOptions(fixedDataTemplateCateRows(rows))
 }
 
 func (OptionService) ProviderLoadFormFieldCascaderOptions(c *server.Context, params []any) any {
@@ -178,6 +178,7 @@ func (OptionService) ProviderLoadFormFieldTemplateOptions(c *server.Context, par
 		"id":     cateID,
 		"status": crmmodel.StatusEnabled,
 	}, dataTemplateCateSelectOptions())
+	cates = fixedDataTemplateCateRows(cates)
 	options := make([]map[string]any, 0, len(cates))
 	for _, cate := range cates {
 		cateID := util.ToUint64(cate["id"])
@@ -220,6 +221,7 @@ func formFieldCateOptions(ctx context.Context) []map[string]any {
 	cates := crmmodel.NewDataTemplateCateModel().SelectMap(ctx, map[string]any{
 		"status": crmmodel.StatusEnabled,
 	}, dataTemplateCateSelectOptions())
+	cates = fixedDataTemplateCateRows(cates)
 	options := make([]map[string]any, 0, len(cates))
 	for _, cate := range cates {
 		cateID := util.ToUint64(cate["id"])
@@ -678,6 +680,19 @@ func dataTemplateCateSelectOptions() map[string]any {
 	}
 }
 
+func fixedDataTemplateCateRows(rows []map[string]any) []map[string]any {
+	result := make([]map[string]any, 0, 3)
+	for _, row := range rows {
+		switch util.ToUint64(row["id"]) {
+		case crmmodel.CustomerDataTemplateCateID,
+			crmmodel.CustomerAssetDataTemplateCateID,
+			crmmodel.BusinessDataTemplateCateID:
+			result = append(result, row)
+		}
+	}
+	return result
+}
+
 func stageSelectOptions() map[string]any {
 	return map[string]any{
 		"field": "main.id, main.workflow_id, main.name, main.owner_department_id, main.status, main.sort",
@@ -737,6 +752,7 @@ func ensureBaseDataTemplateCates(ctx context.Context) {
 	ensureBaseDataTemplateCatesOnce.Do(func() {
 		ensureBaseDataTemplateCate(ctx, crmmodel.CustomerDataTemplateCateID, "客户信息", crmmodel.DataTemplateTargetCustomer, 10)
 		ensureBaseDataTemplateCate(ctx, crmmodel.CustomerAssetDataTemplateCateID, "客户资产", crmmodel.DataTemplateTargetCustomerAsset, 20)
+		ensureBaseDataTemplateCate(ctx, crmmodel.BusinessDataTemplateCateID, "业务数据", crmmodel.DataTemplateTargetBusinessObject, 30)
 	})
 }
 

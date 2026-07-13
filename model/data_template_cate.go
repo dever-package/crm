@@ -6,9 +6,12 @@ import (
 	"github.com/shemic/dever/orm"
 )
 
-const CustomerDataTemplateCateID uint64 = 1
-const DefaultDataTemplateCateID = CustomerDataTemplateCateID
-const CustomerAssetDataTemplateCateID uint64 = 2
+const (
+	CustomerDataTemplateCateID      uint64 = 1
+	CustomerAssetDataTemplateCateID uint64 = 2
+	BusinessDataTemplateCateID      uint64 = 3
+	DefaultDataTemplateCateID              = CustomerDataTemplateCateID
+)
 
 const (
 	DataTemplateTargetCustomer       = "customer"
@@ -35,6 +38,7 @@ type DataTemplateCateIndex struct {
 var dataTemplateCateSeed = []map[string]any{
 	{"id": CustomerDataTemplateCateID, "name": "客户信息", "target_table": DataTemplateTargetCustomer, "status": StatusEnabled, "sort": 10},
 	{"id": CustomerAssetDataTemplateCateID, "name": "客户资产", "target_table": DataTemplateTargetCustomerAsset, "status": StatusEnabled, "sort": 20},
+	{"id": BusinessDataTemplateCateID, "name": "业务数据", "target_table": DataTemplateTargetBusinessObject, "status": StatusEnabled, "sort": 30},
 }
 
 var dataTemplateTargetOptions = []map[string]any{
