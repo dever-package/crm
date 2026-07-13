@@ -807,6 +807,27 @@ export function saveWorkSession(token: string, user: unknown) {
   window.localStorage.setItem(getFrontUserKey(), JSON.stringify(user ?? {}));
 }
 
+export function readWorkSessionUser(): Record<string, unknown> {
+  if (typeof window === "undefined") return {};
+  const keys = [
+    getFrontUserKey(),
+    workUserKey,
+    legacyWorkUserKey,
+    legacyFrontUserKey,
+  ];
+  for (const key of keys) {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      const user = JSON.parse(raw) as unknown;
+      if (workIsRecord(user)) return user;
+    } catch {
+      continue;
+    }
+  }
+  return {};
+}
+
 export function clearWorkSession() {
   window.localStorage.removeItem(workTokenKey);
   window.localStorage.removeItem(workUserKey);

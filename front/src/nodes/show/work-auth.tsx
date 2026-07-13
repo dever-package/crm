@@ -21,7 +21,6 @@ import { downloadUploadFile, type UploadFileItem } from "@/lib/upload";
 import { normalizeUploadItems } from "@/lib/resource";
 
 import {
-  clearWorkSession,
   currentWorkStoreState,
   displayText,
   emptyWorkSearchFilters,

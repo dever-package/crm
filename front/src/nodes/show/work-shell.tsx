@@ -2,6 +2,7 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   BriefcaseBusiness,
   LayoutDashboard,
+  LogOut,
   PanelLeft,
   UsersRound,
 } from "lucide-react";
@@ -10,6 +11,21 @@ import {
   getSiteConfig,
   useNavigate,
 } from "@dever/front-plugin";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+import {
+  clearWorkSession,
+  getWorkEntryPath,
+  readWorkSessionUser,
+  textValue,
+} from "./work-core";
 
 type WorkNavItem = {
   to: string;
@@ -79,12 +95,48 @@ export function ShowCrmWorkSidebar() {
 export function ShowCrmWorkTitlebar() {
   const pathname = useWorkPath();
   const page = useMemo(() => resolveWorkPage(pathname), [pathname]);
+  const user = useMemo(readWorkSessionUser, []);
+  const userName = textValue(user.name) || "当前账号";
+  const userPhone = textValue(user.phone);
 
   return (
     <header className="crm-body-topbar">
       <h1>{page.title}</h1>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="crm-body-account-trigger"
+            aria-label={`${userName}，打开账号菜单`}
+            title="账号菜单"
+          >
+            <span aria-hidden="true">{workAccountInitial(userName)}</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={6} className="w-52 text-[12.8px]">
+          <DropdownMenuLabel className="font-normal">
+            <div className="truncate font-medium text-foreground">{userName}</div>
+            {userPhone ? <div className="mt-0.5 truncate text-xs text-muted-foreground">{userPhone}</div> : null}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onSelect={handleWorkLogout}>
+            <LogOut />
+            退出登录
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </header>
   );
+}
+
+function workAccountInitial(name: string) {
+  return Array.from(name.trim())[0]?.toLocaleUpperCase() || "账";
+}
+
+function handleWorkLogout() {
+  clearWorkSession();
+  const entry = getWorkEntryPath().replace(/\/+$/, "");
+  window.location.replace(`${entry}/login`);
 }
 
 function WorkNavButton({
@@ -398,17 +450,51 @@ function WorkShellStyles() {
         height: 38px;
         flex: 0 0 38px;
         align-items: center;
+        justify-content: space-between;
+        gap: 12px;
         border-bottom: 1px solid var(--crm-body-line);
         background: var(--crm-body-surface);
         padding: 0 31px;
       }
 
       .crm-body-topbar h1 {
+        min-width: 0;
+        overflow: hidden;
         margin: 0;
         color: var(--crm-body-text);
         font-size: 14.5px;
         font-weight: 500;
         line-height: 1;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .crm-body-account-trigger {
+        display: inline-flex;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+        cursor: pointer;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 50%;
+        background: var(--crm-body-active);
+        color: var(--crm-body-text);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1;
+        transition: background-color 120ms ease, box-shadow 120ms ease;
+      }
+
+      .crm-body-account-trigger:hover {
+        background: var(--crm-body-line-strong);
+      }
+
+      .crm-body-account-trigger:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px var(--crm-body-surface), 0 0 0 4px var(--crm-body-text);
       }
 
       .crm-body-content {
