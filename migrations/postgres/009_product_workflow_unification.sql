@@ -185,6 +185,11 @@ WHERE event.workflow_instance_id = 0
   AND instance.asset_id = event.asset_id
   AND instance.workflow_id = event.workflow_id;
 
+DROP INDEX IF EXISTS uidx_gjj_crm_task_todo_stage_task;
+DROP INDEX IF EXISTS idx_gjj_crm_task_todo_stage_task;
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_gjj_crm_task_todo_instance_task
+    ON gjj_crm_task_todo (workflow_instance_id, stage_id, task_id);
+
 CREATE INDEX IF NOT EXISTS idx_gjj_crm_task_todo_instance_status
     ON gjj_crm_task_todo (workflow_instance_id, status, id);
 CREATE INDEX IF NOT EXISTS idx_gjj_crm_operation_log_instance_time

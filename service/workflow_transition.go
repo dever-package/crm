@@ -11,40 +11,40 @@ import (
 	crmmodel "github.com/dever-package/crm/model"
 )
 
-func CompleteAssetStage(ctx context.Context, staff *WorkStaffSession, assetID, nextOwnerStaffID uint64) (*crmmodel.CustomerStage, error) {
-	var completed *crmmodel.CustomerStage
+func CompleteWorkflowStage(ctx context.Context, staff *WorkStaffSession, instanceID, nextOwnerStaffID uint64) (*crmmodel.WorkflowInstance, error) {
+	var completed *crmmodel.WorkflowInstance
 	err := orm.Transaction(ctx, func(txCtx context.Context) error {
-		progress, err := activeAssetProgress(txCtx, assetID)
+		instance, err := activeWorkflowInstance(txCtx, instanceID)
 		if err != nil {
 			return err
 		}
-		if !canCompleteAssetStage(staff, progress) {
+		if !canCompleteWorkflowStage(staff, instance) {
 			return fmt.Errorf("只有当前负责人或流程调度员可以完成阶段")
 		}
-		if pendingRequiredTodoCount(txCtx, progress) > 0 {
+		if pendingRequiredTodoCount(txCtx, instance) > 0 {
 			return fmt.Errorf("必做任务尚未全部完成")
 		}
 
-		workflow, stage, err := nextWorkflowStage(txCtx, progress)
+		workflow, stage, err := nextWorkflowStage(txCtx, instance)
 		if err != nil {
 			return err
 		}
-		cancelPendingOptionalTodos(txCtx, progress)
+		cancelPendingOptionalTodos(txCtx, instance)
 		if workflow == nil || stage == nil {
-			if err := completeAssetProgress(txCtx, staff, progress); err != nil {
+			if err := completeWorkflowInstance(txCtx, staff, instance); err != nil {
 				return err
 			}
-			completed = progress
+			completed = instance
 			return nil
 		}
 
-		fromWorkflowID := progress.WorkflowID
-		fromStageID := progress.StageID
-		owner, err := enterWorkflowStage(txCtx, progress, workflow, stage, nextOwnerStaffID)
+		fromWorkflowID := instance.WorkflowID
+		fromStageID := instance.StageID
+		owner, err := enterWorkflowStage(txCtx, instance, workflow, stage, nextOwnerStaffID)
 		if err != nil {
 			return err
 		}
-		if recordWorkStageChange(txCtx, staff, progress, workStageChange{
+		if recordWorkStageChange(txCtx, staff, instance, workStageChange{
 			FromWorkflowID: fromWorkflowID,
 			FromStageID:    fromStageID,
 			ToWorkflowID:   workflow.ID,
@@ -59,40 +59,40 @@ func CompleteAssetStage(ctx context.Context, staff *WorkStaffSession, assetID, n
 		}) == 0 {
 			return fmt.Errorf("阶段流转记录创建失败")
 		}
-		if err := createStageTodos(txCtx, progress, stage); err != nil {
+		if err := createStageTodos(txCtx, instance, stage); err != nil {
 			return err
 		}
-		completed = progress
+		completed = instance
 		return nil
 	})
 	return completed, err
 }
 
-func TerminateAssetWorkflow(ctx context.Context, staff *WorkStaffSession, assetID uint64, reason string) (*crmmodel.CustomerStage, error) {
+func TerminateWorkflowInstance(ctx context.Context, staff *WorkStaffSession, instanceID uint64, reason string) (*crmmodel.WorkflowInstance, error) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		return nil, fmt.Errorf("请填写终止原因")
 	}
-	var terminated *crmmodel.CustomerStage
+	var terminated *crmmodel.WorkflowInstance
 	err := orm.Transaction(ctx, func(txCtx context.Context) error {
-		progress, err := activeAssetProgress(txCtx, assetID)
+		instance, err := activeWorkflowInstance(txCtx, instanceID)
 		if err != nil {
 			return err
 		}
-		if staff == nil || staff.ID == 0 || progress.OwnerStaffID != staff.ID {
+		if staff == nil || staff.ID == 0 || instance.OwnerStaffID != staff.ID {
 			return fmt.Errorf("只有当前负责人可以终止流程")
 		}
 		now := time.Now()
 		crmmodel.NewWorkTodoModel().Update(txCtx, map[string]any{
-			"asset_id": assetID,
-			"status":   crmmodel.WorkTodoStatusPending,
+			"workflow_instance_id": instance.ID,
+			"status":               crmmodel.WorkTodoStatusPending,
 		}, map[string]any{
 			"status":     crmmodel.WorkTodoStatusCanceled,
 			"result":     "流程已终止：" + reason,
 			"updated_at": now,
 		})
-		if crmmodel.NewCustomerStageModel().Update(txCtx, map[string]any{
-			"id":     progress.ID,
+		if crmmodel.NewWorkflowInstanceModel().Update(txCtx, map[string]any{
+			"id":     instance.ID,
 			"status": crmmodel.ProgressStatusActive,
 		}, map[string]any{
 			"status":            crmmodel.ProgressStatusTerminated,
@@ -102,13 +102,16 @@ func TerminateAssetWorkflow(ctx context.Context, staff *WorkStaffSession, assetI
 		}) == 0 {
 			return fmt.Errorf("流程已变化，请刷新后重试")
 		}
-		progress.Status = crmmodel.ProgressStatusTerminated
-		progress.TerminatedAt = &now
-		progress.TerminatedReason = reason
-		progress.UpdatedAt = now
-		if recordWorkStageChange(txCtx, staff, progress, workStageChange{
-			FromWorkflowID: progress.WorkflowID,
-			FromStageID:    progress.StageID,
+		instance.Status = crmmodel.ProgressStatusTerminated
+		instance.TerminatedAt = &now
+		instance.TerminatedReason = reason
+		instance.UpdatedAt = now
+		if err := LoseCustomerProductForInstance(txCtx, instance); err != nil {
+			return err
+		}
+		if recordWorkStageChange(txCtx, staff, instance, workStageChange{
+			FromWorkflowID: instance.WorkflowID,
+			FromStageID:    instance.StageID,
 			ResultValue:    "terminated",
 			Title:          "流程已终止",
 			Content:        reason,
@@ -116,54 +119,62 @@ func TerminateAssetWorkflow(ctx context.Context, staff *WorkStaffSession, assetI
 		}) == 0 {
 			return fmt.Errorf("流程终止记录创建失败")
 		}
-		terminated = progress
+		terminated = instance
 		return nil
 	})
 	return terminated, err
 }
 
-func activeAssetProgress(ctx context.Context, assetID uint64) (*crmmodel.CustomerStage, error) {
-	if assetID == 0 {
-		return nil, fmt.Errorf("客户资产不能为空")
+func workflowInstanceByID(ctx context.Context, instanceID uint64) (*crmmodel.WorkflowInstance, error) {
+	if instanceID == 0 {
+		return nil, fmt.Errorf("流程实例不能为空")
 	}
-	progress := crmmodel.NewCustomerStageModel().Find(ctx, map[string]any{
-		"asset_id": assetID,
-		"status":   crmmodel.ProgressStatusActive,
-	})
-	if progress == nil {
-		return nil, fmt.Errorf("资产没有进行中的流程")
+	instance := crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{"id": instanceID})
+	if instance == nil {
+		return nil, fmt.Errorf("流程实例不存在")
 	}
-	return progress, nil
+	return instance, nil
 }
 
-func canCompleteAssetStage(staff *WorkStaffSession, progress *crmmodel.CustomerStage) bool {
-	if staff == nil || staff.ID == 0 || progress == nil {
+func activeWorkflowInstance(ctx context.Context, instanceID uint64) (*crmmodel.WorkflowInstance, error) {
+	instance, err := workflowInstanceByID(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	if instance.Status != crmmodel.ProgressStatusActive {
+		return nil, fmt.Errorf("流程实例已结束")
+	}
+	return instance, nil
+}
+
+func canCompleteWorkflowStage(staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) bool {
+	if staff == nil || staff.ID == 0 || instance == nil {
 		return false
 	}
-	return progress.OwnerStaffID == staff.ID || staff.CanDispatch
+	return instance.OwnerStaffID == staff.ID || staff.CanDispatch
 }
 
-func pendingRequiredTodoCount(ctx context.Context, progress *crmmodel.CustomerStage) int64 {
-	if progress == nil {
+func pendingRequiredTodoCount(ctx context.Context, instance *crmmodel.WorkflowInstance) int64 {
+	if instance == nil {
 		return 0
 	}
 	return crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{
-		"asset_id": progress.AssetID,
-		"stage_id": progress.StageID,
-		"required": true,
-		"status":   crmmodel.WorkTodoStatusPending,
+		"workflow_instance_id": instance.ID,
+		"stage_id":             instance.StageID,
+		"required":             true,
+		"status":               crmmodel.WorkTodoStatusPending,
 	})
 }
 
-func cancelPendingOptionalTodos(ctx context.Context, progress *crmmodel.CustomerStage) {
-	if progress == nil {
+func cancelPendingOptionalTodos(ctx context.Context, instance *crmmodel.WorkflowInstance) {
+	if instance == nil {
 		return
 	}
 	crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
-		"asset_id": progress.AssetID,
-		"stage_id": progress.StageID,
-		"required": false,
-		"status":   crmmodel.WorkTodoStatusPending,
+		"workflow_instance_id": instance.ID,
+		"stage_id":             instance.StageID,
+		"required":             false,
+		"status":               crmmodel.WorkTodoStatusPending,
 	}, map[string]any{
 		"status":     crmmodel.WorkTodoStatusCanceled,
 		"result":     "阶段已完成",
@@ -171,43 +182,30 @@ func cancelPendingOptionalTodos(ctx context.Context, progress *crmmodel.Customer
 	})
 }
 
-func nextWorkflowStage(ctx context.Context, progress *crmmodel.CustomerStage) (*crmmodel.Workflow, *crmmodel.Stage, error) {
-	if progress == nil {
-		return nil, nil, fmt.Errorf("资产流程不存在")
+func nextWorkflowStage(ctx context.Context, instance *crmmodel.WorkflowInstance) (*crmmodel.Workflow, *crmmodel.Stage, error) {
+	if instance == nil {
+		return nil, nil, fmt.Errorf("流程实例不存在")
 	}
 	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{
-		"id":     progress.WorkflowID,
+		"id":     instance.WorkflowID,
 		"status": crmmodel.StatusEnabled,
 	})
 	if workflow == nil {
 		return nil, nil, fmt.Errorf("当前流程不存在或已停用")
 	}
-	if stage := nextEnabledStage(ctx, workflow.ID, progress.StageID); stage != nil {
-		return workflow, stage, nil
-	}
-	if workflow.NextWorkflowID == 0 {
+	stage := nextEnabledStage(ctx, workflow.ID, instance.StageID)
+	if stage == nil {
 		return nil, nil, nil
 	}
-	nextWorkflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{
-		"id":     workflow.NextWorkflowID,
-		"status": crmmodel.StatusEnabled,
-	})
-	if nextWorkflow == nil {
-		return nil, nil, fmt.Errorf("后续流程不存在或已停用")
-	}
-	nextStage := firstEnabledStage(ctx, nextWorkflow.ID)
-	if nextStage == nil {
-		return nil, nil, fmt.Errorf("后续流程没有已启用阶段")
-	}
-	return nextWorkflow, nextStage, nil
+	return workflow, stage, nil
 }
 
-func completeAssetProgress(ctx context.Context, staff *WorkStaffSession, progress *crmmodel.CustomerStage) error {
+func completeWorkflowInstance(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) error {
 	now := time.Now()
-	if crmmodel.NewCustomerStageModel().Update(ctx, map[string]any{
-		"id":          progress.ID,
-		"workflow_id": progress.WorkflowID,
-		"stage_id":    progress.StageID,
+	if crmmodel.NewWorkflowInstanceModel().Update(ctx, map[string]any{
+		"id":          instance.ID,
+		"workflow_id": instance.WorkflowID,
+		"stage_id":    instance.StageID,
 		"status":      crmmodel.ProgressStatusActive,
 	}, map[string]any{
 		"status":       crmmodel.ProgressStatusCompleted,
@@ -216,16 +214,19 @@ func completeAssetProgress(ctx context.Context, staff *WorkStaffSession, progres
 	}) == 0 {
 		return fmt.Errorf("流程已变化，请刷新后重试")
 	}
-	progress.Status = crmmodel.ProgressStatusCompleted
-	progress.CompletedAt = &now
-	progress.UpdatedAt = now
-	if recordWorkStageChange(ctx, staff, progress, workStageChange{
-		FromWorkflowID: progress.WorkflowID,
-		FromStageID:    progress.StageID,
+	instance.Status = crmmodel.ProgressStatusCompleted
+	instance.CompletedAt = &now
+	instance.UpdatedAt = now
+	if recordWorkStageChange(ctx, staff, instance, workStageChange{
+		FromWorkflowID: instance.WorkflowID,
+		FromStageID:    instance.StageID,
 		ResultValue:    "completed",
 		Title:          "流程已完成",
 	}) == 0 {
 		return fmt.Errorf("流程完成记录创建失败")
 	}
-	return nil
+	if instance.CustomerProductID == 0 {
+		return StartConfirmedProductWorkflows(ctx, instance)
+	}
+	return CompleteCustomerProductForInstance(ctx, instance)
 }

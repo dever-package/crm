@@ -44,6 +44,9 @@ func pendingTodoTaskForStaff(ctx context.Context, staff *WorkStaffSession, paylo
 	if taskID := firstUint64(payload, "task_id", "taskId"); taskID > 0 && taskID != todo.TaskID {
 		return nil, nil, fmt.Errorf("待办与任务不匹配")
 	}
+	if instanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId"); instanceID > 0 && instanceID != todo.WorkflowInstanceID {
+		return nil, nil, fmt.Errorf("待办不属于当前流程")
+	}
 	if !canOperateWorkTodo(staff, todo) {
 		return nil, nil, fmt.Errorf("当前人员无权执行该待办")
 	}
@@ -54,12 +57,47 @@ func pendingTodoTaskForStaff(ctx context.Context, staff *WorkStaffSession, paylo
 	if task == nil {
 		return nil, nil, fmt.Errorf("任务配置不存在")
 	}
-	progress := currentWorkCustomerStage(ctx, todo.CustomerID, todo.AssetID)
-	if progress == nil || progress.Status != crmmodel.ProgressStatusActive ||
-		progress.WorkflowID != todo.WorkflowID || progress.StageID != todo.StageID {
-		return nil, nil, fmt.Errorf("待办不属于资产当前阶段")
+	instance, err := activeWorkflowInstance(ctx, todo.WorkflowInstanceID)
+	if err != nil || instance.WorkflowID != todo.WorkflowID || instance.StageID != todo.StageID {
+		return nil, nil, fmt.Errorf("待办不属于流程当前阶段")
 	}
 	return todo, task, nil
+}
+
+func completeProductTodo(ctx context.Context, staff *WorkStaffSession, todo *crmmodel.WorkTodo, task *crmmodel.Task, values map[string]any) (map[string]any, error) {
+	productIDs := uint64ListFromAny(values["product_ids"])
+	if len(productIDs) == 0 {
+		productIDs = uint64ListFromAny(values["productIds"])
+	}
+	if task.Required && len(productIDs) == 0 {
+		return nil, fmt.Errorf("请至少选择一个产品")
+	}
+	customerProducts, err := SyncConfirmedCustomerProducts(ctx, todo.WorkflowInstanceID, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	selectedIDs := make([]uint64, 0, len(customerProducts))
+	for _, customerProduct := range customerProducts {
+		if customerProduct != nil {
+			selectedIDs = append(selectedIDs, customerProduct.ProductID)
+		}
+	}
+	resultText := "已确认产品"
+	if len(selectedIDs) == 0 {
+		resultText = "未选择产品"
+	}
+	snapshot := copyMap(values)
+	snapshot["product_ids"] = selectedIDs
+	operationID := recordWorkTaskOperation(ctx, staff, todo, task, "confirmed", resultText, snapshot, true)
+	if operationID == 0 {
+		return nil, fmt.Errorf("产品确认记录创建失败")
+	}
+	if err := completeWorkTodo(ctx, todo, resultText); err != nil {
+		return nil, err
+	}
+	result := workTodoExecutionResult(todo, operationID, "confirmed", false)
+	result["product_ids"] = selectedIDs
+	return result, nil
 }
 
 func completeSimpleTodo(ctx context.Context, staff *WorkStaffSession, todo *crmmodel.WorkTodo, task *crmmodel.Task, values map[string]any) (map[string]any, error) {
@@ -134,7 +172,7 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 			"result":     resultText,
 			"updated_at": time.Now(),
 		})
-		if err := rerunPendingRuleTodos(ctx, todo.AssetID, todo.StageID); err != nil {
+		if err := rerunPendingRuleTodos(ctx, todo.WorkflowInstanceID, todo.StageID); err != nil {
 			return nil, err
 		}
 		result := workTodoExecutionResult(todo, operationID, resultValue, true)
@@ -147,7 +185,7 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 	if err := completeWorkTodo(ctx, todo, resultText); err != nil {
 		return nil, err
 	}
-	if err := rerunPendingRuleTodos(ctx, todo.AssetID, todo.StageID); err != nil {
+	if err := rerunPendingRuleTodos(ctx, todo.WorkflowInstanceID, todo.StageID); err != nil {
 		return nil, err
 	}
 	result := workTodoExecutionResult(todo, operationID, resultValue, false)
@@ -209,11 +247,11 @@ func completeWorkTodo(ctx context.Context, todo *crmmodel.WorkTodo, result strin
 	return nil
 }
 
-func rerunPendingRuleTodos(ctx context.Context, assetID, stageID uint64) error {
+func rerunPendingRuleTodos(ctx context.Context, workflowInstanceID, stageID uint64) error {
 	rows := crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
-		"asset_id": assetID,
-		"stage_id": stageID,
-		"status":   crmmodel.WorkTodoStatusPending,
+		"workflow_instance_id": workflowInstanceID,
+		"stage_id":             stageID,
+		"status":               crmmodel.WorkTodoStatusPending,
 	})
 	for _, todo := range rows {
 		if todo == nil {
@@ -238,10 +276,10 @@ func workRuleTodoReady(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmo
 		return false
 	}
 	pendingTodos := crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
-		"asset_id": todo.AssetID,
-		"stage_id": todo.StageID,
-		"required": true,
-		"status":   crmmodel.WorkTodoStatusPending,
+		"workflow_instance_id": todo.WorkflowInstanceID,
+		"stage_id":             todo.StageID,
+		"required":             true,
+		"status":               crmmodel.WorkTodoStatusPending,
 	})
 	for _, pendingTodo := range pendingTodos {
 		if pendingTodo == nil || pendingTodo.ID == todo.ID {
@@ -337,28 +375,32 @@ func workRuleInput(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.
 		"customer": customer,
 		"assets":   workRuleAssets(ctx, todo.CustomerID),
 		"current": map[string]any{
-			"workflow_id":   todo.WorkflowID,
-			"workflow_name": workflowName,
-			"stage_id":      todo.StageID,
-			"stage_name":    stageName,
-			"asset_id":      todo.AssetID,
-			"asset":         asset,
+			"workflow_instance_id": todo.WorkflowInstanceID,
+			"customer_product_id":  todo.CustomerProductID,
+			"workflow_id":          todo.WorkflowID,
+			"workflow_name":        workflowName,
+			"stage_id":             todo.StageID,
+			"stage_name":           stageName,
+			"asset_id":             todo.AssetID,
+			"asset":                asset,
 		},
 	}
 }
 
 func workTodoExecutionResult(todo *crmmodel.WorkTodo, operationID uint64, resultValue string, progress bool) map[string]any {
 	return map[string]any{
-		"todo_id":          todo.ID,
-		"task_id":          todo.TaskID,
-		"customer_id":      todo.CustomerID,
-		"asset_id":         todo.AssetID,
-		"workflow_id":      todo.WorkflowID,
-		"stage_id":         todo.StageID,
-		"operation_log_id": operationID,
-		"result_value":     resultValue,
-		"progress":         progress,
-		"saved":            true,
+		"todo_id":              todo.ID,
+		"task_id":              todo.TaskID,
+		"customer_id":          todo.CustomerID,
+		"asset_id":             todo.AssetID,
+		"workflow_instance_id": todo.WorkflowInstanceID,
+		"customer_product_id":  todo.CustomerProductID,
+		"workflow_id":          todo.WorkflowID,
+		"stage_id":             todo.StageID,
+		"operation_log_id":     operationID,
+		"result_value":         resultValue,
+		"progress":             progress,
+		"saved":                true,
 	}
 }
 
@@ -372,7 +414,7 @@ func canOperateWorkTodo(staff *WorkStaffSession, todo *crmmodel.WorkTodo) bool {
 	return false
 }
 
-func canOperateCurrentState(staff *WorkStaffSession, state *crmmodel.CustomerStage) bool {
+func canOperateCurrentState(staff *WorkStaffSession, state *crmmodel.WorkflowInstance) bool {
 	if staff == nil || state == nil {
 		return false
 	}

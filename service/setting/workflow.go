@@ -330,7 +330,7 @@ func (CrmHook) ProviderBeforeDeleteWorkflow(c *server.Context, params []any) any
 	}) > 0 {
 		panicCrmField("form.id", "请先将另一个流程设为默认入口。")
 	}
-	if crmmodel.NewCustomerStageModel().Count(ctx, map[string]any{"workflow_id": id, "status": crmmodel.ProgressStatusActive}) > 0 ||
+	if crmmodel.NewWorkflowInstanceModel().Count(ctx, map[string]any{"workflow_id": id, "status": crmmodel.ProgressStatusActive}) > 0 ||
 		crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{"workflow_id": id, "status": crmmodel.WorkTodoStatusPending}) > 0 {
 		panicCrmField("form.id", "流程正在使用中，不能删除；可以先停用。")
 	}
@@ -346,7 +346,7 @@ func (CrmHook) ProviderBeforeDeleteStage(c *server.Context, params []any) any {
 		panicCrmField("form.id", "阶段不存在。")
 	}
 	ctx := contextFromServer(c)
-	if crmmodel.NewCustomerStageModel().Count(ctx, map[string]any{"stage_id": id, "status": crmmodel.ProgressStatusActive}) > 0 ||
+	if crmmodel.NewWorkflowInstanceModel().Count(ctx, map[string]any{"stage_id": id, "status": crmmodel.ProgressStatusActive}) > 0 ||
 		crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{"stage_id": id, "status": crmmodel.WorkTodoStatusPending}) > 0 {
 		panicCrmField("form.id", "阶段正在使用中，不能删除；可以先停用。")
 	}

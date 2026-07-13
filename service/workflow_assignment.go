@@ -39,7 +39,7 @@ func resolveStageOwner(ctx context.Context, stage *crmmodel.Stage, requestedStaf
 
 func selectStageOwner(ctx context.Context, departmentID uint64) (*crmmodel.Staff, error) {
 	return selectLeastLoadedStaff(ctx, departmentID, func(staff *crmmodel.Staff) int64 {
-		return crmmodel.NewCustomerStageModel().Count(ctx, map[string]any{
+		return crmmodel.NewWorkflowInstanceModel().Count(ctx, map[string]any{
 			"owner_staff_id": staff.ID,
 			"status":         crmmodel.ProgressStatusActive,
 		})
@@ -115,13 +115,13 @@ func enabledStaffInDepartment(ctx context.Context, staffID, departmentID uint64)
 	})
 }
 
-func resolveTaskAssignee(ctx context.Context, progress *crmmodel.CustomerStage, task *crmmodel.Task) (uint64, uint64, error) {
-	if progress == nil || task == nil {
-		return 0, 0, fmt.Errorf("资产进度和任务不能为空")
+func resolveTaskAssignee(ctx context.Context, instance *crmmodel.WorkflowInstance, task *crmmodel.Task) (uint64, uint64, error) {
+	if instance == nil || task == nil {
+		return 0, 0, fmt.Errorf("流程实例和任务不能为空")
 	}
 	switch task.AssigneeMode {
 	case crmmodel.TaskAssigneeStage:
-		staff := enabledStaffInDepartment(ctx, progress.OwnerStaffID, progress.OwnerDepartmentID)
+		staff := enabledStaffInDepartment(ctx, instance.OwnerStaffID, instance.OwnerDepartmentID)
 		if staff == nil {
 			return 0, 0, fmt.Errorf("当前阶段负责人不存在或已停用")
 		}
@@ -165,15 +165,15 @@ func AssignPendingWorkTodo(ctx context.Context, staff *WorkStaffSession, todoID,
 		if todo == nil {
 			return fmt.Errorf("待办不存在或已完成")
 		}
-		progress, err := activeAssetProgress(txCtx, todo.AssetID)
-		if err != nil || progress.WorkflowID != todo.WorkflowID || progress.StageID != todo.StageID {
-			return fmt.Errorf("待办不属于资产当前阶段")
+		instance, err := activeWorkflowInstance(txCtx, todo.WorkflowInstanceID)
+		if err != nil || instance.WorkflowID != todo.WorkflowID || instance.StageID != todo.StageID {
+			return fmt.Errorf("待办不属于流程当前阶段")
 		}
 		task := crmmodel.NewTaskModel().Find(txCtx, map[string]any{"id": todo.TaskID})
 		if task == nil {
 			return fmt.Errorf("任务配置不存在")
 		}
-		if !canAssignPendingTodo(staff, progress, task) {
+		if !canAssignPendingTodo(staff, instance, task) {
 			return fmt.Errorf("只有当前负责人可以分配手动任务，其他改派由流程调度员处理")
 		}
 		target := enabledStaffInDepartment(txCtx, assigneeStaffID, todo.AssigneeDepartmentID)
@@ -198,7 +198,7 @@ func AssignPendingWorkTodo(ctx context.Context, staff *WorkStaffSession, todoID,
 		}
 		todo.AssigneeStaffID = target.ID
 		todo.UpdatedAt = now
-		if recordWorkTodoAssignment(txCtx, staff, progress, todo, task, previousStaffID, target) == 0 {
+		if recordWorkTodoAssignment(txCtx, staff, instance, todo, task, previousStaffID, target) == 0 {
 			return fmt.Errorf("任务分配记录创建失败")
 		}
 		assigned = todo
@@ -207,38 +207,38 @@ func AssignPendingWorkTodo(ctx context.Context, staff *WorkStaffSession, todoID,
 	return assigned, err
 }
 
-func canAssignPendingTodo(staff *WorkStaffSession, progress *crmmodel.CustomerStage, task *crmmodel.Task) bool {
-	if staff == nil || staff.ID == 0 || progress == nil || task == nil || progress.Status != crmmodel.ProgressStatusActive {
+func canAssignPendingTodo(staff *WorkStaffSession, instance *crmmodel.WorkflowInstance, task *crmmodel.Task) bool {
+	if staff == nil || staff.ID == 0 || instance == nil || task == nil || instance.Status != crmmodel.ProgressStatusActive {
 		return false
 	}
 	if staff.CanDispatch {
 		return true
 	}
-	return progress.OwnerStaffID == staff.ID && task.AssigneeMode == crmmodel.TaskAssigneeManual
+	return instance.OwnerStaffID == staff.ID && task.AssigneeMode == crmmodel.TaskAssigneeManual
 }
 
-func ChangeAssetStageOwner(ctx context.Context, staff *WorkStaffSession, assetID, ownerStaffID uint64) (*crmmodel.CustomerStage, error) {
-	var changed *crmmodel.CustomerStage
+func ChangeWorkflowInstanceOwner(ctx context.Context, staff *WorkStaffSession, instanceID, ownerStaffID uint64) (*crmmodel.WorkflowInstance, error) {
+	var changed *crmmodel.WorkflowInstance
 	err := orm.Transaction(ctx, func(txCtx context.Context) error {
 		if staff == nil || staff.ID == 0 || !staff.CanDispatch {
 			return fmt.Errorf("只有流程调度员可以更换阶段负责人")
 		}
-		progress, err := activeAssetProgress(txCtx, assetID)
+		instance, err := activeWorkflowInstance(txCtx, instanceID)
 		if err != nil {
 			return err
 		}
-		target := enabledStaffInDepartment(txCtx, ownerStaffID, progress.OwnerDepartmentID)
+		target := enabledStaffInDepartment(txCtx, ownerStaffID, instance.OwnerDepartmentID)
 		if target == nil {
 			return fmt.Errorf("所选人员不属于当前阶段负责部门或已停用")
 		}
-		previousStaffID := progress.OwnerStaffID
+		previousStaffID := instance.OwnerStaffID
 		if previousStaffID == target.ID {
-			changed = progress
+			changed = instance
 			return nil
 		}
 		now := time.Now()
-		if crmmodel.NewCustomerStageModel().Update(txCtx, map[string]any{
-			"id":             progress.ID,
+		if crmmodel.NewWorkflowInstanceModel().Update(txCtx, map[string]any{
+			"id":             instance.ID,
 			"status":         crmmodel.ProgressStatusActive,
 			"owner_staff_id": previousStaffID,
 		}, map[string]any{
@@ -247,28 +247,28 @@ func ChangeAssetStageOwner(ctx context.Context, staff *WorkStaffSession, assetID
 		}) == 0 {
 			return fmt.Errorf("流程已变化，请刷新后重试")
 		}
-		if err := reassignStageOwnerTodos(txCtx, progress, target.ID, now); err != nil {
+		if err := reassignStageOwnerTodos(txCtx, instance, target.ID, now); err != nil {
 			return err
 		}
-		progress.OwnerStaffID = target.ID
-		progress.UpdatedAt = now
-		if recordWorkManagementOperation(txCtx, staff, progress, "owner_changed", "更换阶段负责人", target.Name, map[string]any{
+		instance.OwnerStaffID = target.ID
+		instance.UpdatedAt = now
+		if recordWorkManagementOperation(txCtx, staff, instance, "owner_changed", "更换阶段负责人", target.Name, map[string]any{
 			"from_staff_id": previousStaffID,
 			"to_staff_id":   target.ID,
 		}) == 0 {
 			return fmt.Errorf("负责人变更记录创建失败")
 		}
-		changed = progress
+		changed = instance
 		return nil
 	})
 	return changed, err
 }
 
-func reassignStageOwnerTodos(ctx context.Context, progress *crmmodel.CustomerStage, ownerStaffID uint64, changedAt time.Time) error {
+func reassignStageOwnerTodos(ctx context.Context, instance *crmmodel.WorkflowInstance, ownerStaffID uint64, changedAt time.Time) error {
 	todos := crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
-		"asset_id": progress.AssetID,
-		"stage_id": progress.StageID,
-		"status":   crmmodel.WorkTodoStatusPending,
+		"workflow_instance_id": instance.ID,
+		"stage_id":             instance.StageID,
+		"status":               crmmodel.WorkTodoStatusPending,
 	})
 	for _, todo := range todos {
 		if todo == nil {
@@ -282,7 +282,7 @@ func reassignStageOwnerTodos(ctx context.Context, progress *crmmodel.CustomerSta
 			"id":     todo.ID,
 			"status": crmmodel.WorkTodoStatusPending,
 		}, map[string]any{
-			"assignee_department_id": progress.OwnerDepartmentID,
+			"assignee_department_id": instance.OwnerDepartmentID,
 			"assignee_staff_id":      ownerStaffID,
 			"updated_at":             changedAt,
 		}) == 0 {
@@ -299,11 +299,16 @@ func workflowStaffCandidates(ctx context.Context, departmentID uint64) []map[str
 		if staff == nil {
 			continue
 		}
+		activeFlowCount := crmmodel.NewWorkflowInstanceModel().Count(ctx, map[string]any{
+			"owner_staff_id": staff.ID,
+			"status":         crmmodel.ProgressStatusActive,
+		})
 		result = append(result, map[string]any{
 			"id":                 staff.ID,
 			"name":               staff.Name,
 			"department_id":      staff.DepartmentID,
-			"active_asset_count": crmmodel.NewCustomerStageModel().Count(ctx, map[string]any{"owner_staff_id": staff.ID, "status": crmmodel.ProgressStatusActive}),
+			"active_flow_count":  activeFlowCount,
+			"active_asset_count": activeFlowCount,
 			"pending_task_count": crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{"assignee_staff_id": staff.ID, "status": crmmodel.WorkTodoStatusPending}),
 			"last_assigned_at":   staff.LastAssignedAt,
 		})

@@ -90,6 +90,8 @@ func workTodoTaskMap(ctx context.Context, staff *WorkStaffSession, todo *crmmode
 	task["task_id"] = todo.TaskID
 	task["task_name"] = inputText(task["name"])
 	task["todo_id"] = todo.ID
+	task["workflow_instance_id"] = todo.WorkflowInstanceID
+	task["customer_product_id"] = todo.CustomerProductID
 	task["workflow_id"] = todo.WorkflowID
 	task["workflow_name"] = workflowName
 	task["stage_id"] = todo.StageID
@@ -114,7 +116,47 @@ func workTodoTaskMap(ctx context.Context, staff *WorkStaffSession, todo *crmmode
 	if withForm && inputText(task["task_type"]) == crmmodel.TaskTypeForm {
 		attachWorkTaskForm(ctx, task)
 	}
+	if inputText(task["task_type"]) == crmmodel.TaskTypeProduct {
+		task["product_options"] = workEnabledProductOptions(ctx)
+		task["selected_product_ids"] = workSelectedProductIDs(ctx, todo.WorkflowInstanceID)
+	}
 	return task
+}
+
+func workEnabledProductOptions(ctx context.Context) []map[string]any {
+	products := crmmodel.NewProductModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled}, map[string]any{"order": "sort asc,id asc"})
+	result := make([]map[string]any, 0, len(products))
+	for _, product := range products {
+		if product == nil {
+			continue
+		}
+		row := map[string]any{
+			"id":                  product.ID,
+			"name":                product.Name,
+			"code":                product.Code,
+			"category_id":         product.CategoryID,
+			"service_workflow_id": product.ServiceWorkflowID,
+		}
+		if category := crmmodel.NewProductCategoryModel().Find(ctx, map[string]any{"id": product.CategoryID}); category != nil {
+			row["category_name"] = category.Name
+		}
+		if workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": product.ServiceWorkflowID}); workflow != nil {
+			row["service_workflow_name"] = workflow.Name
+		}
+		result = append(result, row)
+	}
+	return result
+}
+
+func workSelectedProductIDs(ctx context.Context, workflowInstanceID uint64) []uint64 {
+	rows := crmmodel.NewCustomerProductModel().Select(ctx, map[string]any{"source_workflow_instance_id": workflowInstanceID})
+	result := make([]uint64, 0, len(rows))
+	for _, customerProduct := range rows {
+		if customerProduct != nil && customerProduct.Status != crmmodel.CustomerProductStatusLost {
+			result = append(result, customerProduct.ProductID)
+		}
+	}
+	return result
 }
 
 func sortWorkTodoTaskMaps(rows []map[string]any) {

@@ -14,17 +14,17 @@ func (WorkService) FlowAssignees(ctx context.Context, staff *WorkStaffSession, p
 	if todoID := firstUint64(payload, "todo_id", "todoId"); todoID > 0 {
 		return workTodoAssignees(ctx, staff, todoID)
 	}
-	assetID := firstUint64(payload, "asset_id", "assetId")
-	progress, err := activeAssetProgress(ctx, assetID)
+	instanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId")
+	instance, err := activeWorkflowInstance(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
 	target := firstText(payload, "target")
 	if target == "next_stage" {
-		if !canCompleteAssetStage(staff, progress) {
+		if !canCompleteWorkflowStage(staff, instance) {
 			return nil, fmt.Errorf("无权选择下一阶段负责人")
 		}
-		_, stage, nextErr := nextWorkflowStage(ctx, progress)
+		_, stage, nextErr := nextWorkflowStage(ctx, instance)
 		if nextErr != nil {
 			return nil, nextErr
 		}
@@ -36,7 +36,7 @@ func (WorkService) FlowAssignees(ctx context.Context, staff *WorkStaffSession, p
 	if !staff.CanDispatch {
 		return nil, fmt.Errorf("只有流程调度员可以选择阶段负责人")
 	}
-	return workDepartmentAssignees(ctx, progress.OwnerDepartmentID, "manual"), nil
+	return workDepartmentAssignees(ctx, instance.OwnerDepartmentID, "manual"), nil
 }
 
 func (WorkService) AssignFlowTask(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
@@ -49,40 +49,40 @@ func (WorkService) AssignFlowTask(ctx context.Context, staff *WorkStaffSession, 
 	if err != nil {
 		return nil, err
 	}
-	return workFlowActionResult(ctx, staff, todo.CustomerID, todo.AssetID), nil
+	return workFlowActionResult(ctx, staff, todo.WorkflowInstanceID), nil
 }
 
 func (WorkService) ChangeFlowOwner(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
-	assetID := firstUint64(payload, "asset_id", "assetId")
+	instanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId")
 	ownerStaffID := firstUint64(payload, "owner_staff_id", "ownerStaffId", "staff_id", "staffId")
-	if assetID == 0 || ownerStaffID == 0 {
-		return nil, fmt.Errorf("请选择资产和负责人")
+	if instanceID == 0 || ownerStaffID == 0 {
+		return nil, fmt.Errorf("请选择流程和负责人")
 	}
-	progress, err := ChangeAssetStageOwner(ctx, staff, assetID, ownerStaffID)
+	instance, err := ChangeWorkflowInstanceOwner(ctx, staff, instanceID, ownerStaffID)
 	if err != nil {
 		return nil, err
 	}
-	return workFlowActionResult(ctx, staff, progress.CustomerID, progress.AssetID), nil
+	return workFlowActionResult(ctx, staff, instance.ID), nil
 }
 
 func (WorkService) CompleteFlowStage(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
-	assetID := firstUint64(payload, "asset_id", "assetId")
+	instanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId")
 	nextOwnerStaffID := firstUint64(payload, "next_owner_staff_id", "nextOwnerStaffId", "owner_staff_id", "ownerStaffId")
-	progress, err := CompleteAssetStage(ctx, staff, assetID, nextOwnerStaffID)
+	instance, err := CompleteWorkflowStage(ctx, staff, instanceID, nextOwnerStaffID)
 	if err != nil {
 		return nil, err
 	}
-	return workFlowActionResult(ctx, staff, progress.CustomerID, progress.AssetID), nil
+	return workFlowActionResult(ctx, staff, instance.ID), nil
 }
 
 func (WorkService) TerminateFlow(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
-	assetID := firstUint64(payload, "asset_id", "assetId")
+	instanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId")
 	reason := firstText(payload, "reason", "remark")
-	progress, err := TerminateAssetWorkflow(ctx, staff, assetID, reason)
+	instance, err := TerminateWorkflowInstance(ctx, staff, instanceID, reason)
 	if err != nil {
 		return nil, err
 	}
-	return workFlowActionResult(ctx, staff, progress.CustomerID, progress.AssetID), nil
+	return workFlowActionResult(ctx, staff, instance.ID), nil
 }
 
 func workTodoAssignees(ctx context.Context, staff *WorkStaffSession, todoID uint64) (map[string]any, error) {
@@ -93,12 +93,12 @@ func workTodoAssignees(ctx context.Context, staff *WorkStaffSession, todoID uint
 	if todo == nil {
 		return nil, fmt.Errorf("待办不存在或已完成")
 	}
-	progress, err := activeAssetProgress(ctx, todo.AssetID)
-	if err != nil || progress.WorkflowID != todo.WorkflowID || progress.StageID != todo.StageID {
-		return nil, fmt.Errorf("待办不属于资产当前阶段")
+	instance, err := activeWorkflowInstance(ctx, todo.WorkflowInstanceID)
+	if err != nil || instance.WorkflowID != todo.WorkflowID || instance.StageID != todo.StageID {
+		return nil, fmt.Errorf("待办不属于流程当前阶段")
 	}
 	task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": todo.TaskID})
-	if task == nil || !canAssignPendingTodo(staff, progress, task) {
+	if task == nil || !canAssignPendingTodo(staff, instance, task) {
 		return nil, fmt.Errorf("无权分配该任务")
 	}
 	return workDepartmentAssignees(ctx, todo.AssigneeDepartmentID, task.AssigneeMode), nil
@@ -117,28 +117,27 @@ func workDepartmentAssignees(ctx context.Context, departmentID uint64, assignmen
 	}
 }
 
-func workFlowActionResult(ctx context.Context, staff *WorkStaffSession, customerID, assetID uint64) map[string]any {
+func workFlowActionResult(ctx context.Context, staff *WorkStaffSession, instanceID uint64) map[string]any {
 	return map[string]any{
 		"success": true,
-		"flow":    workFlowDetail(ctx, staff, customerID, assetID),
+		"flow":    workFlowDetail(ctx, staff, instanceID),
 	}
 }
 
-func workFlowDetail(ctx context.Context, staff *WorkStaffSession, customerID, assetID uint64) map[string]any {
+func workFlowDetail(ctx context.Context, staff *WorkStaffSession, instanceID uint64) map[string]any {
 	result := map[string]any{
-		"customer_id": customerID,
-		"asset_id":    assetID,
-		"tasks":       []map[string]any{},
-		"status":      "not_started",
+		"workflow_instance_id": instanceID,
+		"tasks":                []map[string]any{},
+		"status":               "not_started",
 	}
-	progress := currentWorkCustomerStage(ctx, customerID, assetID)
-	if progress == nil {
+	instance := crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{"id": instanceID})
+	if instance == nil {
 		return result
 	}
-	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": progress.WorkflowID})
-	stage := crmmodel.NewStageModel().Find(ctx, map[string]any{"id": progress.StageID})
-	owner := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": progress.OwnerStaffID})
-	department := crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": progress.OwnerDepartmentID})
+	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": instance.WorkflowID})
+	stage := crmmodel.NewStageModel().Find(ctx, map[string]any{"id": instance.StageID})
+	owner := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": instance.OwnerStaffID})
+	department := crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": instance.OwnerDepartmentID})
 	workflowName := ""
 	if workflow != nil {
 		workflowName = workflow.Name
@@ -155,26 +154,29 @@ func workFlowDetail(ctx context.Context, staff *WorkStaffSession, customerID, as
 	if department != nil {
 		departmentName = department.Name
 	}
-	pendingRequired := pendingRequiredTodoCount(ctx, progress)
-	isActive := progress.Status == crmmodel.ProgressStatusActive
-	isCurrentOwner := staff != nil && staff.ID > 0 && progress.OwnerStaffID == staff.ID
-	canComplete := isActive && canCompleteAssetStage(staff, progress)
+	pendingRequired := pendingRequiredTodoCount(ctx, instance)
+	isActive := instance.Status == crmmodel.ProgressStatusActive
+	isCurrentOwner := staff != nil && staff.ID > 0 && instance.OwnerStaffID == staff.ID
+	canComplete := isActive && canCompleteWorkflowStage(staff, instance)
 
-	result["id"] = progress.ID
-	result["workflow_id"] = progress.WorkflowID
+	result["id"] = instance.ID
+	result["customer_id"] = instance.CustomerID
+	result["asset_id"] = instance.AssetID
+	result["customer_product_id"] = instance.CustomerProductID
+	result["workflow_id"] = instance.WorkflowID
 	result["workflow_name"] = workflowName
-	result["stage_id"] = progress.StageID
+	result["stage_id"] = instance.StageID
 	result["stage_name"] = stageName
 	result["stage_assignment_mode"] = stageAssignmentMode(stage)
-	result["owner_department_id"] = progress.OwnerDepartmentID
+	result["owner_department_id"] = instance.OwnerDepartmentID
 	result["owner_department_name"] = departmentName
-	result["owner_staff_id"] = progress.OwnerStaffID
+	result["owner_staff_id"] = instance.OwnerStaffID
 	result["owner_staff_name"] = ownerName
-	result["status"] = progress.Status
-	result["started_at"] = progress.StartedAt
-	result["completed_at"] = progress.CompletedAt
-	result["terminated_at"] = progress.TerminatedAt
-	result["terminated_reason"] = progress.TerminatedReason
+	result["status"] = instance.Status
+	result["started_at"] = instance.StartedAt
+	result["completed_at"] = instance.CompletedAt
+	result["terminated_at"] = instance.TerminatedAt
+	result["terminated_reason"] = instance.TerminatedReason
 	result["pending_required_count"] = pendingRequired
 	result["is_current_owner"] = isCurrentOwner
 	result["can_dispatch"] = staff != nil && staff.CanDispatch
@@ -182,10 +184,11 @@ func workFlowDetail(ctx context.Context, staff *WorkStaffSession, customerID, as
 	result["ready_to_complete"] = canComplete && pendingRequired == 0
 	result["can_terminate"] = isActive && isCurrentOwner
 	result["can_change_owner"] = isActive && staff != nil && staff.CanDispatch
-	result["tasks"] = workCurrentStageTodoRows(ctx, staff, progress)
+	result["tasks"] = workCurrentStageTodoRows(ctx, staff, instance)
+	attachCustomerProductFlowFields(ctx, result, instance.CustomerProductID)
 
 	if isActive {
-		nextWorkflow, nextStage, err := nextWorkflowStage(ctx, progress)
+		nextWorkflow, nextStage, err := nextWorkflowStage(ctx, instance)
 		if err != nil {
 			result["configuration_error"] = err.Error()
 			result["ready_to_complete"] = false
@@ -204,13 +207,28 @@ func workFlowDetail(ctx context.Context, staff *WorkStaffSession, customerID, as
 	return result
 }
 
-func workCurrentStageTodoRows(ctx context.Context, staff *WorkStaffSession, progress *crmmodel.CustomerStage) []map[string]any {
-	if progress == nil {
+func attachCustomerProductFlowFields(ctx context.Context, target map[string]any, customerProductID uint64) {
+	if target == nil || customerProductID == 0 {
+		return
+	}
+	customerProduct := crmmodel.NewCustomerProductModel().Find(ctx, map[string]any{"id": customerProductID})
+	if customerProduct == nil {
+		return
+	}
+	target["customer_product_status"] = customerProduct.Status
+	if product := crmmodel.NewProductModel().Find(ctx, map[string]any{"id": customerProduct.ProductID}); product != nil {
+		target["product_id"] = product.ID
+		target["product_name"] = product.Name
+	}
+}
+
+func workCurrentStageTodoRows(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) []map[string]any {
+	if instance == nil {
 		return []map[string]any{}
 	}
 	todos := crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
-		"asset_id": progress.AssetID,
-		"stage_id": progress.StageID,
+		"workflow_instance_id": instance.ID,
+		"stage_id":             instance.StageID,
 	})
 	rows := make([]map[string]any, 0, len(todos))
 	for _, todo := range todos {
@@ -219,7 +237,7 @@ func workCurrentStageTodoRows(ctx context.Context, staff *WorkStaffSession, prog
 			continue
 		}
 		task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": todo.TaskID})
-		canAssign := todo.Status == crmmodel.WorkTodoStatusPending && canAssignPendingTodo(staff, progress, task)
+		canAssign := todo.Status == crmmodel.WorkTodoStatusPending && canAssignPendingTodo(staff, instance, task)
 		row["can_assign"] = canAssign
 		row["can_reassign"] = canAssign && todo.AssigneeStaffID > 0
 		rows = append(rows, row)

@@ -131,11 +131,11 @@ func (Work) GetTasks(c *server.Context) error {
 
 func (Work) GetFlowAssignees(c *server.Context) error {
 	data, err := workService.FlowAssignees(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
-		"todo_id":  c.Input("todo_id"),
-		"todoId":   c.Input("todoId"),
-		"asset_id": c.Input("asset_id"),
-		"assetId":  c.Input("assetId"),
-		"target":   c.Input("target"),
+		"todo_id":              c.Input("todo_id"),
+		"todoId":               c.Input("todoId"),
+		"workflow_instance_id": c.Input("workflow_instance_id"),
+		"workflowInstanceId":   c.Input("workflowInstanceId"),
+		"target":               c.Input("target"),
 	})
 	return crmJSON(c, data, err)
 }

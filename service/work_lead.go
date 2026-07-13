@@ -356,7 +356,7 @@ func convertWorkLead(ctx context.Context, staff *WorkStaffSession, lead *crmmode
 	}) == 0 {
 		return nil, fmt.Errorf("线索状态已变化，请刷新后重试")
 	}
-	if progress, progressErr := activeAssetProgress(ctx, assetID); progressErr == nil {
+	if progress := currentWorkEntryInstance(ctx, customerID, assetID); progress != nil {
 		recordWorkManagementOperation(ctx, staff, progress, "lead_converted", "线索已转为客户", lead.Code, map[string]any{
 			"lead_id":     lead.ID,
 			"customer_id": customerID,

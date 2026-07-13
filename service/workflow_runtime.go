@@ -29,25 +29,63 @@ func startAssetWorkflow(ctx context.Context, customerID, assetID uint64, ownerSt
 	}) == nil {
 		return fmt.Errorf("客户资产不存在")
 	}
-
-	progressModel := crmmodel.NewCustomerStageModel()
-	if progressModel.Find(ctx, map[string]any{"asset_id": assetID}) != nil {
-		return nil
-	}
-	workflow, stage := defaultEntryWorkflowStage(ctx)
-	if workflow == nil || stage == nil {
+	workflow, _ := defaultEntryWorkflowStage(ctx)
+	if workflow == nil {
 		return ErrNoAvailableWorkflow
 	}
-	requestedOwnerID := firstRequestedOwnerID(ownerStaffID)
+	if crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{
+		"customer_id":         customerID,
+		"asset_id":            assetID,
+		"customer_product_id": uint64(0),
+		"workflow_id":         workflow.ID,
+	}) != nil {
+		return nil
+	}
+	_, err := startWorkflowInstance(ctx, customerID, assetID, 0, workflow.ID, firstRequestedOwnerID(ownerStaffID))
+	return err
+}
+
+func startWorkflowInstance(
+	ctx context.Context,
+	customerID uint64,
+	assetID uint64,
+	customerProductID uint64,
+	workflowID uint64,
+	requestedOwnerID uint64,
+) (*crmmodel.WorkflowInstance, error) {
+	if customerID == 0 || assetID == 0 || workflowID == 0 {
+		return nil, fmt.Errorf("客户、资产和流程不能为空")
+	}
+	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{
+		"id":     workflowID,
+		"status": crmmodel.StatusEnabled,
+	})
+	if workflow == nil {
+		return nil, fmt.Errorf("流程不存在或已停用")
+	}
+	stage := firstEnabledStage(ctx, workflow.ID)
+	if stage == nil {
+		return nil, fmt.Errorf("流程没有已启用阶段")
+	}
+	instanceModel := crmmodel.NewWorkflowInstanceModel()
+	if existing := instanceModel.Find(ctx, map[string]any{
+		"customer_id":         customerID,
+		"asset_id":            assetID,
+		"customer_product_id": customerProductID,
+		"workflow_id":         workflow.ID,
+	}); existing != nil {
+		return existing, nil
+	}
 	owner, err := resolveStageOwner(ctx, stage, requestedOwnerID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	now := time.Now()
-	progressID := uint64(progressModel.Insert(ctx, map[string]any{
+	instanceID := uint64(instanceModel.Insert(ctx, map[string]any{
 		"customer_id":         customerID,
 		"asset_id":            assetID,
+		"customer_product_id": customerProductID,
 		"workflow_id":         workflow.ID,
 		"stage_id":            stage.ID,
 		"owner_department_id": owner.DepartmentID,
@@ -57,14 +95,14 @@ func startAssetWorkflow(ctx context.Context, customerID, assetID uint64, ownerSt
 		"terminated_reason":   "",
 		"updated_at":          now,
 	}))
-	if progressID == 0 {
-		return fmt.Errorf("资产流程启动失败")
+	if instanceID == 0 {
+		return nil, fmt.Errorf("流程启动失败")
 	}
-	progress := progressModel.Find(ctx, map[string]any{"id": progressID})
-	if progress == nil {
-		return fmt.Errorf("资产流程启动失败")
+	instance := instanceModel.Find(ctx, map[string]any{"id": instanceID})
+	if instance == nil {
+		return nil, fmt.Errorf("流程启动失败")
 	}
-	if recordWorkStageChange(ctx, nil, progress, workStageChange{
+	if recordWorkStageChange(ctx, nil, instance, workStageChange{
 		ToWorkflowID: workflow.ID,
 		ToStageID:    stage.ID,
 		ResultValue:  "entered",
@@ -74,9 +112,12 @@ func startAssetWorkflow(ctx context.Context, customerID, assetID uint64, ownerSt
 			"owner_staff_id":      owner.ID,
 		},
 	}) == 0 {
-		return fmt.Errorf("流程启动记录创建失败")
+		return nil, fmt.Errorf("流程启动记录创建失败")
 	}
-	return createStageTodos(ctx, progress, stage)
+	if err := createStageTodos(ctx, instance, stage); err != nil {
+		return nil, err
+	}
+	return instance, nil
 }
 
 func defaultEntryWorkflowStage(ctx context.Context) (*crmmodel.Workflow, *crmmodel.Stage) {
@@ -99,12 +140,12 @@ func firstRequestedOwnerID(ownerStaffIDs []uint64) uint64 {
 
 func enterWorkflowStage(
 	ctx context.Context,
-	progress *crmmodel.CustomerStage,
+	instance *crmmodel.WorkflowInstance,
 	workflow *crmmodel.Workflow,
 	stage *crmmodel.Stage,
 	requestedOwnerID uint64,
 ) (*crmmodel.Staff, error) {
-	if progress == nil || workflow == nil || stage == nil {
+	if instance == nil || workflow == nil || stage == nil {
 		return nil, fmt.Errorf("流程阶段不能为空")
 	}
 	owner, err := resolveStageOwner(ctx, stage, requestedOwnerID)
@@ -112,11 +153,11 @@ func enterWorkflowStage(
 		return nil, err
 	}
 
-	previousWorkflowID := progress.WorkflowID
-	previousStageID := progress.StageID
+	previousWorkflowID := instance.WorkflowID
+	previousStageID := instance.StageID
 	now := time.Now()
-	updated := crmmodel.NewCustomerStageModel().Update(ctx, map[string]any{
-		"id":          progress.ID,
+	updated := crmmodel.NewWorkflowInstanceModel().Update(ctx, map[string]any{
+		"id":          instance.ID,
 		"workflow_id": previousWorkflowID,
 		"stage_id":    previousStageID,
 		"status":      crmmodel.ProgressStatusActive,
@@ -125,26 +166,24 @@ func enterWorkflowStage(
 		"stage_id":            stage.ID,
 		"owner_department_id": owner.DepartmentID,
 		"owner_staff_id":      owner.ID,
-		"status":              crmmodel.ProgressStatusActive,
 		"started_at":          now,
 		"updated_at":          now,
 	})
 	if updated == 0 {
-		return nil, fmt.Errorf("资产流程已变化，请刷新后重试")
+		return nil, fmt.Errorf("流程已变化，请刷新后重试")
 	}
-	progress.WorkflowID = workflow.ID
-	progress.StageID = stage.ID
-	progress.OwnerDepartmentID = owner.DepartmentID
-	progress.OwnerStaffID = owner.ID
-	progress.Status = crmmodel.ProgressStatusActive
-	progress.StartedAt = now
-	progress.UpdatedAt = now
+	instance.WorkflowID = workflow.ID
+	instance.StageID = stage.ID
+	instance.OwnerDepartmentID = owner.DepartmentID
+	instance.OwnerStaffID = owner.ID
+	instance.StartedAt = now
+	instance.UpdatedAt = now
 	return owner, nil
 }
 
-func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, stage *crmmodel.Stage) error {
-	if progress == nil || stage == nil {
-		return fmt.Errorf("资产进度和阶段不能为空")
+func createStageTodos(ctx context.Context, instance *crmmodel.WorkflowInstance, stage *crmmodel.Stage) error {
+	if instance == nil || stage == nil {
+		return fmt.Errorf("流程实例和阶段不能为空")
 	}
 	tasks := crmmodel.NewTaskModel().Select(ctx, map[string]any{
 		"stage_id": stage.ID,
@@ -157,13 +196,13 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 	}, 0)
 	for _, task := range tasks {
 		if task == nil || crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
-			"asset_id": progress.AssetID,
-			"stage_id": stage.ID,
-			"task_id":  task.ID,
+			"workflow_instance_id": instance.ID,
+			"stage_id":             stage.ID,
+			"task_id":              task.ID,
 		}) != nil {
 			continue
 		}
-		departmentID, staffID, err := resolveTaskAssignee(ctx, progress, task)
+		departmentID, staffID, err := resolveTaskAssignee(ctx, instance, task)
 		if err != nil {
 			return err
 		}
@@ -173,9 +212,11 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 			dueAt = &deadline
 		}
 		todoID := uint64(crmmodel.NewWorkTodoModel().Insert(ctx, map[string]any{
-			"customer_id":            progress.CustomerID,
-			"asset_id":               progress.AssetID,
-			"workflow_id":            progress.WorkflowID,
+			"customer_id":            instance.CustomerID,
+			"asset_id":               instance.AssetID,
+			"workflow_instance_id":   instance.ID,
+			"customer_product_id":    instance.CustomerProductID,
+			"workflow_id":            instance.WorkflowID,
 			"stage_id":               stage.ID,
 			"task_id":                task.ID,
 			"assignee_department_id": departmentID,
@@ -196,7 +237,7 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 		}
 		if staffID > 0 {
 			assignee := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": staffID})
-			if recordWorkTodoAssignment(ctx, nil, progress, createdTodo, task, 0, assignee) == 0 {
+			if recordWorkTodoAssignment(ctx, nil, instance, createdTodo, task, 0, assignee) == 0 {
 				return fmt.Errorf("任务分配记录创建失败")
 			}
 		}
@@ -204,18 +245,14 @@ func createStageTodos(ctx context.Context, progress *crmmodel.CustomerStage, sta
 			ruleTodos = append(ruleTodos, struct {
 				todo *crmmodel.WorkTodo
 				task *crmmodel.Task
-			}{
-				todo: createdTodo,
-				task: task,
-			})
+			}{todo: createdTodo, task: task})
 		}
 	}
 	for _, current := range ruleTodos {
-		if !workRuleTodoReady(ctx, current.todo, current.task) {
-			continue
-		}
-		if err := executePendingRuleTodo(ctx, current.todo, current.task); err != nil {
-			return err
+		if workRuleTodoReady(ctx, current.todo, current.task) {
+			if err := executePendingRuleTodo(ctx, current.todo, current.task); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

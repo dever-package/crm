@@ -57,7 +57,7 @@ func NewAdminSummaryService() AdminSummaryService {
 func (AdminSummaryService) Summary(ctx context.Context) (map[string]any, error) {
 	customers := crmmodel.NewCustomerModel().Select(ctx, map[string]any{})
 	assets := crmmodel.NewCustomerAssetModel().Select(ctx, map[string]any{})
-	stageTargets := crmmodel.NewCustomerStageModel().Select(ctx, map[string]any{})
+	stageTargets := crmmodel.NewWorkflowInstanceModel().Select(ctx, map[string]any{})
 	stages := adminSummaryStageInfos(ctx)
 	tasks := adminSummaryTaskInfos(ctx)
 	statEvents := crmmodel.NewStatEventModel().Select(ctx, map[string]any{})
@@ -88,7 +88,7 @@ func (AdminSummaryService) Summary(ctx context.Context) (map[string]any, error) 
 	}, nil
 }
 
-func adminSummaryMetrics(customers []*crmmodel.Customer, assets []*crmmodel.CustomerAsset, stageTargets []*crmmodel.CustomerStage, events []*crmmodel.StatEvent, operations []*crmmodel.OperationLog, pendingTodoCount int, start time.Time) []map[string]any {
+func adminSummaryMetrics(customers []*crmmodel.Customer, assets []*crmmodel.CustomerAsset, stageTargets []*crmmodel.WorkflowInstance, events []*crmmodel.StatEvent, operations []*crmmodel.OperationLog, pendingTodoCount int, start time.Time) []map[string]any {
 	taskCount, transitionCount := adminSummaryEventCountsSince(events, start)
 	return []map[string]any{
 		adminSummaryMetric("customers", "客户总数", len(customers), "CRM 当前全部客户"),
@@ -336,7 +336,7 @@ func adminSummaryTrendStart(days int) time.Time {
 	return workBeginningOfDay(time.Now()).AddDate(0, 0, -days+1)
 }
 
-func adminSummaryStageFunnel(targets []*crmmodel.CustomerStage, stages []adminSummaryStageInfo) []map[string]any {
+func adminSummaryStageFunnel(targets []*crmmodel.WorkflowInstance, stages []adminSummaryStageInfo) []map[string]any {
 	counts := map[uint64]int{}
 	for _, target := range targets {
 		if target == nil {
@@ -388,7 +388,7 @@ func adminSummaryAttachDropFields(row map[string]any, previousCount int, count i
 	row["drop_percent"] = dropPercent
 }
 
-func adminSummaryNodeBacklog(ctx context.Context, targets []*crmmodel.CustomerStage, stages []adminSummaryStageInfo, tasks []adminSummaryTaskInfo, todos []*crmmodel.WorkTodo) []map[string]any {
+func adminSummaryNodeBacklog(ctx context.Context, targets []*crmmodel.WorkflowInstance, stages []adminSummaryStageInfo, tasks []adminSummaryTaskInfo, todos []*crmmodel.WorkTodo) []map[string]any {
 	stageByID := adminSummaryStageByID(stages)
 	stats := map[uint64]*adminSummaryNodeBacklogStat{}
 	targetStageByKey := map[string]uint64{}
@@ -483,7 +483,7 @@ func adminSummaryNodeBacklogRow(stat *adminSummaryNodeBacklogStat, taskCount int
 	return row
 }
 
-func adminSummaryTaskBreakdown(targets []*crmmodel.CustomerStage, stages []adminSummaryStageInfo, tasks []adminSummaryTaskInfo) []map[string]any {
+func adminSummaryTaskBreakdown(targets []*crmmodel.WorkflowInstance, stages []adminSummaryStageInfo, tasks []adminSummaryTaskInfo) []map[string]any {
 	tasksByStage := map[uint64][]adminSummaryTaskInfo{}
 	for _, task := range tasks {
 		tasksByStage[task.StageID] = append(tasksByStage[task.StageID], task)

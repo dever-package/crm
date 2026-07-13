@@ -29,7 +29,7 @@ type WorkTodo struct {
 type WorkTodoIndex struct {
 	AssigneeStatus struct{} `index:"assignee_department_id,assignee_staff_id,status,due_at,id"`
 	CustomerStatus struct{} `index:"customer_id,asset_id,status,id"`
-	StageTask      struct{} `unique:"asset_id,stage_id,task_id"`
+	InstanceTask   struct{} `unique:"workflow_instance_id,stage_id,task_id"`
 	InstanceStatus struct{} `index:"workflow_instance_id,status,id"`
 	WorkflowStatus struct{} `index:"workflow_id,stage_id,status,id"`
 }

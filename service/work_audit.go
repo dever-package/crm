@@ -28,6 +28,8 @@ func recordWorkTaskOperation(
 	operationID := uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
 		"customer_id":            todo.CustomerID,
 		"asset_id":               todo.AssetID,
+		"workflow_instance_id":   todo.WorkflowInstanceID,
+		"customer_product_id":    todo.CustomerProductID,
 		"workflow_id":            todo.WorkflowID,
 		"stage_id":               todo.StageID,
 		"task_id":                task.ID,
@@ -43,9 +45,11 @@ func recordWorkTaskOperation(
 	if emitStat && operationID > 0 {
 		insertWorkStatEvent(ctx, map[string]any{
 			"event_type":             crmmodel.StatEventTypeTask,
-			"event_key":              fmt.Sprintf("task:%d:%s", task.ID, resultValue),
+			"event_key":              fmt.Sprintf("task:%d:%d:%s", todo.WorkflowInstanceID, task.ID, resultValue),
 			"customer_id":            todo.CustomerID,
 			"asset_id":               todo.AssetID,
+			"workflow_instance_id":   todo.WorkflowInstanceID,
+			"customer_product_id":    todo.CustomerProductID,
 			"workflow_id":            todo.WorkflowID,
 			"stage_id":               todo.StageID,
 			"from_stage_id":          uint64(0),
@@ -74,7 +78,7 @@ type workStageChange struct {
 	Snapshot       map[string]any
 }
 
-func recordWorkStageChange(ctx context.Context, staff *WorkStaffSession, progress *crmmodel.CustomerStage, change workStageChange) uint64 {
+func recordWorkStageChange(ctx context.Context, staff *WorkStaffSession, progress *crmmodel.WorkflowInstance, change workStageChange) uint64 {
 	if progress == nil {
 		return 0
 	}
@@ -98,10 +102,12 @@ func recordWorkStageChange(ctx context.Context, staff *WorkStaffSession, progres
 		stageID = progress.StageID
 	}
 	snapshot := map[string]any{
-		"from_workflow_id": change.FromWorkflowID,
-		"from_stage_id":    change.FromStageID,
-		"to_workflow_id":   change.ToWorkflowID,
-		"to_stage_id":      change.ToStageID,
+		"workflow_instance_id": progress.ID,
+		"customer_product_id":  progress.CustomerProductID,
+		"from_workflow_id":     change.FromWorkflowID,
+		"from_stage_id":        change.FromStageID,
+		"to_workflow_id":       change.ToWorkflowID,
+		"to_stage_id":          change.ToStageID,
 	}
 	for key, value := range change.Snapshot {
 		snapshot[key] = value
@@ -110,6 +116,8 @@ func recordWorkStageChange(ctx context.Context, staff *WorkStaffSession, progres
 	operationID := uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
 		"customer_id":            progress.CustomerID,
 		"asset_id":               progress.AssetID,
+		"workflow_instance_id":   progress.ID,
+		"customer_product_id":    progress.CustomerProductID,
 		"workflow_id":            workflowID,
 		"stage_id":               stageID,
 		"task_id":                uint64(0),
@@ -127,9 +135,11 @@ func recordWorkStageChange(ctx context.Context, staff *WorkStaffSession, progres
 	}
 	insertWorkStatEvent(ctx, map[string]any{
 		"event_type":             crmmodel.StatEventTypeTransition,
-		"event_key":              fmt.Sprintf("transition:%d:%d:%d:%d", change.FromWorkflowID, change.FromStageID, change.ToWorkflowID, change.ToStageID),
+		"event_key":              fmt.Sprintf("transition:%d:%d:%d:%d:%d", progress.ID, change.FromWorkflowID, change.FromStageID, change.ToWorkflowID, change.ToStageID),
 		"customer_id":            progress.CustomerID,
 		"asset_id":               progress.AssetID,
+		"workflow_instance_id":   progress.ID,
+		"customer_product_id":    progress.CustomerProductID,
 		"workflow_id":            workflowID,
 		"stage_id":               stageID,
 		"from_stage_id":          change.FromStageID,
@@ -149,7 +159,7 @@ func recordWorkStageChange(ctx context.Context, staff *WorkStaffSession, progres
 func recordWorkManagementOperation(
 	ctx context.Context,
 	staff *WorkStaffSession,
-	progress *crmmodel.CustomerStage,
+	progress *crmmodel.WorkflowInstance,
 	resultValue string,
 	title string,
 	content string,
@@ -162,6 +172,8 @@ func recordWorkManagementOperation(
 	return uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
 		"customer_id":            progress.CustomerID,
 		"asset_id":               progress.AssetID,
+		"workflow_instance_id":   progress.ID,
+		"customer_product_id":    progress.CustomerProductID,
 		"workflow_id":            progress.WorkflowID,
 		"stage_id":               progress.StageID,
 		"task_id":                uint64(0),
@@ -179,7 +191,7 @@ func recordWorkManagementOperation(
 func recordWorkTodoAssignment(
 	ctx context.Context,
 	staff *WorkStaffSession,
-	progress *crmmodel.CustomerStage,
+	progress *crmmodel.WorkflowInstance,
 	todo *crmmodel.WorkTodo,
 	task *crmmodel.Task,
 	fromStaffID uint64,
@@ -196,15 +208,17 @@ func recordWorkTodoAssignment(
 	}
 	staffID, departmentID := workOperatorIDs(staff)
 	return uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
-		"customer_id":  progress.CustomerID,
-		"asset_id":     progress.AssetID,
-		"workflow_id":  progress.WorkflowID,
-		"stage_id":     progress.StageID,
-		"task_id":      task.ID,
-		"task_type":    task.TaskType,
-		"result_value": resultValue,
-		"title":        title + "：" + task.Name,
-		"content":      toStaff.Name,
+		"customer_id":          progress.CustomerID,
+		"asset_id":             progress.AssetID,
+		"workflow_instance_id": progress.ID,
+		"customer_product_id":  progress.CustomerProductID,
+		"workflow_id":          progress.WorkflowID,
+		"stage_id":             progress.StageID,
+		"task_id":              task.ID,
+		"task_type":            task.TaskType,
+		"result_value":         resultValue,
+		"title":                title + "：" + task.Name,
+		"content":              toStaff.Name,
 		"data_snapshot_json": jsonText(map[string]any{
 			"todo_id":       todo.ID,
 			"from_staff_id": fromStaffID,
@@ -234,18 +248,32 @@ func insertWorkStatEvent(ctx context.Context, record map[string]any) {
 	model.Insert(ctx, record)
 }
 
-func currentWorkCustomerStage(ctx context.Context, customerID uint64, assetID uint64) *crmmodel.CustomerStage {
-	if customerID == 0 || assetID == 0 {
+func currentWorkEntryInstance(ctx context.Context, customerID uint64, assetID uint64) *crmmodel.WorkflowInstance {
+	if customerID == 0 {
 		return nil
 	}
-	return crmmodel.NewCustomerStageModel().Find(ctx, map[string]any{
-		"customer_id": customerID,
-		"asset_id":    assetID,
-	})
+	workflow, _ := defaultEntryWorkflowStage(ctx)
+	if workflow == nil {
+		return nil
+	}
+	filters := map[string]any{
+		"customer_id":         customerID,
+		"customer_product_id": uint64(0),
+		"workflow_id":         workflow.ID,
+	}
+	if assetID > 0 {
+		filters["asset_id"] = assetID
+	}
+	filters["status"] = crmmodel.ProgressStatusActive
+	if instance := crmmodel.NewWorkflowInstanceModel().Find(ctx, filters, map[string]any{"order": "id desc"}); instance != nil {
+		return instance
+	}
+	delete(filters, "status")
+	return crmmodel.NewWorkflowInstanceModel().Find(ctx, filters, map[string]any{"order": "id desc"})
 }
 
-func ensureCurrentWorkCustomerStage(ctx context.Context, _ *WorkStaffSession, customerID uint64, assetID uint64) *crmmodel.CustomerStage {
-	return currentWorkCustomerStage(ctx, customerID, assetID)
+func ensureCurrentWorkEntryInstance(ctx context.Context, _ *WorkStaffSession, customerID uint64, assetID uint64) *crmmodel.WorkflowInstance {
+	return currentWorkEntryInstance(ctx, customerID, assetID)
 }
 
 func saveWorkDataRecord(ctx context.Context, customerID uint64, assetID uint64, templateID uint64, taskID uint64, operationID uint64, record map[string]any) {

@@ -20,6 +20,8 @@ func executeWorkTask(ctx context.Context, staff *WorkStaffSession, payload map[s
 		return saveOrCompleteFormTodo(ctx, staff, todo, task, values)
 	case crmmodel.TaskTypeApproval:
 		return completeApprovalTodo(ctx, staff, todo, task, values)
+	case crmmodel.TaskTypeProduct:
+		return completeProductTodo(ctx, staff, todo, task, values)
 	case crmmodel.TaskTypeRule:
 		return nil, fmt.Errorf("自动核验任务不能手工完成")
 	default:

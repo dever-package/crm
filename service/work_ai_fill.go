@@ -23,6 +23,7 @@ func (WorkService) AIFill(ctx context.Context, staff *WorkStaffSession, payload 
 	}
 	customerID := todo.CustomerID
 	assetID := todo.AssetID
+	payload["workflow_instance_id"] = todo.WorkflowInstanceID
 	formID := task.FormID
 	fields := workAIFieldsForForm(ctx, formID)
 	if len(fields) == 0 {
@@ -127,7 +128,8 @@ func workAIFillContext(ctx context.Context, staff *WorkStaffSession, task *crmmo
 		customer["fields"] = workCustomerFieldValues(ctx, customerID)
 	}
 	instruction := strings.TrimSpace(inputText(firstPresent(payload, "instruction", "prompt", "text")))
-	progress := currentWorkCustomerStage(ctx, customerID, assetID)
+	instanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId")
+	progress := crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{"id": instanceID})
 	workflowID := uint64(0)
 	stageID := uint64(0)
 	if progress != nil {
@@ -154,12 +156,13 @@ func workAIFillContext(ctx context.Context, staff *WorkStaffSession, task *crmmo
 		"customer":       customer,
 		"assets":         workRuleAssets(ctx, customerID),
 		"current": map[string]any{
-			"customer_id": customerID,
-			"asset_id":    assetID,
-			"workflow_id": workflowID,
-			"stage_id":    stageID,
+			"customer_id":          customerID,
+			"asset_id":             assetID,
+			"workflow_instance_id": instanceID,
+			"workflow_id":          workflowID,
+			"stage_id":             stageID,
 		},
-		"recent_operations": workAIFillRecentOperations(ctx, customerID, assetID, 10),
+		"recent_operations": workAIFillRecentOperations(ctx, customerID, assetID, instanceID, 10),
 	}
 }
 
@@ -194,13 +197,16 @@ func workAIFillOptionPayloads(options []map[string]any) []map[string]any {
 	return rows
 }
 
-func workAIFillRecentOperations(ctx context.Context, customerID uint64, assetID uint64, limit int) []map[string]any {
+func workAIFillRecentOperations(ctx context.Context, customerID uint64, assetID uint64, workflowInstanceID uint64, limit int) []map[string]any {
 	if customerID == 0 || limit <= 0 {
 		return nil
 	}
 	filter := map[string]any{"customer_id": customerID}
 	if assetID > 0 {
 		filter["asset_id"] = assetID
+	}
+	if workflowInstanceID > 0 {
+		filter["workflow_instance_id"] = workflowInstanceID
 	}
 	rows := crmmodel.NewOperationLogModel().SelectMap(ctx, filter)
 	if len(rows) > limit {
