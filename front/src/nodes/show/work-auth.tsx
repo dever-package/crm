@@ -539,15 +539,9 @@ function buildWorkTaskFormState(
   const fieldMap: Record<string, string> = {};
 
   if (workTaskShouldRenderFields(task)) {
-    const groupFields: WorkFormField[] = [];
-    const sectionFields: WorkFormField[] = [];
-    for (const field of task.form?.fields || []) {
-      if (workFormFieldIsGroup(field)) {
-        groupFields.push(field);
-        continue;
-      }
-      sectionFields.push(field);
-    }
+    const { groupFields, sectionFields } = workTaskOrganizeFormFields(
+      task.form?.fields || [],
+    );
     addWorkTaskGroupTabsNode(
       nodes,
       values,
@@ -728,6 +722,85 @@ function addWorkTaskConfiguredSection(
 
 function workFormFieldIsGroup(field: WorkFormField): boolean {
   return textValue(field.field_type) === "group";
+}
+
+function workTaskOrganizeFormFields(fields: WorkFormField[]): {
+  groupFields: WorkFormField[];
+  sectionFields: WorkFormField[];
+} {
+  const groups = new Map<string, WorkFormField>();
+  const sectionFields: WorkFormField[] = [];
+
+  for (const field of fields) {
+    if (workFormFieldIsGroup(field)) {
+      mergeWorkTaskFormGroup(groups, workTaskFormGroupKey(field), field);
+      continue;
+    }
+    const groupKey = workTaskFormGroupKey(field);
+    if (!groupKey) {
+      sectionFields.push(field);
+      continue;
+    }
+    mergeWorkTaskFormGroup(groups, groupKey, {
+      id: field.group_id,
+      name: textValue(field.group_label) || textValue(field.group_key),
+      field_key: textValue(field.group_key) || `group:${groupKey}`,
+      field_type: "group",
+      children: [field],
+    });
+  }
+
+  return {
+    groupFields: Array.from(groups.values()),
+    sectionFields,
+  };
+}
+
+function workTaskFormGroupKey(field: WorkFormField): string {
+  if (workFormFieldIsGroup(field)) {
+    return (
+      positiveTextID(field.data_field_id || field.id) ||
+      textValue(field.field_key)
+    );
+  }
+  return positiveTextID(field.group_id) || textValue(field.group_key);
+}
+
+function mergeWorkTaskFormGroup(
+  groups: Map<string, WorkFormField>,
+  key: string,
+  incoming: WorkFormField,
+) {
+  if (!key) return;
+  const current = groups.get(key);
+  if (!current) {
+    groups.set(key, {
+      ...incoming,
+      children: uniqueWorkTaskGroupChildren(incoming.children || []),
+    });
+    return;
+  }
+  groups.set(key, {
+    ...current,
+    ...incoming,
+    children: uniqueWorkTaskGroupChildren([
+      ...(current.children || []),
+      ...(incoming.children || []),
+    ]),
+  });
+}
+
+function uniqueWorkTaskGroupChildren(
+  fields: WorkFormField[],
+): WorkFormField[] {
+  const seen = new Set<string>();
+  return fields.filter((field) => {
+    const key =
+      positiveTextID(field.data_field_id || field.id) || workFieldKey(field);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function addWorkTaskFieldSectionNodes(

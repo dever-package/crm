@@ -3615,8 +3615,9 @@ func attachWorkTaskForm(ctx context.Context, task map[string]any) {
 		"form_id": formID,
 		"status":  crmmodel.StatusEnabled,
 	})
+	groupCache := map[uint64]*crmmodel.DataField{}
 	for _, field := range fields {
-		attachWorkFormFieldOptions(ctx, field)
+		attachWorkFormFieldOptions(ctx, field, groupCache)
 	}
 	form["fields"] = fields
 	task["form"] = form
@@ -3667,13 +3668,14 @@ func workDataFieldOptionRows(ctx context.Context, field *crmmodel.DataField) []m
 	})
 }
 
-func attachWorkFormFieldOptions(ctx context.Context, field map[string]any) {
+func attachWorkFormFieldOptions(ctx context.Context, field map[string]any, groupCache map[uint64]*crmmodel.DataField) {
 	if fieldID := inputUint64(field["data_field_id"]); fieldID > 0 {
 		dataField := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": fieldID})
 		if dataField != nil {
 			field["field_key"] = dataField.FieldKey
 			field["field_type"] = dataField.FieldType
 			field["default_value"] = dataField.DefaultValue
+			attachWorkFormFieldGroup(ctx, field, dataField, groupCache)
 			if dataField.FieldType == "group" {
 				field["options"] = []map[string]any{}
 				field["children"] = workDataFieldChildFormFields(ctx, dataField, field)
@@ -3686,6 +3688,28 @@ func attachWorkFormFieldOptions(ctx context.Context, field map[string]any) {
 	mainField := inputText(field["main_field"])
 	field["field_type"] = mainFieldInputType(mainField)
 	field["options"] = mainFieldOptions(ctx, mainField)
+}
+
+func attachWorkFormFieldGroup(ctx context.Context, target map[string]any, field *crmmodel.DataField, cache map[uint64]*crmmodel.DataField) {
+	if target == nil || field == nil || field.ParentFieldID == 0 || cache == nil {
+		return
+	}
+	group, exists := cache[field.ParentFieldID]
+	if !exists {
+		group = crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+			"id":               field.ParentFieldID,
+			"data_template_id": field.DataTemplateID,
+			"field_type":       "group",
+			"status":           crmmodel.StatusEnabled,
+		})
+		cache[field.ParentFieldID] = group
+	}
+	if group == nil {
+		return
+	}
+	target["group_id"] = group.ID
+	target["group_key"] = group.FieldKey
+	target["group_label"] = group.Name
 }
 
 func workDataFieldChildFormFields(ctx context.Context, group *crmmodel.DataField, formField map[string]any) []map[string]any {

@@ -81,6 +81,9 @@ export type WorkFormField = {
   data_field_id?: string | number;
   data_template_id?: string | number;
   data_template_cate_id?: string | number;
+  group_id?: string | number;
+  group_key?: string;
+  group_label?: string;
   required?: boolean;
   readonly?: boolean;
   default_value?: string | number;

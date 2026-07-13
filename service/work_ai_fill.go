@@ -77,7 +77,7 @@ func workAIFieldsForForm(ctx context.Context, formID uint64) []workAIFillField {
 				"main_field":    field.MainField,
 				"data_field_id": field.DataFieldID,
 			}
-			attachWorkFormFieldOptions(ctx, row)
+			attachWorkFormFieldOptions(ctx, row, nil)
 			fieldType := inputText(row["field_type"])
 			if workAIFillFieldIsUpload(fieldType) {
 				continue
