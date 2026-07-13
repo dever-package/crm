@@ -17,6 +17,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -109,6 +110,7 @@ export function ShowCrmWorkLeadPool() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [convertLead, setConvertLead] = useState<WorkLead | null>(null);
   const [invalidLead, setInvalidLead] = useState<WorkLead | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -158,6 +160,7 @@ export function ShowCrmWorkLeadPool() {
       } else {
         toast.success(leadActionSuccessText(action));
       }
+      setConvertLead(null);
       setInvalidLead(null);
       await loadLeads();
       if (result.converted) {
@@ -172,19 +175,19 @@ export function ShowCrmWorkLeadPool() {
 
   if (!loading && options.enabled === false) {
     return (
-      <section className="rounded-md border border-border/70 bg-background px-5 py-12 text-center text-sm text-muted-foreground">
+      <section className="bg-background px-5 py-12 text-center text-muted-foreground">
         当前账号没有线索池权限
       </section>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="crm-work-lead-pool space-y-4">
       <WorkLeadPoolStyles />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">待处理 {leadCountByStatus(leads, "pending")} 条，共 {Number(options.total) || leads.length} 条</p>
+        <p className="text-muted-foreground">待处理 {leadCountByStatus(leads, "pending")} 条，共 {Number(options.total) || leads.length} 条</p>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="icon" title="刷新" onClick={() => void loadLeads()} disabled={loading}>
+          <Button type="button" variant="ghost" size="icon" title="刷新" onClick={() => void loadLeads()} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
           <Button type="button" onClick={() => setCreateOpen(true)}>
@@ -194,9 +197,9 @@ export function ShowCrmWorkLeadPool() {
         </div>
       </div>
 
-      <section className="overflow-hidden rounded-md border border-border/70 bg-background">
+      <section className="overflow-hidden bg-background">
         <form
-          className="crm-work-lead-search-grid grid gap-2 border-b border-border/70 bg-muted/10 px-4 py-3"
+          className="crm-work-lead-search-grid crm-work-lead-toolbar grid gap-2 px-3 py-2.5"
           onSubmit={(event) => {
             event.preventDefault();
             setActiveKeyword(keyword.trim());
@@ -220,7 +223,7 @@ export function ShowCrmWorkLeadPool() {
           </Button>
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => {
               setKeyword("");
@@ -232,37 +235,54 @@ export function ShowCrmWorkLeadPool() {
           </Button>
         </form>
 
-        <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1060px] text-sm">
-            <thead className="bg-muted/20 text-left text-muted-foreground">
+        <div className="mt-3 hidden overflow-x-auto md:block">
+          <table className="crm-work-lead-table w-full min-w-[1060px] table-fixed border-collapse">
+            <colgroup>
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "13%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "17%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "15%" }} />
+            </colgroup>
+            <thead className="crm-work-lead-table-head text-left">
               <tr>
-                <th className="px-4 py-3 font-medium">线索</th>
-                <th className="px-4 py-3 font-medium">联系方式</th>
-                <th className="px-4 py-3 font-medium">来源</th>
-                <th className="px-4 py-3 font-medium">诉求</th>
-                <th className="px-4 py-3 font-medium">状态</th>
-                <th className="px-4 py-3 font-medium">录入时间</th>
-                <th className="px-4 py-3 text-right font-medium">操作</th>
+                <th className="px-3 py-2.5 font-medium">线索</th>
+                <th className="px-3 py-2.5 font-medium">联系方式</th>
+                <th className="px-3 py-2.5 font-medium">来源</th>
+                <th className="px-3 py-2.5 font-medium">诉求</th>
+                <th className="px-3 py-2.5 font-medium">状态</th>
+                <th className="px-3 py-2.5 font-medium">录入时间</th>
+                <th className="px-3 py-2.5 text-right font-medium">操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/60">
-              {leads.map((lead) => <WorkLeadTableRow key={textValue(lead.id)} lead={lead} submitting={submitting} onAction={actOnLead} onInvalid={setInvalidLead} />)}
+            <tbody>
+              {leads.map((lead) => <WorkLeadTableRow key={textValue(lead.id)} lead={lead} submitting={submitting} onAction={actOnLead} onConvert={setConvertLead} onInvalid={setInvalidLead} />)}
             </tbody>
           </table>
         </div>
 
-        <div className="divide-y divide-border/60 md:hidden">
-          {leads.map((lead) => <WorkLeadMobileRow key={textValue(lead.id)} lead={lead} submitting={submitting} onAction={actOnLead} onInvalid={setInvalidLead} />)}
+        <div className="mt-3 md:hidden">
+          {leads.map((lead) => <WorkLeadMobileRow key={textValue(lead.id)} lead={lead} submitting={submitting} onAction={actOnLead} onConvert={setConvertLead} onInvalid={setInvalidLead} />)}
         </div>
 
         {!loading && leads.length === 0 ? (
-          <div className="px-4 py-14 text-center text-sm text-muted-foreground">暂无线索</div>
+          <div className="px-4 py-14 text-center text-muted-foreground">暂无线索</div>
         ) : null}
         {loading && leads.length === 0 ? (
           <div className="flex items-center justify-center px-4 py-14 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
         ) : null}
       </section>
 
+      <ConvertLeadDialog
+        lead={convertLead}
+        submitting={submitting}
+        onClose={() => setConvertLead(null)}
+        onConfirm={() => {
+          if (convertLead) void actOnLead(convertLead, "convert");
+        }}
+      />
       <CreateLeadDialog
         open={createOpen}
         sources={options.sources || []}
@@ -287,28 +307,28 @@ export function ShowCrmWorkLeadPool() {
   );
 }
 
-function WorkLeadTableRow({ lead, submitting, onAction, onInvalid }: WorkLeadRowProps) {
+function WorkLeadTableRow({ lead, submitting, onAction, onConvert, onInvalid }: WorkLeadRowProps) {
   return (
-    <tr className="align-top hover:bg-muted/10">
-      <td className="px-4 py-3"><LeadIdentity lead={lead} /></td>
-      <td className="px-4 py-3"><LeadContact lead={lead} /></td>
-      <td className="px-4 py-3"><div>{displayText(lead.source_name)}</div><div className="mt-1 text-xs text-muted-foreground">{displayText(lead.channel_name)}</div></td>
-      <td className="max-w-[260px] px-4 py-3"><div className="line-clamp-2 break-words">{displayText(lead.initial_need)}</div><div className="mt-1 text-xs text-muted-foreground">{displayText(lead.city)}</div></td>
-      <td className="px-4 py-3"><LeadStatus lead={lead} /></td>
-      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatWorkDate(lead.created_at)}</td>
-      <td className="px-4 py-3"><LeadActions lead={lead} submitting={submitting} onAction={onAction} onInvalid={onInvalid} /></td>
+    <tr className="crm-work-lead-row align-top">
+      <td className="px-3 py-3"><LeadIdentity lead={lead} /></td>
+      <td className="px-3 py-3"><LeadContact lead={lead} /></td>
+      <td className="px-3 py-3"><div>{displayText(lead.source_name)}</div><div className="mt-1 text-xs text-muted-foreground">{displayText(lead.channel_name)}</div></td>
+      <td className="max-w-[260px] px-3 py-3"><div className="line-clamp-2 break-words">{displayText(lead.initial_need)}</div><div className="mt-1 text-xs text-muted-foreground">{displayText(lead.city)}</div></td>
+      <td className="px-3 py-3"><LeadStatus lead={lead} /></td>
+      <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">{formatWorkDate(lead.created_at)}</td>
+      <td className="px-3 py-3"><LeadActions lead={lead} submitting={submitting} onAction={onAction} onConvert={onConvert} onInvalid={onInvalid} /></td>
     </tr>
   );
 }
 
-function WorkLeadMobileRow({ lead, submitting, onAction, onInvalid }: WorkLeadRowProps) {
+function WorkLeadMobileRow({ lead, submitting, onAction, onConvert, onInvalid }: WorkLeadRowProps) {
   return (
-    <article className="space-y-3 px-4 py-4">
+    <article className="crm-work-lead-mobile-row space-y-3 px-3 py-4">
       <div className="flex min-w-0 items-start justify-between gap-3"><LeadIdentity lead={lead} /><LeadStatus lead={lead} /></div>
       <LeadContact lead={lead} />
-      <div className="text-sm text-muted-foreground">{displayText(lead.source_name)} · {displayText(lead.channel_name)} · {displayText(lead.city)}</div>
-      <p className="break-words text-sm">{displayText(lead.initial_need)}</p>
-      <LeadActions lead={lead} submitting={submitting} onAction={onAction} onInvalid={onInvalid} />
+      <div className="text-muted-foreground">{displayText(lead.source_name)} · {displayText(lead.channel_name)} · {displayText(lead.city)}</div>
+      <p className="break-words">{displayText(lead.initial_need)}</p>
+      <LeadActions lead={lead} submitting={submitting} onAction={onAction} onConvert={onConvert} onInvalid={onInvalid} />
     </article>
   );
 }
@@ -317,6 +337,7 @@ type WorkLeadRowProps = {
   lead: WorkLead;
   submitting: boolean;
   onAction: (lead: WorkLead, action: string, extra?: Record<string, unknown>) => Promise<void>;
+  onConvert: (lead: WorkLead) => void;
   onInvalid: (lead: WorkLead) => void;
 };
 
@@ -340,23 +361,48 @@ function LeadStatus({ lead }: { lead: WorkLead }) {
   );
 }
 
-function LeadActions({ lead, submitting, onAction, onInvalid }: WorkLeadRowProps) {
+function LeadActions({ lead, submitting, onAction, onConvert, onInvalid }: WorkLeadRowProps) {
   const status = textValue(lead.status);
   return (
     <div className="flex flex-wrap justify-end gap-2">
       {status === "pending" ? (
         <>
-          <Button type="button" size="sm" disabled={submitting} onClick={() => {
-            if (window.confirm(`将“${displayText(lead.name)}”转为客户并创建资产？`)) void onAction(lead, "convert");
-          }}><UserRoundPlus className="h-4 w-4" />转客户</Button>
-          <Button type="button" variant="outline" size="sm" disabled={submitting} onClick={() => onInvalid(lead)}><Ban className="h-4 w-4" />判无效</Button>
+          <Button type="button" size="sm" disabled={submitting} onClick={() => onConvert(lead)}><UserRoundPlus className="h-4 w-4" />转客户</Button>
+          <Button type="button" variant="ghost" size="sm" disabled={submitting} onClick={() => onInvalid(lead)}><Ban className="h-4 w-4" />判无效</Button>
         </>
       ) : null}
       {status === "duplicate" || status === "invalid" ? (
-        <Button type="button" variant="outline" size="sm" disabled={submitting} onClick={() => void onAction(lead, "reopen")}><RotateCcw className="h-4 w-4" />恢复</Button>
+        <Button type="button" variant="ghost" size="sm" disabled={submitting} onClick={() => void onAction(lead, "reopen")}><RotateCcw className="h-4 w-4" />恢复</Button>
       ) : null}
-      {status === "converted" ? <span className="inline-flex items-center gap-1 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" />已转化</span> : null}
+      {status === "converted" ? <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" />已转化</span> : null}
     </div>
+  );
+}
+
+function ConvertLeadDialog({ lead, submitting, onClose, onConfirm }: {
+  lead: WorkLead | null;
+  submitting: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={Boolean(lead)} onOpenChange={(open) => !open && !submitting && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>转为客户</DialogTitle>
+          <DialogDescription>
+            确认将“{displayText(lead?.name)}”转为客户并创建资产？转化后可在客户列表继续处理。
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={submitting} onClick={onClose}>取消</Button>
+          <Button type="button" disabled={submitting} onClick={onConfirm}>
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundPlus className="h-4 w-4" />}
+            确认转客户
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -461,10 +507,57 @@ function InvalidateLeadDialog({ lead, reasons, submitting, onClose, onSubmit }: 
 function WorkLeadPoolStyles() {
   return (
     <style>{`
+      .crm-work-lead-pool {
+        color: var(--crm-body-text, #171a19);
+        font-size: 12.8px;
+        line-height: 1.45;
+      }
+
+      .crm-work-lead-pool button,
+      .crm-work-lead-pool input,
+      .crm-work-lead-pool select,
+      .crm-work-lead-pool textarea {
+        font-size: 12.8px;
+      }
+
       .crm-work-lead-search-grid {
         grid-template-columns: minmax(260px, 300px) 180px auto auto;
         align-items: center;
         justify-content: start;
+      }
+
+      .crm-work-lead-toolbar,
+      .crm-work-lead-table-head {
+        background: var(--crm-body-bg, #f4f6f5);
+      }
+
+      .crm-work-lead-toolbar {
+        border-radius: 6px;
+      }
+
+      .crm-work-lead-table-head {
+        color: var(--crm-body-muted, #6b7370);
+      }
+
+      .crm-work-lead-table-head tr,
+      .crm-work-lead-row,
+      .crm-work-lead-mobile-row {
+        border-bottom: 1px solid var(--crm-body-line, #e4e8e6);
+      }
+
+      .crm-work-lead-row,
+      .crm-work-lead-mobile-row {
+        transition: background-color 120ms ease;
+      }
+
+      .crm-work-lead-row:hover,
+      .crm-work-lead-mobile-row:hover {
+        background: var(--crm-body-bg, #f4f6f5);
+      }
+
+      .crm-work-lead-row:last-child,
+      .crm-work-lead-mobile-row:last-child {
+        border-bottom: 0;
       }
 
       .crm-work-lead-form-wide,
