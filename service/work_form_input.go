@@ -10,11 +10,11 @@ import (
 )
 
 type workFormInput struct {
-	customerFields            map[string]any
-	assetFields               map[string]any
-	customerDataRecords       map[uint64]map[string]any
-	assetDataRecords          map[uint64]map[string]any
-	businessObjectDataRecords map[uint64]map[string]any
+	customerFields      map[string]any
+	assetFields         map[string]any
+	customerDataRecords map[uint64]map[string]any
+	assetDataRecords    map[uint64]map[string]any
+	businessDataRecords map[uint64]map[string]any
 }
 
 type workFormInputOptions struct {
@@ -52,11 +52,11 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 		return nil, fmt.Errorf("资料模板未配置字段")
 	}
 	result := &workFormInput{
-		customerFields:            map[string]any{},
-		assetFields:               map[string]any{},
-		customerDataRecords:       map[uint64]map[string]any{},
-		assetDataRecords:          map[uint64]map[string]any{},
-		businessObjectDataRecords: map[uint64]map[string]any{},
+		customerFields:      map[string]any{},
+		assetFields:         map[string]any{},
+		customerDataRecords: map[uint64]map[string]any{},
+		assetDataRecords:    map[uint64]map[string]any{},
+		businessDataRecords: map[uint64]map[string]any{},
 	}
 	inputOptions := workFormInputOptions{}
 	if len(options) > 0 {
@@ -157,11 +157,11 @@ func collectOptionalWorkFormInput(ctx context.Context, task *crmmodel.Task, valu
 
 func emptyWorkFormInput() *workFormInput {
 	return &workFormInput{
-		customerFields:            map[string]any{},
-		assetFields:               map[string]any{},
-		customerDataRecords:       map[uint64]map[string]any{},
-		assetDataRecords:          map[uint64]map[string]any{},
-		businessObjectDataRecords: map[uint64]map[string]any{},
+		customerFields:      map[string]any{},
+		assetFields:         map[string]any{},
+		customerDataRecords: map[uint64]map[string]any{},
+		assetDataRecords:    map[uint64]map[string]any{},
+		businessDataRecords: map[uint64]map[string]any{},
 	}
 }
 
@@ -180,7 +180,7 @@ func mergeWorkFormInput(target *workFormInput, source *workFormInput) *workFormI
 	}
 	mergeWorkFormRecordMap(target.customerDataRecords, source.customerDataRecords)
 	mergeWorkFormRecordMap(target.assetDataRecords, source.assetDataRecords)
-	mergeWorkFormRecordMap(target.businessObjectDataRecords, source.businessObjectDataRecords)
+	mergeWorkFormRecordMap(target.businessDataRecords, source.businessDataRecords)
 	return target
 }
 
@@ -199,10 +199,6 @@ func formInputHasAssetValues(formInput *workFormInput) bool {
 	return formInput != nil && (len(formInput.assetFields) > 0 || len(formInput.assetDataRecords) > 0)
 }
 
-func formInputHasBusinessObjectValues(formInput *workFormInput) bool {
-	return formInput != nil && len(formInput.businessObjectDataRecords) > 0
-}
-
 func ensureWorkFormAsset(ctx context.Context, customerID uint64, assetID uint64, formInput *workFormInput) (uint64, bool, error) {
 	if assetID > 0 || !formInputHasAssetValues(formInput) {
 		return assetID, false, nil
@@ -212,47 +208,6 @@ func ensureWorkFormAsset(ctx context.Context, customerID uint64, assetID uint64,
 		return 0, false, err
 	}
 	return createdAssetID, true, nil
-}
-
-func ensureWorkFormBusinessObject(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64, businessObjectID uint64, formInput *workFormInput) (uint64, bool, error) {
-	if !formInputHasBusinessObjectValues(formInput) {
-		return businessObjectID, false, nil
-	}
-	if businessObjectID > 0 {
-		if !workCustomerOwnsBusinessObject(ctx, customerID, assetID, businessObjectID) {
-			return 0, false, fmt.Errorf("业务对象不存在")
-		}
-		return businessObjectID, false, nil
-	}
-	typeID, err := workBusinessObjectTypeIDForFormInput(ctx, formInput)
-	if err != nil {
-		return 0, false, err
-	}
-	objectType := crmmodel.NewBusinessObjectTypeModel().Find(ctx, map[string]any{"id": typeID, "status": crmmodel.StatusEnabled})
-	if objectType == nil {
-		return 0, false, fmt.Errorf("业务对象类型不存在或已停用")
-	}
-	if objectType.ParentTarget == crmmodel.BusinessObjectParentCustomerAsset && assetID == 0 {
-		return 0, false, fmt.Errorf("该业务对象需要先选择或创建客户资产")
-	}
-	now := time.Now()
-	objectID := uint64(crmmodel.NewBusinessObjectModel().Insert(ctx, map[string]any{
-		"business_object_type_id": typeID,
-		"object_no":               defaultBusinessObjectNo(objectType.Code),
-		"object_name":             defaultWorkBusinessObjectName(objectType.Name),
-		"customer_id":             customerID,
-		"asset_id":                assetID,
-		"object_status":           "active",
-		"owner_department_id":     workStaffDepartmentID(staff),
-		"owner_staff_id":          workStaffID(staff),
-		"record_json":             "{}",
-		"remark":                  "",
-		"status":                  crmmodel.StatusEnabled,
-		"sort":                    100,
-		"created_at":              now,
-		"updated_at":              now,
-	}))
-	return objectID, true, nil
 }
 
 func saveWorkFormInput(ctx context.Context, customerID uint64, assetID uint64, formInput *workFormInput) error {
@@ -329,56 +284,31 @@ func ensureWorkCustomerCode(ctx context.Context, customerID uint64) (string, err
 	return code, nil
 }
 
-func saveWorkFormDataRecords(ctx context.Context, customerID uint64, assetID uint64, taskID uint64, operationID uint64, formInput *workFormInput) {
-	saveWorkFormObjectDataRecords(ctx, customerID, assetID, 0, taskID, operationID, formInput)
-}
-
-func saveWorkFormObjectDataRecords(ctx context.Context, customerID uint64, assetID uint64, businessObjectID uint64, taskID uint64, operationID uint64, formInput *workFormInput) {
+func saveWorkFormDataRecords(ctx context.Context, ownership workDataOwnership, taskID uint64, operationID uint64, formInput *workFormInput) error {
 	if formInput == nil {
-		return
+		return nil
 	}
 	for templateID, record := range formInput.customerDataRecords {
-		saveWorkDataRecord(ctx, customerID, 0, templateID, taskID, operationID, record)
+		saveWorkDataRecord(ctx, workDataOwnership{CustomerID: ownership.CustomerID}, templateID, taskID, operationID, record)
 	}
-	if assetID > 0 {
+	if ownership.AssetID > 0 {
 		for templateID, record := range formInput.assetDataRecords {
-			saveWorkDataRecord(ctx, customerID, assetID, templateID, taskID, operationID, record)
+			saveWorkDataRecord(ctx, workDataOwnership{
+				CustomerID: ownership.CustomerID,
+				AssetID:    ownership.AssetID,
+			}, templateID, taskID, operationID, record)
 		}
 	}
-	if businessObjectID == 0 {
-		return
+	if len(formInput.businessDataRecords) == 0 {
+		return nil
 	}
-	for templateID, record := range formInput.businessObjectDataRecords {
-		saveWorkObjectDataRecord(ctx, customerID, assetID, businessObjectID, templateID, taskID, operationID, record)
+	if ownership.WorkflowInstanceID == 0 {
+		return fmt.Errorf("业务数据必须归属流程实例")
 	}
-	syncWorkBusinessObjectSummary(ctx, businessObjectID, formInput)
-}
-
-func syncWorkBusinessObjectSummary(ctx context.Context, businessObjectID uint64, formInput *workFormInput) {
-	if businessObjectID == 0 || formInput == nil || len(formInput.businessObjectDataRecords) == 0 {
-		return
+	for templateID, record := range formInput.businessDataRecords {
+		saveWorkDataRecord(ctx, ownership, templateID, taskID, operationID, record)
 	}
-	updates := map[string]any{}
-	for templateID, record := range formInput.businessObjectDataRecords {
-		fields := workDataTemplateFieldsByID(ctx, templateID)
-		for rawFieldID, value := range record {
-			field := fields[inputUint64(rawFieldID)]
-			if field == nil || field.FieldKey == "" || emptyWorkFieldValue(value) {
-				continue
-			}
-			switch field.FieldKey {
-			case "tenant_name":
-				updates["object_name"] = inputText(value)
-			case "lease_status":
-				updates["object_status"] = inputText(value)
-			}
-		}
-	}
-	if len(updates) == 0 {
-		return
-	}
-	updates["updated_at"] = time.Now()
-	crmmodel.NewBusinessObjectModel().Update(ctx, map[string]any{"id": businessObjectID}, updates)
+	return nil
 }
 
 func defaultWorkCustomerRecord(staff *WorkStaffSession) map[string]any {
@@ -412,22 +342,6 @@ func defaultWorkAssetRecord(customerID uint64) map[string]any {
 		"created_at":      now,
 		"updated_at":      now,
 	}
-}
-
-func defaultBusinessObjectNo(typeCode string) string {
-	prefix := strings.ToUpper(strings.TrimSpace(typeCode))
-	if prefix == "" {
-		prefix = "BO"
-	}
-	return fmt.Sprintf("%s-%s", prefix, time.Now().Format("20060102150405"))
-}
-
-func defaultWorkBusinessObjectName(typeName string) string {
-	name := strings.TrimSpace(typeName)
-	if name == "" {
-		return "业务对象"
-	}
-	return name
 }
 
 func duplicatedWorkCustomerField(ctx context.Context, record map[string]any) string {
@@ -525,89 +439,16 @@ func isWorkCustomerContactField(field *crmmodel.FormField) bool {
 	}
 }
 
-func workFormRecordBucket(ctx context.Context, formInput *workFormInput, field *crmmodel.FormField) map[uint64]map[string]any {
-	switch workFormFieldTargetTable(ctx, field) {
-	case crmmodel.DataTemplateTargetCustomerAsset:
+func workFormRecordBucket(_ context.Context, formInput *workFormInput, field *crmmodel.FormField) map[uint64]map[string]any {
+	if field == nil {
+		return formInput.customerDataRecords
+	}
+	switch field.DataTemplateCateID {
+	case crmmodel.CustomerAssetDataTemplateCateID:
 		return formInput.assetDataRecords
-	case crmmodel.DataTemplateTargetBusinessObject:
-		return formInput.businessObjectDataRecords
+	case crmmodel.BusinessDataTemplateCateID:
+		return formInput.businessDataRecords
 	default:
 		return formInput.customerDataRecords
 	}
-}
-
-func workFormFieldTargetTable(ctx context.Context, field *crmmodel.FormField) string {
-	if field == nil {
-		return crmmodel.DataTemplateTargetCustomer
-	}
-	switch field.DataTemplateCateID {
-	case crmmodel.CustomerDataTemplateCateID:
-		return crmmodel.DataTemplateTargetCustomer
-	case crmmodel.CustomerAssetDataTemplateCateID:
-		return crmmodel.DataTemplateTargetCustomerAsset
-	}
-	cate := crmmodel.NewDataTemplateCateModel().Find(ctx, map[string]any{
-		"id":     field.DataTemplateCateID,
-		"status": crmmodel.StatusEnabled,
-	})
-	if cate == nil || strings.TrimSpace(cate.TargetTable) == "" {
-		return crmmodel.DataTemplateTargetCustomer
-	}
-	return strings.TrimSpace(cate.TargetTable)
-}
-
-func workBusinessObjectTypeIDForFormInput(ctx context.Context, formInput *workFormInput) (uint64, error) {
-	for templateID := range formInput.businessObjectDataRecords {
-		if templateID == 0 {
-			continue
-		}
-		template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{
-			"id":     templateID,
-			"status": crmmodel.StatusEnabled,
-		})
-		if template == nil {
-			continue
-		}
-		cate := crmmodel.NewDataTemplateCateModel().Find(ctx, map[string]any{
-			"id":     template.CateID,
-			"status": crmmodel.StatusEnabled,
-		})
-		if cate == nil || cate.TargetTable != crmmodel.DataTemplateTargetBusinessObject {
-			continue
-		}
-		if cate.BusinessObjectTypeID == 0 {
-			return 0, fmt.Errorf("业务对象资料分类未配置业务对象类型")
-		}
-		return cate.BusinessObjectTypeID, nil
-	}
-	return 0, fmt.Errorf("未找到业务对象资料模板")
-}
-
-func workCustomerOwnsBusinessObject(ctx context.Context, customerID uint64, assetID uint64, businessObjectID uint64) bool {
-	if customerID == 0 || businessObjectID == 0 {
-		return false
-	}
-	filter := map[string]any{
-		"id":          businessObjectID,
-		"customer_id": customerID,
-		"status":      crmmodel.StatusEnabled,
-	}
-	if assetID > 0 {
-		filter["asset_id"] = assetID
-	}
-	return crmmodel.NewBusinessObjectModel().Find(ctx, filter) != nil
-}
-
-func workStaffID(staff *WorkStaffSession) uint64 {
-	if staff == nil {
-		return 0
-	}
-	return staff.ID
-}
-
-func workStaffDepartmentID(staff *WorkStaffSession) uint64 {
-	if staff == nil {
-		return 0
-	}
-	return staff.DepartmentID
 }

@@ -43,21 +43,26 @@
       },
       {
         "type": "form-select",
-        "placeholder": "业务对象",
-        "value": "search.business_object_id",
+        "placeholder": "客户产品",
+        "value": "search.customer_product_id",
         "mode": "search",
         "option": {
-          "model": "crm.NewBusinessObjectModel",
-          "labelField": "object_name",
+          "model": "crm.NewCustomerProductModel",
+          "labelField": "id",
           "order": "id desc",
-          "pageSize": 200,
-          "searchFields": [
-            "object_no",
-            "object_name"
-          ],
-          "filters": {
-            "status": "1"
-          }
+          "pageSize": 200
+        }
+      },
+      {
+        "type": "form-select",
+        "placeholder": "流程实例",
+        "value": "search.workflow_instance_id",
+        "mode": "search",
+        "option": {
+          "model": "crm.NewWorkflowInstanceModel",
+          "labelField": "id",
+          "order": "id desc",
+          "pageSize": 200
         }
       },
       {
@@ -170,8 +175,13 @@
               "type": "show-base"
             },
             {
-              "name": "业务对象",
-              "value": "business_object.object_name",
+              "name": "客户产品",
+              "value": "customer_product.product.name",
+              "type": "show-base"
+            },
+            {
+              "name": "流程",
+              "value": "workflow_instance.workflow.name",
               "type": "show-base"
             },
             {
@@ -226,7 +236,8 @@
     "search": {
       "keyword": "",
       "task_id": "",
-      "business_object_id": "",
+      "customer_product_id": "",
+      "workflow_instance_id": "",
       "staff_id": "",
       "department_id": "",
       "created_at_start": "",
@@ -241,7 +252,8 @@
       ],
       "filterFields": [
         "task_id",
-        "business_object_id",
+        "customer_product_id",
+        "workflow_instance_id",
         "staff_id",
         "department_id",
         {

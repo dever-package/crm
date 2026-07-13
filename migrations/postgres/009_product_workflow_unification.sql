@@ -212,3 +212,13 @@ CREATE INDEX IF NOT EXISTS idx_gjj_crm_finance_ledger_instance_time
     ON gjj_crm_finance_ledger (workflow_instance_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_gjj_crm_finance_ledger_product_time
     ON gjj_crm_finance_ledger (customer_product_id, created_at, id);
+
+DROP INDEX IF EXISTS uidx_gjj_crm_stat_field_value_customer_data_field;
+DROP INDEX IF EXISTS idx_gjj_crm_stat_field_value_customer_data_field;
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_gjj_crm_stat_field_value_owner_data_field
+    ON gjj_crm_stat_field_value (customer_id, asset_id, workflow_instance_id, data_field_id);
+
+DROP INDEX IF EXISTS uidx_gjj_crm_finance_ledger_operation_field;
+DROP INDEX IF EXISTS idx_gjj_crm_finance_ledger_operation_field;
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_gjj_crm_finance_ledger_instance_operation_field
+    ON gjj_crm_finance_ledger (workflow_instance_id, operation_log_id, data_field_id, source);

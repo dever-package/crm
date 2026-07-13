@@ -15,12 +15,12 @@ func syncWorkFinanceLedgers(ctx context.Context, staff *WorkStaffSession, comple
 	}
 	changedAt := workOperationCreatedAt(ctx, completion.operationID)
 	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.customerDataRecords, 0, changedAt)
-	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.assetDataRecords, completion.assetID, changedAt)
-	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.businessObjectDataRecords, completion.assetID, changedAt)
+	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.assetDataRecords, completion.ownership.AssetID, changedAt)
+	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.businessDataRecords, completion.ownership.AssetID, changedAt)
 }
 
 func syncWorkFinanceLedgerRecords(ctx context.Context, staff *WorkStaffSession, completion workOperationCompletion, records map[uint64]map[string]any, assetID uint64, changedAt time.Time) {
-	if completion.customerID == 0 || len(records) == 0 {
+	if completion.ownership.CustomerID == 0 || len(records) == 0 {
 		return
 	}
 	model := crmmodel.NewFinanceLedgerModel()
@@ -37,9 +37,10 @@ func syncWorkFinanceLedgerRecords(ctx context.Context, staff *WorkStaffSession, 
 				continue
 			}
 			existing := model.Find(ctx, map[string]any{
-				"operation_log_id": completion.operationID,
-				"data_field_id":    field.ID,
-				"source":           crmmodel.FinanceLedgerSourceForm,
+				"workflow_instance_id": completion.ownership.WorkflowInstanceID,
+				"operation_log_id":     completion.operationID,
+				"data_field_id":        field.ID,
+				"source":               crmmodel.FinanceLedgerSourceForm,
 			})
 			if existing != nil {
 				continue
@@ -85,22 +86,23 @@ func workFinanceType(ctx context.Context, financeTypeID uint64) *crmmodel.Financ
 
 func workFinanceLedgerRecord(completion workOperationCompletion, staff *WorkStaffSession, assetID uint64, field *crmmodel.DataField, financeType *crmmodel.FinanceType, value any, changedAt time.Time) map[string]any {
 	return map[string]any{
-		"customer_id":        completion.customerID,
-		"asset_id":           assetID,
-		"business_object_id": completion.businessObjectID,
-		"task_id":            completion.task.ID,
-		"operation_log_id":   completion.operationID,
-		"data_field_id":      field.ID,
-		"finance_type_id":    financeType.ID,
-		"finance_type_code":  financeType.Code,
-		"finance_type_name":  financeType.Name,
-		"direction":          financeType.Direction,
-		"amount":             numericValue(value),
-		"raw_value":          inputText(value),
-		"staff_id":           staff.ID,
-		"department_id":      staff.DepartmentID,
-		"source":             crmmodel.FinanceLedgerSourceForm,
-		"created_at":         changedAt,
+		"customer_id":          completion.ownership.CustomerID,
+		"asset_id":             assetID,
+		"workflow_instance_id": completion.ownership.WorkflowInstanceID,
+		"customer_product_id":  completion.ownership.CustomerProductID,
+		"task_id":              completion.task.ID,
+		"operation_log_id":     completion.operationID,
+		"data_field_id":        field.ID,
+		"finance_type_id":      financeType.ID,
+		"finance_type_code":    financeType.Code,
+		"finance_type_name":    financeType.Name,
+		"direction":            financeType.Direction,
+		"amount":               numericValue(value),
+		"raw_value":            inputText(value),
+		"staff_id":             staff.ID,
+		"department_id":        staff.DepartmentID,
+		"source":               crmmodel.FinanceLedgerSourceForm,
+		"created_at":           changedAt,
 	}
 }
 
@@ -118,8 +120,8 @@ func recoverWorkSideEffect(name string, completion workOperationCompletion) {
 		log.Printf(
 			"crm work side effect %s failed: customer_id=%d asset_id=%d task_id=%d operation_log_id=%d todo_id=%d error=%v",
 			name,
-			completion.customerID,
-			completion.assetID,
+			completion.ownership.CustomerID,
+			completion.ownership.AssetID,
 			workCompletionTaskID(completion),
 			completion.operationID,
 			completion.todoID,

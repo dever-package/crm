@@ -34,8 +34,8 @@ type StatFieldValue struct {
 }
 
 type StatFieldValueIndex struct {
-	CustomerDataField  struct{} `unique:"customer_id,asset_id,business_object_id,data_field_id"`
-	CustomerField      struct{} `index:"customer_id,asset_id,business_object_id,field_key"`
+	OwnerDataField     struct{} `unique:"customer_id,asset_id,workflow_instance_id,data_field_id"`
+	OwnerField         struct{} `index:"customer_id,asset_id,workflow_instance_id,field_key"`
 	CustomerTime       struct{} `index:"customer_id,updated_at,id"`
 	AssetTime          struct{} `index:"asset_id,updated_at,id"`
 	BusinessObjectTime struct{} `index:"business_object_id,updated_at,id"`

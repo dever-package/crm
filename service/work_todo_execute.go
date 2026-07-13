@@ -10,14 +10,12 @@ import (
 )
 
 type workOperationCompletion struct {
-	customerID       uint64
-	assetID          uint64
-	businessObjectID uint64
-	operationID      uint64
-	task             *crmmodel.Task
-	formInput        *workFormInput
-	resultValue      string
-	todoID           uint64
+	ownership   workDataOwnership
+	operationID uint64
+	task        *crmmodel.Task
+	formInput   *workFormInput
+	resultValue string
+	todoID      uint64
 }
 
 func pendingTodoTaskForStaff(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (*crmmodel.WorkTodo, *crmmodel.Task, error) {
@@ -133,14 +131,6 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 	if err := saveWorkFormInput(ctx, todo.CustomerID, todo.AssetID, formInput); err != nil {
 		return nil, err
 	}
-	businessObjectID := firstUint64(values, "business_object_id", "businessObjectId")
-	if businessObjectID > 0 && !workCustomerOwnsBusinessObject(ctx, todo.CustomerID, todo.AssetID, businessObjectID) {
-		return nil, fmt.Errorf("业务对象不存在")
-	}
-	businessObjectID, _, err = ensureWorkFormBusinessObject(ctx, staff, todo.CustomerID, todo.AssetID, businessObjectID, formInput)
-	if err != nil {
-		return nil, err
-	}
 	resultValue := "submitted"
 	resultText := firstText(values, "result", "remark")
 	if progressOnly {
@@ -153,16 +143,22 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 	if operationID == 0 {
 		return nil, fmt.Errorf("任务操作记录创建失败")
 	}
-	saveWorkFormObjectDataRecords(ctx, todo.CustomerID, todo.AssetID, businessObjectID, task.ID, operationID, formInput)
+	ownership := workDataOwnership{
+		CustomerID:         todo.CustomerID,
+		AssetID:            todo.AssetID,
+		WorkflowInstanceID: todo.WorkflowInstanceID,
+		CustomerProductID:  todo.CustomerProductID,
+	}
+	if err := saveWorkFormDataRecords(ctx, ownership, task.ID, operationID, formInput); err != nil {
+		return nil, err
+	}
 	syncWorkFinanceLedgers(ctx, staff, workOperationCompletion{
-		customerID:       todo.CustomerID,
-		assetID:          todo.AssetID,
-		businessObjectID: businessObjectID,
-		operationID:      operationID,
-		task:             task,
-		formInput:        formInput,
-		resultValue:      resultValue,
-		todoID:           todo.ID,
+		ownership:   ownership,
+		operationID: operationID,
+		task:        task,
+		formInput:   formInput,
+		resultValue: resultValue,
+		todoID:      todo.ID,
 	})
 	if progressOnly {
 		crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
@@ -176,7 +172,8 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 			return nil, err
 		}
 		result := workTodoExecutionResult(todo, operationID, resultValue, true)
-		result["business_object_id"] = businessObjectID
+		result["workflow_instance_id"] = todo.WorkflowInstanceID
+		result["customer_product_id"] = todo.CustomerProductID
 		return result, nil
 	}
 	if resultText == "" {
@@ -189,7 +186,8 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 		return nil, err
 	}
 	result := workTodoExecutionResult(todo, operationID, resultValue, false)
-	result["business_object_id"] = businessObjectID
+	result["workflow_instance_id"] = todo.WorkflowInstanceID
+	result["customer_product_id"] = todo.CustomerProductID
 	return result, nil
 }
 

@@ -276,32 +276,37 @@ func ensureCurrentWorkEntryInstance(ctx context.Context, _ *WorkStaffSession, cu
 	return currentWorkEntryInstance(ctx, customerID, assetID)
 }
 
-func saveWorkDataRecord(ctx context.Context, customerID uint64, assetID uint64, templateID uint64, taskID uint64, operationID uint64, record map[string]any) {
-	saveWorkObjectDataRecord(ctx, customerID, assetID, 0, templateID, taskID, operationID, record)
+type workDataOwnership struct {
+	CustomerID         uint64
+	AssetID            uint64
+	WorkflowInstanceID uint64
+	CustomerProductID  uint64
 }
 
-func saveWorkObjectDataRecord(ctx context.Context, customerID uint64, assetID uint64, businessObjectID uint64, templateID uint64, taskID uint64, operationID uint64, record map[string]any) {
+func saveWorkDataRecord(ctx context.Context, ownership workDataOwnership, templateID uint64, taskID uint64, operationID uint64, record map[string]any) {
 	now := time.Now()
 	data := map[string]any{
-		"customer_id":        customerID,
-		"asset_id":           assetID,
-		"business_object_id": businessObjectID,
-		"data_template_id":   templateID,
-		"task_id":            taskID,
-		"operation_log_id":   operationID,
-		"record_json":        jsonText(record),
-		"summary":            "",
-		"status":             crmmodel.StatusEnabled,
-		"sort":               100,
-		"updated_at":         now,
+		"customer_id":          ownership.CustomerID,
+		"asset_id":             ownership.AssetID,
+		"workflow_instance_id": ownership.WorkflowInstanceID,
+		"customer_product_id":  ownership.CustomerProductID,
+		"data_template_id":     templateID,
+		"task_id":              taskID,
+		"operation_log_id":     operationID,
+		"record_json":          jsonText(record),
+		"summary":              "",
+		"status":               crmmodel.StatusEnabled,
+		"sort":                 100,
+		"updated_at":           now,
 	}
 	model := crmmodel.NewDataRecordModel()
 	existing := model.Find(ctx, map[string]any{
-		"customer_id":        customerID,
-		"asset_id":           assetID,
-		"business_object_id": businessObjectID,
-		"data_template_id":   templateID,
-		"status":             crmmodel.StatusEnabled,
+		"customer_id":          ownership.CustomerID,
+		"asset_id":             ownership.AssetID,
+		"workflow_instance_id": ownership.WorkflowInstanceID,
+		"customer_product_id":  ownership.CustomerProductID,
+		"data_template_id":     templateID,
+		"status":               crmmodel.StatusEnabled,
 	})
 	if existing != nil {
 		merged := mapFromAny(existing.RecordJSON)
@@ -310,17 +315,17 @@ func saveWorkObjectDataRecord(ctx context.Context, customerID uint64, assetID ui
 		}
 		data["record_json"] = jsonText(merged)
 		model.Update(ctx, map[string]any{"id": existing.ID}, data)
-		syncWorkStatFieldValues(ctx, customerID, assetID, businessObjectID, templateID, taskID, operationID, record, now)
+		syncWorkStatFieldValues(ctx, ownership, templateID, taskID, operationID, record, now)
 		return
 	}
 	data["created_at"] = now
 	model.Insert(ctx, data)
-	syncWorkStatFieldValues(ctx, customerID, assetID, businessObjectID, templateID, taskID, operationID, record, now)
+	syncWorkStatFieldValues(ctx, ownership, templateID, taskID, operationID, record, now)
 }
 
-func syncWorkStatFieldValues(ctx context.Context, customerID uint64, assetID uint64, businessObjectID uint64, templateID uint64, taskID uint64, operationID uint64, record map[string]any, changedAt time.Time) {
+func syncWorkStatFieldValues(ctx context.Context, ownership workDataOwnership, templateID uint64, taskID uint64, operationID uint64, record map[string]any, changedAt time.Time) {
 	defer func() { _ = recover() }()
-	if customerID == 0 || templateID == 0 || len(record) == 0 {
+	if ownership.CustomerID == 0 || templateID == 0 || len(record) == 0 {
 		return
 	}
 	model := crmmodel.NewStatFieldValueModel()
@@ -342,9 +347,7 @@ func syncWorkStatFieldValues(ctx context.Context, customerID uint64, assetID uin
 			continue
 		}
 		data := workStatFieldValueRecord(
-			customerID,
-			assetID,
-			businessObjectID,
+			ownership,
 			templateID,
 			taskID,
 			operationID,
@@ -355,10 +358,11 @@ func syncWorkStatFieldValues(ctx context.Context, customerID uint64, assetID uin
 			changedAt,
 		)
 		existing := model.Find(ctx, map[string]any{
-			"customer_id":        customerID,
-			"asset_id":           assetID,
-			"business_object_id": businessObjectID,
-			"data_field_id":      field.ID,
+			"customer_id":          ownership.CustomerID,
+			"asset_id":             ownership.AssetID,
+			"workflow_instance_id": ownership.WorkflowInstanceID,
+			"customer_product_id":  ownership.CustomerProductID,
+			"data_field_id":        field.ID,
 		})
 		if existing != nil {
 			model.Update(ctx, map[string]any{"id": existing.ID}, data)
@@ -370,9 +374,7 @@ func syncWorkStatFieldValues(ctx context.Context, customerID uint64, assetID uin
 }
 
 func workStatFieldValueRecord(
-	customerID uint64,
-	assetID uint64,
-	businessObjectID uint64,
+	ownership workDataOwnership,
 	templateID uint64,
 	taskID uint64,
 	operationID uint64,
@@ -396,26 +398,27 @@ func workStatFieldValueRecord(
 		statGroup = usage.Name
 	}
 	return map[string]any{
-		"customer_id":        customerID,
-		"asset_id":           assetID,
-		"business_object_id": businessObjectID,
-		"data_template_id":   templateID,
-		"data_field_id":      field.ID,
-		"field_key":          field.FieldKey,
-		"field_name":         displayName,
-		"field_type":         field.FieldType,
-		"stat_type":          valueType,
-		"stat_group":         statGroup,
-		"value_text":         valueText,
-		"value_number":       workStatNumberValue(field, valueType, value),
-		"value_date":         workStatDateValue(field, valueType, value),
-		"value_bool":         booleanFromAny(value),
-		"value_json":         workStatJSONValue(value),
-		"source":             crmmodel.StatValueSourceForm,
-		"task_id":            taskID,
-		"operation_log_id":   operationID,
-		"status":             crmmodel.StatusEnabled,
-		"updated_at":         changedAt,
+		"customer_id":          ownership.CustomerID,
+		"asset_id":             ownership.AssetID,
+		"workflow_instance_id": ownership.WorkflowInstanceID,
+		"customer_product_id":  ownership.CustomerProductID,
+		"data_template_id":     templateID,
+		"data_field_id":        field.ID,
+		"field_key":            field.FieldKey,
+		"field_name":           displayName,
+		"field_type":           field.FieldType,
+		"stat_type":            valueType,
+		"stat_group":           statGroup,
+		"value_text":           valueText,
+		"value_number":         workStatNumberValue(field, valueType, value),
+		"value_date":           workStatDateValue(field, valueType, value),
+		"value_bool":           booleanFromAny(value),
+		"value_json":           workStatJSONValue(value),
+		"source":               crmmodel.StatValueSourceForm,
+		"task_id":              taskID,
+		"operation_log_id":     operationID,
+		"status":               crmmodel.StatusEnabled,
+		"updated_at":           changedAt,
 	}
 }
 

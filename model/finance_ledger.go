@@ -30,7 +30,7 @@ type FinanceLedger struct {
 }
 
 type FinanceLedgerIndex struct {
-	OperationField     struct{} `index:"operation_log_id,data_field_id,source"`
+	OperationField     struct{} `unique:"workflow_instance_id,operation_log_id,data_field_id,source"`
 	CustomerTime       struct{} `index:"customer_id,created_at,id"`
 	AssetTime          struct{} `index:"asset_id,created_at,id"`
 	BusinessObjectTime struct{} `index:"business_object_id,created_at,id"`

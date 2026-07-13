@@ -17,7 +17,8 @@ func (Data) GetSection(c *server.Context) error {
 		customerID = crmapi.Uint64FromInput(c.Input("id"))
 	}
 	assetID := crmapi.Uint64FromInput(c.Input("asset_id"))
-	data, err := dataRecordService.Section(c.Context(), customerID, assetID)
+	workflowInstanceID := crmapi.Uint64FromInput(c.Input("workflow_instance_id"))
+	data, err := dataRecordService.Section(c.Context(), customerID, assetID, workflowInstanceID)
 	return crmapi.WriteJSON(c, data, err)
 }
 
