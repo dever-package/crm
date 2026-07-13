@@ -30,11 +30,13 @@ type ScriptDryRunRequest struct {
 }
 
 type TaskRuleResult struct {
-	Passed     bool
-	Value      string
-	Reason     string
-	RawResult  any
-	DurationMS int64
+	Passed       bool
+	Value        string
+	Reason       string
+	OutputFields map[string]any
+	ProductCodes []string
+	RawResult    any
+	DurationMS   int64
 }
 
 func NewRuleService() RuleService {
@@ -97,24 +99,44 @@ func normalizeTaskRuleResult(value any) TaskRuleResult {
 	if len(payload) == 0 {
 		return TaskRuleResult{Reason: "规则必须返回 true/false、{ passed, reason } 或 { value, reason }"}
 	}
+	outputFields := mapFromAny(firstPresent(payload, "fields", "output_fields", "outputFields"))
+	productCodes := taskRuleProductCodes(payload)
 	if _, exists := payload["passed"]; exists {
 		return TaskRuleResult{
-			Passed: booleanFromAny(payload["passed"]),
-			Value:  firstText(payload, "value", "result"),
-			Reason: firstText(payload, "reason", "message"),
+			Passed:       booleanFromAny(payload["passed"]),
+			Value:        firstText(payload, "value", "result"),
+			Reason:       firstText(payload, "reason", "message"),
+			OutputFields: outputFields,
+			ProductCodes: productCodes,
 		}
 	}
 	resultValue := firstText(payload, "value", "result")
 	if resultValue != "" {
 		return TaskRuleResult{
-			Passed: true,
-			Value:  resultValue,
-			Reason: firstText(payload, "reason", "message"),
+			Passed:       true,
+			Value:        resultValue,
+			Reason:       firstText(payload, "reason", "message"),
+			OutputFields: outputFields,
+			ProductCodes: productCodes,
 		}
 	}
 	return TaskRuleResult{
 		Reason: "规则必须返回 true/false、{ passed, reason } 或 { value, reason }",
 	}
+}
+
+func taskRuleProductCodes(payload map[string]any) []string {
+	raw, exists := payload["product_codes"]
+	if !exists {
+		raw, exists = payload["productCodes"]
+	}
+	if !exists {
+		return nil
+	}
+	values := stringListFromAny(raw)
+	result := make([]string, len(values))
+	copy(result, values)
+	return result
 }
 
 func (RuleService) DryRun(ctx context.Context, req ScriptDryRunRequest) (map[string]any, error) {
@@ -175,6 +197,10 @@ func (RuleService) DryRun(ctx context.Context, req ScriptDryRunRequest) (map[str
 	response["passed"] = result.Passed
 	response["value"] = result.Value
 	response["reason"] = result.Reason
+	response["fields"] = result.OutputFields
+	if result.ProductCodes != nil {
+		response["product_codes"] = result.ProductCodes
+	}
 	response["raw_result"] = result.RawResult
 	response["duration_ms"] = result.DurationMS
 	return response, nil

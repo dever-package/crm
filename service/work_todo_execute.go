@@ -326,13 +326,69 @@ func executePendingRuleTodo(ctx context.Context, todo *crmmodel.WorkTodo, task *
 		resultText = "自动核验通过"
 	}
 	operationID := recordWorkTaskOperation(ctx, nil, todo, task, "passed", resultText, map[string]any{
-		"raw_result":  result.RawResult,
-		"duration_ms": result.DurationMS,
+		"raw_result":    result.RawResult,
+		"duration_ms":   result.DurationMS,
+		"fields":        result.OutputFields,
+		"product_codes": result.ProductCodes,
 	}, true)
 	if operationID == 0 {
 		return fmt.Errorf("自动核验记录创建失败")
 	}
+	if err := applyTaskRuleOutputs(ctx, todo, task, operationID, result); err != nil {
+		return err
+	}
 	return completeWorkTodo(ctx, todo, resultText)
+}
+
+func applyTaskRuleOutputs(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.Task, operationID uint64, result TaskRuleResult) error {
+	if todo == nil || task == nil {
+		return fmt.Errorf("自动核验任务不存在")
+	}
+	formInput := emptyWorkFormInput()
+	for fieldKey, value := range result.OutputFields {
+		fieldKey = strings.TrimSpace(fieldKey)
+		if fieldKey == "" {
+			continue
+		}
+		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+			"field_key": fieldKey,
+			"status":    crmmodel.StatusEnabled,
+		})
+		if field == nil || field.FieldType == "group" {
+			return fmt.Errorf("规则输出字段不存在或不可写：%s", fieldKey)
+		}
+		template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{
+			"id":     field.DataTemplateID,
+			"status": crmmodel.StatusEnabled,
+		})
+		if template == nil || template.CateID == crmmodel.LeadDataTemplateCateID {
+			return fmt.Errorf("规则输出字段没有可写的数据模板：%s", fieldKey)
+		}
+		formField := &crmmodel.FormField{
+			DataTemplateCateID: template.CateID,
+			DataTemplateID:     template.ID,
+			DataFieldID:        field.ID,
+		}
+		records := workFormRecordBucket(ctx, formInput, formField)
+		if records[template.ID] == nil {
+			records[template.ID] = map[string]any{}
+		}
+		records[template.ID][fmt.Sprintf("%d", field.ID)] = value
+	}
+	if err := saveWorkFormDataRecords(ctx, workDataOwnership{
+		CustomerID:         todo.CustomerID,
+		AssetID:            todo.AssetID,
+		WorkflowInstanceID: todo.WorkflowInstanceID,
+		CustomerProductID:  todo.CustomerProductID,
+	}, task.ID, operationID, formInput); err != nil {
+		return err
+	}
+	if result.ProductCodes != nil {
+		if err := SyncCandidateCustomerProducts(ctx, todo.WorkflowInstanceID, result.ProductCodes); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func taskRuleResultText(result TaskRuleResult) string {
