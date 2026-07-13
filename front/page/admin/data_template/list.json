@@ -120,6 +120,10 @@
           "searchLayoutId": "toolbar-row",
           "tabs": [
             {
+              "label": "线索信息",
+              "value": 4
+            },
+            {
               "label": "客户信息",
               "value": 1
             },

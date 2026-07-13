@@ -1,0 +1,200 @@
+{
+  "page": {
+    "name": "线索信息",
+    "icon": "users-round",
+    "parent": "crm-customer-manage",
+    "sort": 0
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": {
+        "type": "header"
+      },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5",
+        "children": {
+          "toolbar-row": {
+            "type": "row",
+            "className": "flex-wrap items-center gap-2.5"
+          },
+          "table-row": {
+            "type": "container",
+            "className": "overflow-hidden rounded-md border bg-background"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      {
+        "type": "show-title",
+        "value": "page"
+      }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-input",
+        "placeholder": "搜索编号、姓名、手机、微信或诉求...",
+        "value": "search.keyword",
+        "mode": "search"
+      },
+      {
+        "type": "form-select",
+        "placeholder": "状态",
+        "value": "search.status",
+        "mode": "search"
+      },
+      {
+        "type": "form-select",
+        "placeholder": "来源",
+        "value": "search.source_id",
+        "mode": "search",
+        "option": {
+          "model": "crm.NewCustomerSourceModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "filters": {
+            "status": 1
+          }
+        }
+      },
+      {
+        "type": "form-select",
+        "placeholder": "渠道",
+        "value": "search.channel_id",
+        "mode": "search",
+        "option": {
+          "model": "crm.NewCustomerChannelModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "filters": {
+            "status": 1
+          }
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": {
+          "variant": "default",
+          "size": "sm",
+          "searchSubmit": true
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "重置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "to": "/crm/lead/list"
+        }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "rowKey": "id",
+          "columns": [
+            {
+              "value": "code",
+              "type": "show-base"
+            },
+            {
+              "value": "name",
+              "type": "show-base"
+            },
+            {
+              "value": "phone",
+              "type": "show-base"
+            },
+            {
+              "value": "wechat",
+              "type": "show-base"
+            },
+            {
+              "name": "来源",
+              "value": "source_name",
+              "type": "show-base"
+            },
+            {
+              "name": "渠道",
+              "value": "channel_name",
+              "type": "show-base"
+            },
+            {
+              "value": "city",
+              "type": "show-base"
+            },
+            {
+              "value": "initial_need",
+              "type": "show-base",
+              "className": "max-w-[280px]"
+            },
+            {
+              "value": "status",
+              "type": "show-tag"
+            },
+            {
+              "name": "负责人",
+              "value": "owner_staff_name",
+              "type": "show-base"
+            },
+            {
+              "name": "转化客户",
+              "value": "customer_name",
+              "type": "show-base"
+            },
+            {
+              "value": "created_at",
+              "type": "show-date"
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-page"
+      }
+    ]
+  },
+  "data": {
+    "search": {
+      "keyword": "",
+      "status": "",
+      "source_id": "",
+      "channel_id": ""
+    },
+    "table": {
+      "pageSize": 20,
+      "service": "crm.setting.CrmHook.BuildLeadRows",
+      "searchFields": [
+        "code",
+        "name",
+        "phone",
+        "wechat",
+        "external_id",
+        "city",
+        "initial_need"
+      ],
+      "filterFields": [
+        "status",
+        "source_id",
+        "channel_id"
+      ]
+    }
+  },
+  "state": {},
+  "action": {}
+}

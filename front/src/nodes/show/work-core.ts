@@ -185,7 +185,24 @@ export type WorkCustomer = {
   data_value_labels?: Record<string, string>;
   display_fields?: WorkDisplayField[];
   data_completeness?: WorkDataCompletenessTemplate[];
+  source_lead?: WorkSourceLead;
   [key: string]: unknown;
+};
+
+export type WorkSourceLead = {
+  id?: string | number;
+  code?: string;
+  name?: string;
+  phone?: string;
+  wechat?: string;
+  source_name?: string;
+  channel_name?: string;
+  external_id?: string;
+  city?: string;
+  initial_need?: string;
+  created_at?: string;
+  converted_at?: string;
+  data_values?: Record<string, unknown>;
 };
 
 export type WorkAsset = {
@@ -450,7 +467,7 @@ export type WorkDetailField = {
 export type WorkDetailSection = {
   id: string;
   name: string;
-  targetType: "customer" | "asset" | "workflow";
+  targetType: "lead" | "customer" | "asset" | "workflow";
   templateId?: string | number;
   workflowInstanceId?: string | number;
   customerProductId?: string | number;
@@ -1030,7 +1047,9 @@ export function normalizeWorkDetailSections(
   return value.filter(workIsRecord).map((section) => {
     const rawTargetType = textValue(section.target_type);
     const targetType: WorkDetailSection["targetType"] =
-      rawTargetType === "asset" || rawTargetType === "workflow"
+      rawTargetType === "lead" ||
+      rawTargetType === "asset" ||
+      rawTargetType === "workflow"
         ? rawTargetType
         : "customer";
     return {

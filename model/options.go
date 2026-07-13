@@ -353,6 +353,12 @@ var customerChannelRelation = orm.Relation{
 	OptionKeys: []string{"name", "code"},
 }
 
+var leadInvalidReasonRelation = orm.Relation{
+	Field:      "invalid_reason_id",
+	Option:     "crm.NewLeadInvalidReasonModel",
+	OptionKeys: []string{"name"},
+}
+
 var customerLevelRelation = orm.Relation{
 	Field:      "level_id",
 	Option:     "crm.NewCustomerLevelModel",

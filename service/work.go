@@ -374,6 +374,13 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 	if len(customer) == 0 {
 		return nil, fmt.Errorf("客户不存在")
 	}
+	sourceLead := crmmodel.NewLeadModel().Find(ctx, map[string]any{
+		"customer_id": customerID,
+		"status":      crmmodel.LeadStatusConverted,
+	}, map[string]any{"order": "converted_at desc,id desc"})
+	if sourceLead != nil {
+		customer["source_lead"] = workLeadRow(ctx, sourceLead)
+	}
 
 	assetID := firstUint64(payload, "asset_id", "assetId")
 	asset := map[string]any(nil)
@@ -395,12 +402,21 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 	if err != nil {
 		return nil, err
 	}
-	detailSections := workDataDetailSections(
+	detailSections := []map[string]any{}
+	if sourceLead != nil {
+		detailSections = append(detailSections, workDataDetailSections(
+			ctx,
+			crmmodel.DataTemplateTargetLead,
+			crmmodel.LeadDataTemplateCateID,
+			workLeadDataValues(sourceLead),
+		)...)
+	}
+	detailSections = append(detailSections, workDataDetailSections(
 		ctx,
 		crmmodel.DataTemplateTargetCustomer,
 		crmmodel.CustomerDataTemplateCateID,
 		mapFromAny(customer["data_values"]),
-	)
+	)...)
 	if len(asset) > 0 {
 		detailSections = append(detailSections, workDataDetailSections(
 			ctx,

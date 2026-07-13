@@ -57,5 +57,14 @@ func NewLeadModel() *orm.Model[Lead] {
 		Options: map[string]any{
 			"status": leadStatusOptions,
 		},
+		Relations: []orm.Relation{
+			customerSourceRelation,
+			customerChannelRelation,
+			leadInvalidReasonRelation,
+			customerRelation,
+			ownerDepartmentRelation,
+			ownerStaffRelation,
+			createdByStaffRelation,
+		},
 	})
 }

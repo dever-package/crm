@@ -3391,6 +3391,7 @@ function WorkCustomerOverview({
   );
   const completenessPercent = workOverviewAverageCompleteness(completenessItems);
   const latestOperations = workOverviewLatestOperations(operations);
+  const sourceLead = customer.source_lead;
 
   return (
     <div className="grid gap-5">
@@ -3440,6 +3441,8 @@ function WorkCustomerOverview({
                   displayText(customer.level_name || customer.customer_level),
                 ],
                 ["资产", primaryAsset ? assetTitle(primaryAsset) : "未录入资产"],
+                ["来源线索", sourceLead?.code],
+                ["线索初始诉求", sourceLead?.initial_need],
                 [
                   "资产状态",
                   primaryAsset

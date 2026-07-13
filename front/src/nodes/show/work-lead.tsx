@@ -31,6 +31,11 @@ import {
   workApi,
   workRefreshEvent,
 } from "./work-core";
+import {
+  initialWorkLeadTemplateValues,
+  WorkLeadTemplateFields,
+  type WorkLeadTemplate,
+} from "./work-lead-template-fields";
 
 type WorkLeadOption = {
   id?: string | number;
@@ -69,6 +74,7 @@ type WorkLeadPoolResponse = {
   channels?: WorkLeadOption[];
   invalid_reasons?: WorkLeadOption[];
   statuses?: WorkLeadOption[];
+  templates?: WorkLeadTemplate[];
 };
 
 type LeadDraft = {
@@ -80,6 +86,7 @@ type LeadDraft = {
   externalID: string;
   city: string;
   initialNeed: string;
+  dataValues: Record<string, unknown>;
 };
 
 const emptyLeadDraft: LeadDraft = {
@@ -91,6 +98,7 @@ const emptyLeadDraft: LeadDraft = {
   externalID: "",
   city: "",
   initialNeed: "",
+  dataValues: {},
 };
 
 export function ShowCrmWorkLeadPool() {
@@ -259,6 +267,7 @@ export function ShowCrmWorkLeadPool() {
         open={createOpen}
         sources={options.sources || []}
         channels={options.channels || []}
+        templates={options.templates || []}
         submitting={submitting}
         onOpenChange={setCreateOpen}
         onCreated={async () => {
@@ -351,10 +360,11 @@ function LeadActions({ lead, submitting, onAction, onInvalid }: WorkLeadRowProps
   );
 }
 
-function CreateLeadDialog({ open, sources, channels, submitting, onOpenChange, onCreated, setSubmitting }: {
+function CreateLeadDialog({ open, sources, channels, templates, submitting, onOpenChange, onCreated, setSubmitting }: {
   open: boolean;
   sources: WorkLeadOption[];
   channels: WorkLeadOption[];
+  templates: WorkLeadTemplate[];
   submitting: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => Promise<void>;
@@ -368,8 +378,9 @@ function CreateLeadDialog({ open, sources, channels, submitting, onOpenChange, o
       ...emptyLeadDraft,
       sourceID: textValue(sources[0]?.id),
       channelID: textValue(channels[0]?.id),
+      dataValues: initialWorkLeadTemplateValues(templates),
     });
-  }, [channels, open, sources]);
+  }, [channels, open, sources, templates]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -386,6 +397,7 @@ function CreateLeadDialog({ open, sources, channels, submitting, onOpenChange, o
           external_id: draft.externalID,
           city: draft.city,
           initial_need: draft.initialNeed,
+          data_values: draft.dataValues,
         }),
       });
       toast.success(textValue(payload.lead?.status) === "duplicate" ? "线索已录入，并标记为重复" : "线索已录入");
@@ -410,6 +422,11 @@ function CreateLeadDialog({ open, sources, channels, submitting, onOpenChange, o
           <LeadField label="渠道"><select className={inputClassName} value={draft.channelID} onChange={(event) => setDraft({ ...draft, channelID: event.target.value })}>{channels.map((option) => <option key={textValue(option.id)} value={textValue(option.id)}>{displayText(option.name)}</option>)}</select></LeadField>
           <LeadField label="外部线索ID"><Input placeholder="请输入外部线索ID" value={draft.externalID} onChange={(event) => setDraft({ ...draft, externalID: event.target.value })} /></LeadField>
           <LeadField label="初始诉求" className="crm-work-lead-form-wide"><textarea className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20" placeholder="请输入初始诉求" value={draft.initialNeed} onChange={(event) => setDraft({ ...draft, initialNeed: event.target.value })} /></LeadField>
+          <WorkLeadTemplateFields
+            templates={templates}
+            values={draft.dataValues}
+            onChange={(dataValues) => setDraft({ ...draft, dataValues })}
+          />
           <div className="crm-work-lead-form-actions"><Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>取消</Button><Button type="submit" disabled={submitting || !draft.name.trim() || (!draft.phone.trim() && !draft.wechat.trim())}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}确认录入</Button></div>
         </form>
       </DialogContent>

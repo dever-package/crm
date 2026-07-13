@@ -278,6 +278,34 @@ function workCustomerDetailSections(
   asset: WorkAsset | undefined,
   sections: WorkDetailSection[],
 ): WorkDetailSection[] {
+  const sourceLead = customer.source_lead;
+  const sourceSections = sections.filter(
+    (section) => section.targetType === "lead",
+  );
+  const customerSections = sections.filter(
+    (section) => section.targetType !== "lead",
+  );
+  const leadBaseSection: WorkDetailSection | null = sourceLead
+    ? {
+      id: "base:lead",
+      name: "来源线索",
+      targetType: "lead",
+      filled: 0,
+      total: 0,
+      percent: 0,
+      fields: [
+        workBaseDetailField("线索编号", sourceLead.code),
+        workBaseDetailField("姓名", sourceLead.name),
+        workBaseDetailField("手机号", sourceLead.phone),
+        workBaseDetailField("微信", sourceLead.wechat),
+        workBaseDetailField("来源", sourceLead.source_name),
+        workBaseDetailField("渠道", sourceLead.channel_name),
+        workBaseDetailField("外部线索ID", sourceLead.external_id),
+        workBaseDetailField("城市", sourceLead.city),
+        workBaseDetailField("初始诉求", sourceLead.initial_need),
+      ],
+    }
+    : null;
   const baseSections: WorkDetailSection[] = [
     {
       id: "base:customer",
@@ -312,7 +340,15 @@ function workCustomerDetailSections(
       ],
     });
   }
-  return [...baseSections.map(workDetailSectionProgress), ...sections];
+  if (!leadBaseSection) {
+    return [...baseSections.map(workDetailSectionProgress), ...customerSections];
+  }
+  return [
+    workDetailSectionProgress(leadBaseSection),
+    ...sourceSections,
+    ...baseSections.map(workDetailSectionProgress),
+    ...customerSections,
+  ];
 }
 
 function workBaseDetailField(label: string, value: unknown): WorkDetailField {

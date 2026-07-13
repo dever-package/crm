@@ -30,6 +30,7 @@ func (WorkService) LeadPool(ctx context.Context, staff *WorkStaffSession, payloa
 			"channels":        workLeadChannelOptions(ctx),
 			"invalid_reasons": workLeadInvalidReasonOptions(ctx),
 			"statuses":        workLeadStatusOptions(),
+			"templates":       workLeadTemplateRows(ctx),
 		}, nil
 	}
 
@@ -66,6 +67,7 @@ func (WorkService) LeadPool(ctx context.Context, staff *WorkStaffSession, payloa
 		"channels":        workLeadChannelOptions(ctx),
 		"invalid_reasons": workLeadInvalidReasonOptions(ctx),
 		"statuses":        workLeadStatusOptions(),
+		"templates":       workLeadTemplateRows(ctx),
 	}, nil
 }
 
@@ -116,6 +118,7 @@ func (WorkService) RegisterLead(ctx context.Context, staff *WorkStaffSession, pa
 			duplicateReason = duplicate.Reason
 		}
 		now := time.Now()
+		dataValues := workLeadInputDataValues(txCtx, payload)
 		leadID := uint64(crmmodel.NewLeadModel().Insert(txCtx, map[string]any{
 			"code":                  code,
 			"name":                  name,
@@ -133,7 +136,7 @@ func (WorkService) RegisterLead(ctx context.Context, staff *WorkStaffSession, pa
 			"invalid_reason_id":     uint64(0),
 			"invalid_note":          "",
 			"customer_id":           uint64(0),
-			"record_json":           jsonText(payload),
+			"record_json":           jsonText(map[string]any{"data_values": dataValues}),
 			"owner_department_id":   staff.DepartmentID,
 			"owner_staff_id":        staff.ID,
 			"created_by_staff_id":   staff.ID,
@@ -509,6 +512,7 @@ func workLeadRow(ctx context.Context, lead *crmmodel.Lead) map[string]any {
 		"converted_at":          lead.ConvertedAt,
 		"created_at":            lead.CreatedAt,
 		"updated_at":            lead.UpdatedAt,
+		"data_values":           workLeadDataValues(lead),
 	}
 	if source := crmmodel.NewCustomerSourceModel().Find(ctx, map[string]any{"id": lead.SourceID}); source != nil {
 		row["source_name"] = source.Name
@@ -531,6 +535,143 @@ func workLeadRow(ctx context.Context, lead *crmmodel.Lead) map[string]any {
 		row["owner_staff_name"] = owner.Name
 	}
 	return row
+}
+
+func workLeadTemplateRows(ctx context.Context) []map[string]any {
+	templates := crmmodel.NewDataTemplateModel().Select(ctx, map[string]any{
+		"cate_id": crmmodel.LeadDataTemplateCateID,
+		"status":  crmmodel.StatusEnabled,
+	}, map[string]any{"order": "sort asc,id asc"})
+	rows := make([]map[string]any, 0, len(templates))
+	for _, template := range templates {
+		if template == nil {
+			continue
+		}
+		fields := crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
+			"data_template_id": template.ID,
+			"status":           crmmodel.StatusEnabled,
+		}, map[string]any{"order": "sort asc,id asc"})
+		fieldRows := make([]map[string]any, 0, len(fields))
+		parentNames := workDataCompletenessParentNames(ctx, fields)
+		for _, field := range fields {
+			if field == nil || field.FieldType == "group" || workIsAttachmentFieldType(field.FieldType) {
+				continue
+			}
+			fieldRows = append(fieldRows, map[string]any{
+				"id":            field.ID,
+				"name":          field.Name,
+				"field_key":     field.FieldKey,
+				"field_type":    field.FieldType,
+				"default_value": field.DefaultValue,
+				"group_name":    parentNames[field.ParentFieldID],
+				"sort":          field.Sort,
+				"options":       workDataFieldOptionsForField(ctx, field),
+			})
+		}
+		if len(fieldRows) == 0 {
+			continue
+		}
+		rows = append(rows, map[string]any{
+			"id":     template.ID,
+			"name":   template.Name,
+			"sort":   template.Sort,
+			"fields": fieldRows,
+		})
+	}
+	return rows
+}
+
+func workLeadInputDataValues(ctx context.Context, payload map[string]any) map[string]any {
+	input := mapFromAny(firstPresent(payload, "data_values", "dataValues"))
+	if len(input) == 0 {
+		return map[string]any{}
+	}
+	result := map[string]any{}
+	for _, template := range workLeadTemplateRows(ctx) {
+		for _, fieldRow := range mapListFromAny(template["fields"]) {
+			fieldID := inputUint64(fieldRow["id"])
+			if fieldID == 0 {
+				continue
+			}
+			key := fmt.Sprintf("data:%d", fieldID)
+			value, exists := input[key]
+			if !exists || emptyWorkFieldValue(value) {
+				continue
+			}
+			if normalized, ok := normalizeWorkLeadFieldValue(fieldRow, value); ok {
+				result[key] = normalized
+			}
+		}
+	}
+	return result
+}
+
+func normalizeWorkLeadFieldValue(field map[string]any, value any) (any, bool) {
+	fieldType := inputText(field["field_type"])
+	switch fieldType {
+	case "checkbox", "multi_select":
+		values := stringListFromAny(value)
+		return values, workLeadOptionValuesAllowed(field, values)
+	case "select", "radio":
+		text := inputText(value)
+		return text, text != "" && workLeadOptionValuesAllowed(field, []string{text})
+	case "boolean":
+		switch value.(type) {
+		case bool:
+			return value, true
+		default:
+			text := strings.ToLower(inputText(value))
+			if text == "true" || text == "1" {
+				return true, true
+			}
+			if text == "false" || text == "0" {
+				return false, true
+			}
+			return nil, false
+		}
+	default:
+		text := inputText(value)
+		return text, text != ""
+	}
+}
+
+func workLeadOptionValuesAllowed(field map[string]any, values []string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	allowed := map[string]bool{}
+	for _, option := range mapListFromAny(field["options"]) {
+		value := inputText(option["value"])
+		if value != "" {
+			allowed[value] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return false
+	}
+	for _, value := range values {
+		if !allowed[value] {
+			return false
+		}
+	}
+	return true
+}
+
+func workLeadDataValues(lead *crmmodel.Lead) map[string]any {
+	if lead == nil {
+		return map[string]any{}
+	}
+	record := mapFromAny(lead.RecordJSON)
+	if values := mapFromAny(record["data_values"]); len(values) > 0 {
+		return values
+	}
+	values := map[string]any{}
+	for key, value := range record {
+		if strings.HasPrefix(key, "data:") {
+			values[key] = value
+		}
+	}
+	return values
 }
 
 func workLeadSourceOptions(ctx context.Context) []map[string]any {
