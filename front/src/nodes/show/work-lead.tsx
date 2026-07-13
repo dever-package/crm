@@ -63,6 +63,7 @@ type WorkLead = {
   invalid_note?: string;
   customer_id?: string | number;
   customer_code?: string;
+  customer_code_display?: string;
   customer_name?: string;
   created_at?: string;
 };
@@ -356,7 +357,7 @@ function LeadStatus({ lead }: { lead: WorkLead }) {
       <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${leadStatusClass(status)}`}>{displayText(lead.status_name)}</span>
       {lead.duplicate_reason ? <p className="mt-1 break-words text-xs text-amber-700">{lead.duplicate_reason}</p> : null}
       {lead.invalid_reason_name ? <p className="mt-1 break-words text-xs text-muted-foreground">{lead.invalid_reason_name}{lead.invalid_note ? `：${lead.invalid_note}` : ""}</p> : null}
-      {status === "converted" ? <p className="mt-1 break-words text-xs text-muted-foreground">{displayText(lead.customer_code || lead.customer_name)}</p> : null}
+      {status === "converted" ? <p className="mt-1 break-words text-xs text-muted-foreground">{displayText(lead.customer_code_display || lead.customer_code || lead.customer_name)}</p> : null}
     </div>
   );
 }
@@ -371,8 +372,8 @@ function LeadActions({ lead, submitting, onAction, onConvert, onInvalid }: WorkL
           <Button type="button" variant="ghost" size="sm" disabled={submitting} onClick={() => onInvalid(lead)}><Ban className="h-4 w-4" />判无效</Button>
         </>
       ) : null}
-      {status === "duplicate" || status === "invalid" ? (
-        <Button type="button" variant="ghost" size="sm" disabled={submitting} onClick={() => void onAction(lead, "reopen")}><RotateCcw className="h-4 w-4" />恢复</Button>
+      {status === "invalid" ? (
+        <Button type="button" variant="ghost" size="sm" disabled={submitting} onClick={() => void onAction(lead, "reopen")}><RotateCcw className="h-4 w-4" />重新处理</Button>
       ) : null}
       {status === "converted" ? <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" />已转化</span> : null}
     </div>
@@ -599,6 +600,6 @@ function leadCountByStatus(leads: WorkLead[], status: string): number {
 function leadActionSuccessText(action: string): string {
   if (action === "convert") return "线索已转为客户";
   if (action === "invalid") return "线索已判为无效";
-  if (action === "reopen") return "线索已恢复";
+  if (action === "reopen") return "线索已重新进入处理";
   return "线索已更新";
 }

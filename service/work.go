@@ -2299,9 +2299,8 @@ func workStageDwellDays(start time.Time) int {
 }
 
 func enrichWorkCustomerRow(ctx context.Context, customer map[string]any) {
-	code := inputText(customer["code"])
-	if code != "" {
-		customer["code_display"] = customerCodePrefixForWork(ctx) + code
+	if code := customerCodeDisplayForWork(ctx, inputText(customer["code"])); code != "" {
+		customer["code_display"] = code
 	}
 	customer["source_name"] = workCustomerSourceName(ctx, inputUint64(customer["source_id"]))
 	customer["channel_name"] = workCustomerChannelName(ctx, inputUint64(customer["channel_id"]))
@@ -2345,6 +2344,14 @@ func customerCodePrefixForWork(ctx context.Context) string {
 		return crmmodel.DefaultBasicConfig().CustomerCodePrefix
 	}
 	return config.CustomerCodePrefix
+}
+
+func customerCodeDisplayForWork(ctx context.Context, code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return ""
+	}
+	return customerCodePrefixForWork(ctx) + code
 }
 
 func filterWorkCustomers(rows []map[string]any, keyword string) []map[string]any {

@@ -502,7 +502,7 @@ func workLeadRow(ctx context.Context, lead *crmmodel.Lead) map[string]any {
 		"status_name":           crmmodel.LeadStatusName(lead.Status),
 		"duplicate_lead_id":     lead.DuplicateLeadID,
 		"duplicate_customer_id": lead.DuplicateCustomerID,
-		"duplicate_reason":      lead.DuplicateReason,
+		"duplicate_reason":      workLeadDuplicateReasonForDisplay(ctx, lead),
 		"invalid_reason_id":     lead.InvalidReasonID,
 		"invalid_note":          lead.InvalidNote,
 		"customer_id":           lead.CustomerID,
@@ -525,6 +525,7 @@ func workLeadRow(ctx context.Context, lead *crmmodel.Lead) map[string]any {
 	}
 	if customer := crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": lead.CustomerID}); customer != nil {
 		row["customer_code"] = customer.Code
+		row["customer_code_display"] = customerCodeDisplayForWork(ctx, customer.Code)
 		row["customer_name"] = customer.Name
 	}
 	if duplicateLead := crmmodel.NewLeadModel().Find(ctx, map[string]any{"id": lead.DuplicateLeadID}); duplicateLead != nil {
@@ -535,6 +536,32 @@ func workLeadRow(ctx context.Context, lead *crmmodel.Lead) map[string]any {
 		row["owner_staff_name"] = owner.Name
 	}
 	return row
+}
+
+func workLeadDuplicateReasonForDisplay(ctx context.Context, lead *crmmodel.Lead) string {
+	if lead == nil {
+		return ""
+	}
+	reason := strings.TrimSpace(lead.DuplicateReason)
+	if lead.DuplicateCustomerID == 0 || reason == "" {
+		return reason
+	}
+	customer := crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": lead.DuplicateCustomerID})
+	if customer == nil {
+		return reason
+	}
+	code := customerCodeDisplayForWork(ctx, customer.Code)
+	if code == "" {
+		return reason
+	}
+	switch {
+	case strings.HasPrefix(reason, "手机号已存在于客户库："):
+		return "手机号已存在于客户库：" + code
+	case strings.HasPrefix(reason, "微信号已存在于客户库："):
+		return "微信号已存在于客户库：" + code
+	default:
+		return reason
+	}
 }
 
 func workLeadTemplateRows(ctx context.Context) []map[string]any {
