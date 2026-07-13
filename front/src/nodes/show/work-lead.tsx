@@ -495,10 +495,10 @@ function InvalidateLeadDialog({ lead, reasons, submitting, onClose, onSubmit }: 
     <Dialog open={Boolean(lead)} onOpenChange={(open) => !open && !submitting && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader><DialogTitle>判为无效线索</DialogTitle><DialogDescription>{displayText(lead?.name)} · {displayText(lead?.phone)}</DialogDescription></DialogHeader>
-        <div className="space-y-4">
+        <div className="space-y-5">
           <LeadField label="无效原因" required><select className={inputClassName} value={reasonID} onChange={(event) => setReasonID(event.target.value)}>{reasons.map((option) => <option key={textValue(option.id)} value={textValue(option.id)}>{displayText(option.name)}</option>)}</select></LeadField>
           <LeadField label="补充说明"><textarea className="min-h-20 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20" value={note} onChange={(event) => setNote(event.target.value)} /></LeadField>
-          <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={submitting} onClick={onClose}>取消</Button><Button type="button" variant="destructive" disabled={submitting || !reasonID} onClick={() => onSubmit(reasonID, note)}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}确认无效</Button></div>
+          <DialogFooter className="pt-1"><Button type="button" variant="outline" disabled={submitting} onClick={onClose}>取消</Button><Button type="button" variant="destructive" disabled={submitting || !reasonID} onClick={() => onSubmit(reasonID, note)}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}确认无效</Button></DialogFooter>
         </div>
       </DialogContent>
     </Dialog>
@@ -583,7 +583,7 @@ function WorkLeadPoolStyles() {
 }
 
 function LeadField({ label, required = false, className = "", children }: { label: string; required?: boolean; className?: string; children: ReactNode }) {
-  return <label className={className}><span className="mb-1.5 block text-sm font-medium">{label}{required ? <span className="ml-1 text-destructive">*</span> : null}</span>{children}</label>;
+  return <label className={`block min-w-0 ${className}`.trim()}><span className="mb-1.5 block text-sm font-medium">{label}{required ? <span className="ml-1 text-destructive">*</span> : null}</span>{children}</label>;
 }
 
 function leadStatusClass(status: string): string {
