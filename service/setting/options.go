@@ -226,13 +226,12 @@ func formFieldCateOptions(ctx context.Context) []map[string]any {
 	for _, cate := range cates {
 		cateID := util.ToUint64(cate["id"])
 		options = append(options, map[string]any{
-			"id":                      fmt.Sprintf("cate:%d", cateID),
-			"value":                   util.ToStringTrimmed(cate["name"]),
-			"name":                    util.ToStringTrimmed(cate["name"]),
-			"leaf":                    false,
-			"target_table":            util.ToStringTrimmed(cate["target_table"]),
-			"business_object_type_id": util.ToUint64(cate["business_object_type_id"]),
-			"sort":                    util.ToIntDefault(cate["sort"], 0),
+			"id":     fmt.Sprintf("cate:%d", cateID),
+			"value":  util.ToStringTrimmed(cate["name"]),
+			"name":   util.ToStringTrimmed(cate["name"]),
+			"leaf":   false,
+			"target": crmmodel.DataTemplateRecordTarget(cateID),
+			"sort":   util.ToIntDefault(cate["sort"], 0),
 		})
 	}
 	return options
@@ -675,7 +674,7 @@ func assetCateSelectOptions() map[string]any {
 
 func dataTemplateCateSelectOptions() map[string]any {
 	return map[string]any{
-		"field": "main.id, main.name, main.target_table, main.business_object_type_id, main.status, main.sort",
+		"field": "main.id, main.name, main.status, main.sort",
 		"order": "main.sort asc, main.id asc",
 	}
 }
@@ -718,14 +717,14 @@ func loadNamedConfigOptions(rows []map[string]any) []map[string]any {
 func loadCrmCateOptions(rows []map[string]any) []map[string]any {
 	options := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
+		cateID := util.ToUint64(row["id"])
 		options = append(options, map[string]any{
-			"id":                      util.ToUint64(row["id"]),
-			"value":                   util.ToStringTrimmed(row["name"]),
-			"name":                    util.ToStringTrimmed(row["name"]),
-			"target_table":            util.ToStringTrimmed(row["target_table"]),
-			"business_object_type_id": util.ToUint64(row["business_object_type_id"]),
-			"status":                  util.ToIntDefault(row["status"], 0),
-			"sort":                    util.ToIntDefault(row["sort"], 0),
+			"id":     cateID,
+			"value":  util.ToStringTrimmed(row["name"]),
+			"name":   util.ToStringTrimmed(row["name"]),
+			"target": crmmodel.DataTemplateRecordTarget(cateID),
+			"status": util.ToIntDefault(row["status"], 0),
+			"sort":   util.ToIntDefault(row["sort"], 0),
 		})
 	}
 	return options
@@ -750,27 +749,25 @@ func loadStageOptions(rows []map[string]any) []map[string]any {
 
 func ensureBaseDataTemplateCates(ctx context.Context) {
 	ensureBaseDataTemplateCatesOnce.Do(func() {
-		ensureBaseDataTemplateCate(ctx, crmmodel.CustomerDataTemplateCateID, "客户信息", crmmodel.DataTemplateTargetCustomer, 10)
-		ensureBaseDataTemplateCate(ctx, crmmodel.CustomerAssetDataTemplateCateID, "客户资产", crmmodel.DataTemplateTargetCustomerAsset, 20)
-		ensureBaseDataTemplateCate(ctx, crmmodel.BusinessDataTemplateCateID, "业务数据", crmmodel.DataTemplateTargetBusinessObject, 30)
+		ensureBaseDataTemplateCate(ctx, crmmodel.CustomerDataTemplateCateID, "客户信息", 10)
+		ensureBaseDataTemplateCate(ctx, crmmodel.CustomerAssetDataTemplateCateID, "客户资产", 20)
+		ensureBaseDataTemplateCate(ctx, crmmodel.BusinessDataTemplateCateID, "业务数据", 30)
 	})
 }
 
-func ensureBaseDataTemplateCate(ctx context.Context, id uint64, name string, targetTable string, sort int) {
+func ensureBaseDataTemplateCate(ctx context.Context, id uint64, name string, sort int) {
 	model := crmmodel.NewDataTemplateCateModel()
 	if model.Find(ctx, map[string]any{"id": id}) == nil {
 		model.Insert(ctx, map[string]any{
-			"id":           id,
-			"name":         name,
-			"target_table": targetTable,
-			"status":       crmmodel.StatusEnabled,
-			"sort":         sort,
+			"id":     id,
+			"name":   name,
+			"status": crmmodel.StatusEnabled,
+			"sort":   sort,
 		})
 		return
 	}
 	model.Update(ctx, map[string]any{"id": id}, map[string]any{
-		"name":         name,
-		"target_table": targetTable,
-		"sort":         sort,
+		"name": name,
+		"sort": sort,
 	})
 }

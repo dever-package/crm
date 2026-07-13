@@ -248,7 +248,7 @@ func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, paylo
 	scope := normalizeWorkScope(staff, firstText(payload, "scope"))
 	staff = workStaffWithScope(staff, scope)
 	mode := normalizeWorkCustomerMode(firstText(payload, "mode"))
-	stageOptions := workCustomerStageOptions(ctx)
+	stageOptions := workStageOptions(ctx)
 	if !hasWorkCustomerListFilter(payload) {
 		snapshot := newWorkCustomerListSnapshot(ctx, staff)
 		list, page, pageSize, total := paginatedWorkCustomersFromSnapshot(ctx, staff, mode, payload, snapshot)
@@ -289,7 +289,7 @@ func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, paylo
 	}, nil
 }
 
-func workCustomerStageOptions(ctx context.Context) []map[string]any {
+func workStageOptions(ctx context.Context) []map[string]any {
 	rows := crmmodel.NewStageModel().Select(ctx, map[string]any{
 		"status": crmmodel.StatusEnabled,
 	})
@@ -408,7 +408,7 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 			crmmodel.CustomerAssetDataTemplateCateID,
 			mapFromAny(asset["data_values"]),
 		)...)
-		detailSections = append(detailSections, workBusinessObjectDetailSections(ctx, asset)...)
+		detailSections = append(detailSections, workCustomerProductDetailSections(ctx, asset)...)
 	}
 	result := map[string]any{
 		"customer":        customer,
@@ -913,7 +913,7 @@ func (builder *workCustomerListRowBuilder) activeAssetRows(customerID uint64) []
 			continue
 		}
 		asset["asset_status_name"] = builder.assetStatusName(inputUint64(asset["asset_status_id"]))
-		asset["business_objects"] = workBusinessObjectRows(builder.ctx, customerID, assetID)
+		asset["customer_products"] = workCustomerProductRows(builder.ctx, builder.staff, customerID, assetID)
 		if state := ensureCurrentWorkEntryInstance(builder.ctx, builder.staff, customerID, assetID); state != nil {
 			builder.attachStageFields(asset, state)
 			asset["row_tasks"] = workPendingTodoRowTasks(builder.ctx, builder.staff, customerID, assetID)
@@ -951,7 +951,7 @@ func (builder *workCustomerListRowBuilder) doneAssetRow(customerID uint64, asset
 		return map[string]any{}
 	}
 	asset["asset_status_name"] = builder.assetStatusName(inputUint64(asset["asset_status_id"]))
-	asset["business_objects"] = workBusinessObjectRows(builder.ctx, customerID, assetID)
+	asset["customer_products"] = workCustomerProductRows(builder.ctx, builder.staff, customerID, assetID)
 	if state := currentWorkEntryInstance(builder.ctx, customerID, assetID); state != nil {
 		builder.attachStageFields(asset, state)
 	}
@@ -1100,29 +1100,34 @@ func workAssetListRow(row map[string]any) map[string]any {
 	if tasks := workListRowTasks(row); len(tasks) > 0 {
 		result["row_tasks"] = tasks
 	}
-	if businessObjects := workBusinessObjectListRows(mapListFromAny(row["business_objects"])); len(businessObjects) > 0 {
-		result["business_objects"] = businessObjects
+	if customerProducts := workCustomerProductListRows(mapListFromAny(row["customer_products"])); len(customerProducts) > 0 {
+		result["customer_products"] = customerProducts
 	}
 	return result
 }
 
-var workBusinessObjectListFields = []string{
+var workCustomerProductListFields = []string{
 	"id",
-	"business_object_id",
-	"business_object_type_id",
-	"business_object_type_name",
-	"object_no",
-	"object_name",
-	"object_status",
+	"customer_product_id",
+	"product_id",
+	"product_name",
+	"product_code",
+	"workflow_instance_id",
+	"workflow_name",
+	"stage_name",
+	"owner_staff_name",
 	"status",
 	"created_at",
 	"updated_at",
 }
 
-func workBusinessObjectListRows(rows []map[string]any) []map[string]any {
+func workCustomerProductListRows(rows []map[string]any) []map[string]any {
 	result := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
-		if compact := pickWorkListFields(row, workBusinessObjectListFields); len(compact) > 0 {
+		if compact := pickWorkListFields(row, workCustomerProductListFields); len(compact) > 0 {
+			if flow := mapFromAny(row["flow"]); len(flow) > 0 {
+				compact["flow"] = flow
+			}
 			result = append(result, compact)
 		}
 	}
@@ -1155,8 +1160,8 @@ var workTaskListFields = []string{
 	"task_name",
 	"task_type",
 	"form_id",
-	"business_object_type_id",
-	"business_object_type_name",
+	"workflow_instance_id",
+	"customer_product_id",
 	"todo_id",
 	"todo_status",
 	"status_name",
@@ -1920,7 +1925,7 @@ func doneWorkAssetRow(ctx context.Context, staff *WorkStaffSession, customerID u
 	}
 	attachWorkEntityDataValues(ctx, asset, workAssetFormValues(ctx, customerID, assetID, asset), crmmodel.CustomerAssetDataTemplateCateID)
 	asset["asset_status_name"] = workAssetStatusName(ctx, inputUint64(asset["asset_status_id"]))
-	asset["business_objects"] = workBusinessObjectRows(ctx, customerID, assetID)
+	asset["customer_products"] = workCustomerProductRows(ctx, staff, customerID, assetID)
 	if state := currentWorkEntryInstance(ctx, customerID, assetID); state != nil {
 		attachWorkStageFields(ctx, asset, state)
 	}
@@ -2144,7 +2149,7 @@ func workAssetRows(ctx context.Context, staff *WorkStaffSession, customerID uint
 		}
 		attachWorkEntityDataValues(ctx, asset, workAssetFormValues(ctx, customerID, assetID, asset), crmmodel.CustomerAssetDataTemplateCateID)
 		asset["asset_status_name"] = workAssetStatusName(ctx, inputUint64(asset["asset_status_id"]))
-		asset["business_objects"] = workBusinessObjectRows(ctx, customerID, assetID)
+		asset["customer_products"] = workCustomerProductRows(ctx, staff, customerID, assetID)
 		state := ensureCurrentWorkEntryInstance(ctx, staff, customerID, assetID)
 		if state != nil {
 			attachWorkStageFields(ctx, asset, state)
@@ -2155,67 +2160,63 @@ func workAssetRows(ctx context.Context, staff *WorkStaffSession, customerID uint
 	return rows
 }
 
-func workBusinessObjectRows(ctx context.Context, customerID uint64, assetID uint64) []map[string]any {
+func workCustomerProductRows(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) []map[string]any {
 	if customerID == 0 {
 		return []map[string]any{}
 	}
 	filter := map[string]any{
 		"customer_id": customerID,
-		"status":      crmmodel.StatusEnabled,
 	}
 	if assetID > 0 {
 		filter["asset_id"] = assetID
 	}
-	rows := crmmodel.NewBusinessObjectModel().SelectMap(ctx, filter, map[string]any{
-		"field": "id,business_object_type_id,object_no,object_name,object_status,customer_id,asset_id,created_at,updated_at",
-		"order": "id desc",
-	})
+	rows := crmmodel.NewCustomerProductModel().Select(ctx, filter, map[string]any{"order": "id desc"})
 	result := make([]map[string]any, 0, len(rows))
-	for _, row := range rows {
-		objectID := inputUint64(row["id"])
-		if objectID == 0 {
+	for _, customerProduct := range rows {
+		if customerProduct == nil {
 			continue
 		}
-		typeID := inputUint64(row["business_object_type_id"])
-		row["business_object_id"] = objectID
-		row["business_object_type_name"] = workBusinessObjectTypeName(ctx, typeID)
-		if cateID := workBusinessObjectTemplateCateID(ctx, typeID); cateID > 0 {
-			values := workBusinessObjectFormValues(ctx, customerID, assetID, objectID)
-			attachWorkEntityDataValues(ctx, row, values, cateID)
-			row["display_fields"] = workBusinessObjectDisplayFields(ctx, values)
+		product := crmmodel.NewProductModel().Find(ctx, map[string]any{"id": customerProduct.ProductID})
+		row := map[string]any{
+			"id":                  customerProduct.ID,
+			"customer_product_id": customerProduct.ID,
+			"customer_id":         customerProduct.CustomerID,
+			"asset_id":            customerProduct.AssetID,
+			"product_id":          customerProduct.ProductID,
+			"status":              customerProduct.Status,
+			"status_name":         crmmodel.CustomerProductStatusName(customerProduct.Status),
+			"created_at":          customerProduct.CreatedAt,
+			"updated_at":          customerProduct.UpdatedAt,
+		}
+		if product != nil {
+			row["product_name"] = product.Name
+			row["product_code"] = product.Code
+			row["service_workflow_id"] = product.ServiceWorkflowID
+		}
+		instance := crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{
+			"customer_product_id": customerProduct.ID,
+		}, map[string]any{"order": "id desc"})
+		if instance != nil {
+			row["workflow_instance_id"] = instance.ID
+			row["workflow_id"] = instance.WorkflowID
+			row["stage_id"] = instance.StageID
+			row["flow"] = workFlowDetail(ctx, staff, instance.ID)
+			if workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": instance.WorkflowID}); workflow != nil {
+				row["workflow_name"] = workflow.Name
+			}
+			if stage := crmmodel.NewStageModel().Find(ctx, map[string]any{"id": instance.StageID}); stage != nil {
+				row["stage_name"] = stage.Name
+			}
+			if owner := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": instance.OwnerStaffID}); owner != nil {
+				row["owner_staff_name"] = owner.Name
+			}
+			values := workWorkflowDataFormValues(ctx, customerProduct.CustomerID, customerProduct.AssetID, instance.ID)
+			attachWorkEntityDataValues(ctx, row, values, crmmodel.BusinessDataTemplateCateID)
+			row["display_fields"] = workBusinessDataDisplayFields(ctx, values)
 		}
 		result = append(result, row)
 	}
 	return result
-}
-
-func workBusinessObjectTypeName(ctx context.Context, typeID uint64) string {
-	if typeID == 0 {
-		return ""
-	}
-	objectType := crmmodel.NewBusinessObjectTypeModel().Find(ctx, map[string]any{
-		"id":     typeID,
-		"status": crmmodel.StatusEnabled,
-	})
-	if objectType == nil {
-		return ""
-	}
-	return objectType.Name
-}
-
-func workBusinessObjectTemplateCateID(ctx context.Context, typeID uint64) uint64 {
-	if typeID == 0 {
-		return 0
-	}
-	cate := crmmodel.NewDataTemplateCateModel().Find(ctx, map[string]any{
-		"target_table":            crmmodel.DataTemplateTargetBusinessObject,
-		"business_object_type_id": typeID,
-		"status":                  crmmodel.StatusEnabled,
-	})
-	if cate == nil {
-		return 0
-	}
-	return cate.ID
 }
 
 func attachWorkStageFields(ctx context.Context, target map[string]any, state *crmmodel.WorkflowInstance) {
@@ -2762,7 +2763,7 @@ func WorkOperationResultName(value string) string {
 
 func workOperationInternalSnapshotKey(key string) bool {
 	switch key {
-	case "todo_id", "todoId", "submit_mode", "submitMode", "business_object_id", "businessObjectId", "raw_result", "duration_ms":
+	case "todo_id", "todoId", "submit_mode", "submitMode", "workflow_instance_id", "workflowInstanceId", "raw_result", "duration_ms":
 		return true
 	default:
 		return false
@@ -3080,10 +3081,10 @@ func workGenderName(gender string) string {
 func workCustomerDataValues(ctx context.Context, customerID uint64, assetID uint64) map[string]any {
 	values := map[string]any{}
 	records := crmmodel.NewDataRecordModel().Select(ctx, map[string]any{
-		"customer_id":        customerID,
-		"asset_id":           assetID,
-		"business_object_id": uint64(0),
-		"status":             crmmodel.StatusEnabled,
+		"customer_id":          customerID,
+		"asset_id":             assetID,
+		"workflow_instance_id": uint64(0),
+		"status":               crmmodel.StatusEnabled,
 	})
 	for _, record := range records {
 		if record == nil {
@@ -3119,10 +3120,10 @@ func workAssetFieldValues(ctx context.Context, customerID uint64, assetID uint64
 func workDataRecordFieldValues(ctx context.Context, customerID uint64, assetID uint64) map[string]any {
 	values := map[string]any{}
 	records := crmmodel.NewDataRecordModel().Select(ctx, map[string]any{
-		"customer_id":        customerID,
-		"asset_id":           assetID,
-		"business_object_id": uint64(0),
-		"status":             crmmodel.StatusEnabled,
+		"customer_id":          customerID,
+		"asset_id":             assetID,
+		"workflow_instance_id": uint64(0),
+		"status":               crmmodel.StatusEnabled,
 	})
 	for _, record := range records {
 		if record == nil {
@@ -3140,16 +3141,16 @@ func workDataRecordFieldValues(ctx context.Context, customerID uint64, assetID u
 	return values
 }
 
-func workBusinessObjectFormValues(ctx context.Context, customerID uint64, assetID uint64, businessObjectID uint64) map[string]any {
+func workWorkflowDataFormValues(ctx context.Context, customerID uint64, assetID uint64, workflowInstanceID uint64) map[string]any {
 	values := map[string]any{}
-	if customerID == 0 || businessObjectID == 0 {
+	if customerID == 0 || workflowInstanceID == 0 {
 		return values
 	}
 	records := crmmodel.NewDataRecordModel().Select(ctx, map[string]any{
-		"customer_id":        customerID,
-		"asset_id":           assetID,
-		"business_object_id": businessObjectID,
-		"status":             crmmodel.StatusEnabled,
+		"customer_id":          customerID,
+		"asset_id":             assetID,
+		"workflow_instance_id": workflowInstanceID,
+		"status":               crmmodel.StatusEnabled,
 	})
 	for _, record := range records {
 		if record == nil {
@@ -3267,7 +3268,7 @@ func workDisplayDataFields(ctx context.Context, values map[string]any) []map[str
 	return result
 }
 
-func workBusinessObjectDisplayFields(ctx context.Context, values map[string]any) []map[string]any {
+func workBusinessDataDisplayFields(ctx context.Context, values map[string]any) []map[string]any {
 	if len(values) == 0 {
 		return []map[string]any{}
 	}
@@ -3408,25 +3409,25 @@ func workDataDetailFields(ctx context.Context, templateID uint64, values map[str
 	return result
 }
 
-func workBusinessObjectDetailSections(ctx context.Context, asset map[string]any) []map[string]any {
+func workCustomerProductDetailSections(ctx context.Context, asset map[string]any) []map[string]any {
 	result := []map[string]any{}
-	for _, object := range mapListFromAny(asset["business_objects"]) {
-		objectID := inputUint64(object["id"])
-		typeID := inputUint64(object["business_object_type_id"])
-		cateID := workBusinessObjectTemplateCateID(ctx, typeID)
-		if objectID == 0 || cateID == 0 {
+	for _, customerProduct := range mapListFromAny(asset["customer_products"]) {
+		customerProductID := inputUint64(customerProduct["customer_product_id"])
+		workflowInstanceID := inputUint64(customerProduct["workflow_instance_id"])
+		if customerProductID == 0 || workflowInstanceID == 0 {
 			continue
 		}
 		sections := workDataDetailSections(
 			ctx,
-			crmmodel.DataTemplateTargetBusinessObject,
-			cateID,
-			mapFromAny(object["data_values"]),
+			crmmodel.DataTemplateTargetWorkflow,
+			crmmodel.BusinessDataTemplateCateID,
+			mapFromAny(customerProduct["data_values"]),
 		)
 		for _, section := range sections {
-			section["id"] = fmt.Sprintf("business_object:%d:%v", objectID, section["template_id"])
-			section["object_id"] = objectID
-			section["object_name"] = firstText(object, "object_name", "object_no")
+			section["id"] = fmt.Sprintf("workflow:%d:%v", workflowInstanceID, section["template_id"])
+			section["workflow_instance_id"] = workflowInstanceID
+			section["customer_product_id"] = customerProductID
+			section["product_name"] = firstText(customerProduct, "product_name", "product_code")
 			result = append(result, section)
 		}
 	}
@@ -3581,34 +3582,6 @@ func attachWorkTaskForm(ctx context.Context, task map[string]any) {
 	}
 	form["fields"] = fields
 	task["form"] = form
-	attachWorkTaskBusinessObjectConfig(ctx, task, fields)
-}
-
-func attachWorkTaskBusinessObjectConfig(ctx context.Context, task map[string]any, fields []map[string]any) {
-	typeID := workFormBusinessObjectTypeID(ctx, fields)
-	if typeID == 0 {
-		return
-	}
-	task["business_object_type_id"] = typeID
-	task["business_object_type_name"] = workBusinessObjectTypeName(ctx, typeID)
-}
-
-func workFormBusinessObjectTypeID(ctx context.Context, fields []map[string]any) uint64 {
-	for _, field := range fields {
-		cateID := inputUint64(field["data_template_cate_id"])
-		if cateID == 0 {
-			continue
-		}
-		cate := crmmodel.NewDataTemplateCateModel().Find(ctx, map[string]any{
-			"id":     cateID,
-			"status": crmmodel.StatusEnabled,
-		})
-		if cate == nil || cate.TargetTable != crmmodel.DataTemplateTargetBusinessObject {
-			continue
-		}
-		return cate.BusinessObjectTypeID
-	}
-	return 0
 }
 
 func workDataFieldOptionsForField(ctx context.Context, field *crmmodel.DataField) []map[string]any {
@@ -3728,7 +3701,7 @@ func workDataFieldTemplateCateID(ctx context.Context, field *crmmodel.DataField)
 
 func workActionValues(payload map[string]any) map[string]any {
 	values := mapFromAny(payload["values"])
-	for _, key := range []string{"todo_id", "todoId", "business_object_id", "businessObjectId", "submit_mode", "submitMode", "result", "opinion", "approval"} {
+	for _, key := range []string{"todo_id", "todoId", "workflow_instance_id", "workflowInstanceId", "product_ids", "productIds", "submit_mode", "submitMode", "result", "opinion", "approval"} {
 		if _, exists := values[key]; !exists && payload[key] != nil {
 			values[key] = payload[key]
 		}

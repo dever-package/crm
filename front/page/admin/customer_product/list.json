@@ -1,0 +1,131 @@
+{
+  "page": {
+    "name": "业务处理",
+    "icon": "workflow",
+    "parent": "crm-customer-manage",
+    "sort": 3
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-header": { "type": "header" },
+      "page-main": {
+        "type": "main",
+        "className": "flex flex-1 flex-col gap-5",
+        "children": {
+          "toolbar-row": { "type": "row", "className": "flex-wrap items-center gap-3" },
+          "table-row": { "type": "container", "className": "overflow-hidden rounded-md border bg-background" },
+          "feedback-shell": { "type": "container" }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "page-header": [
+      { "type": "show-title", "value": "page" }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-select",
+        "placeholder": "产品",
+        "value": "search.product_id",
+        "mode": "search",
+        "option": {
+          "model": "crm.NewProductModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "filters": { "status": 1 }
+        }
+      },
+      {
+        "type": "form-select",
+        "placeholder": "处理状态",
+        "value": "search.status",
+        "mode": "search"
+      },
+      {
+        "type": "show-button",
+        "name": "搜索",
+        "meta": { "variant": "default", "size": "sm", "searchSubmit": true }
+      },
+      {
+        "type": "show-button",
+        "name": "重置",
+        "meta": { "variant": "outline", "size": "sm", "to": "/crm/customer_product/list" }
+      }
+    ],
+    "table-row": [
+      {
+        "type": "show-table",
+        "value": "table.list",
+        "meta": {
+          "pagePath": "data.table.page",
+          "pageSizePath": "data.table.pageSize",
+          "totalPath": "data.table.total",
+          "remote": true,
+          "externalPagination": true,
+          "rowKey": "id",
+          "columns": [
+            { "name": "客户", "value": "customer.name", "type": "show-base" },
+            { "name": "资产", "value": "asset.asset_name", "type": "show-base" },
+            { "name": "产品", "value": "product.name", "type": "show-base" },
+            { "name": "处理状态", "value": "status_name", "type": "show-tag" },
+            { "name": "服务流程", "value": "workflow_name", "type": "show-base" },
+            { "name": "当前阶段", "value": "stage_name", "type": "show-base" },
+            { "name": "负责人", "value": "owner_staff_name", "type": "show-base" },
+            { "name": "更新时间", "value": "updated_at", "type": "show-date" },
+            {
+              "name": "操作",
+              "type": "show-button",
+              "className": "w-[1%] whitespace-nowrap px-3 text-center",
+              "meta": {
+                "buttons": [
+                  {
+                    "icon": "square-pen",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "调整状态",
+                    "action": {
+                      "click": [
+                        { "type": "data", "key": "actionTarget.customerProductId", "value": "$row.id" },
+                        { "type": "modal", "key": "dialog.edit", "value": true }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      { "type": "show-page" }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.edit",
+          "pageRoute": "/crm/customer_product/update",
+          "title": "调整业务状态",
+          "assistant": false,
+          "footer": { "confirm": true, "confirmText": "保存" },
+          "pageRouteQuery": { "id": "data.actionTarget.customerProductId" },
+          "size": "sm",
+          "bodyClassName": "px-6 py-2"
+        }
+      }
+    ]
+  },
+  "data": {
+    "search": { "product_id": "", "status": "" },
+    "table": {
+      "pageSize": 20,
+      "service": "crm.setting.CrmHook.BuildCustomerProductRows",
+      "filterFields": ["product_id", "status"]
+    },
+    "actionTarget": { "customerProductId": "" }
+  },
+  "state": { "dialog": { "edit": false } },
+  "action": {}
+}

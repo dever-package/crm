@@ -10,7 +10,6 @@ type StatFieldValue struct {
 	ID                 uint64    `dorm:"primaryKey;autoIncrement;comment:统计字段值ID"`
 	CustomerID         uint64    `dorm:"type:bigint;not null;comment:客户"`
 	AssetID            uint64    `dorm:"type:bigint;not null;default:0;comment:客户资产"`
-	BusinessObjectID   uint64    `dorm:"type:bigint;not null;default:0;comment:业务对象"`
 	WorkflowInstanceID uint64    `dorm:"type:bigint;not null;default:0;comment:流程实例"`
 	CustomerProductID  uint64    `dorm:"type:bigint;not null;default:0;comment:客户产品"`
 	DataTemplateID     uint64    `dorm:"type:bigint;not null;comment:数据模板"`
@@ -34,19 +33,18 @@ type StatFieldValue struct {
 }
 
 type StatFieldValueIndex struct {
-	OwnerDataField     struct{} `unique:"customer_id,asset_id,workflow_instance_id,data_field_id"`
-	OwnerField         struct{} `index:"customer_id,asset_id,workflow_instance_id,field_key"`
-	CustomerTime       struct{} `index:"customer_id,updated_at,id"`
-	AssetTime          struct{} `index:"asset_id,updated_at,id"`
-	BusinessObjectTime struct{} `index:"business_object_id,updated_at,id"`
-	WorkflowTime       struct{} `index:"workflow_instance_id,updated_at,id"`
-	ProductTime        struct{} `index:"customer_product_id,updated_at,id"`
-	FieldValue         struct{} `index:"field_key,value_text,status,id"`
-	FieldNumber        struct{} `index:"field_key,value_number,status,id"`
-	FieldDate          struct{} `index:"field_key,value_date,status,id"`
-	StatGroup          struct{} `index:"stat_group,stat_type,status,id"`
-	TaskTime           struct{} `index:"task_id,updated_at,id"`
-	Operation          struct{} `index:"operation_log_id,id"`
+	OwnerDataField struct{} `unique:"customer_id,asset_id,workflow_instance_id,data_field_id"`
+	OwnerField     struct{} `index:"customer_id,asset_id,workflow_instance_id,field_key"`
+	CustomerTime   struct{} `index:"customer_id,updated_at,id"`
+	AssetTime      struct{} `index:"asset_id,updated_at,id"`
+	WorkflowTime   struct{} `index:"workflow_instance_id,updated_at,id"`
+	ProductTime    struct{} `index:"customer_product_id,updated_at,id"`
+	FieldValue     struct{} `index:"field_key,value_text,status,id"`
+	FieldNumber    struct{} `index:"field_key,value_number,status,id"`
+	FieldDate      struct{} `index:"field_key,value_date,status,id"`
+	StatGroup      struct{} `index:"stat_group,stat_type,status,id"`
+	TaskTime       struct{} `index:"task_id,updated_at,id"`
+	Operation      struct{} `index:"operation_log_id,id"`
 }
 
 func NewStatFieldValueModel() *orm.Model[StatFieldValue] {
@@ -66,7 +64,6 @@ func NewStatFieldValueModel() *orm.Model[StatFieldValue] {
 		Relations: []orm.Relation{
 			customerRelation,
 			assetRelation,
-			businessObjectRelation,
 			workflowInstanceRelation,
 			customerProductRelation,
 			dataTemplateRelation,

@@ -10,7 +10,6 @@ type DataRecord struct {
 	ID                 uint64    `dorm:"primaryKey;autoIncrement;comment:数据记录ID"`
 	CustomerID         uint64    `dorm:"type:bigint;not null;comment:客户"`
 	AssetID            uint64    `dorm:"type:bigint;not null;default:0;comment:客户资产"`
-	BusinessObjectID   uint64    `dorm:"type:bigint;not null;default:0;comment:业务对象"`
 	WorkflowInstanceID uint64    `dorm:"type:bigint;not null;default:0;comment:流程实例"`
 	CustomerProductID  uint64    `dorm:"type:bigint;not null;default:0;comment:客户产品"`
 	DataTemplateID     uint64    `dorm:"type:bigint;not null;comment:数据模板"`
@@ -25,13 +24,12 @@ type DataRecord struct {
 }
 
 type DataRecordIndex struct {
-	CustomerTemplate       struct{} `index:"customer_id,data_template_id,status,id"`
-	AssetTemplate          struct{} `index:"asset_id,data_template_id,status,id"`
-	BusinessObjectTemplate struct{} `index:"business_object_id,data_template_id,status,id"`
-	WorkflowTemplate       struct{} `index:"workflow_instance_id,data_template_id,status,id"`
-	ProductTemplate        struct{} `index:"customer_product_id,data_template_id,status,id"`
-	TaskTemplate           struct{} `index:"task_id,data_template_id,id"`
-	TemplateStatus         struct{} `index:"data_template_id,status,id"`
+	CustomerTemplate struct{} `index:"customer_id,data_template_id,status,id"`
+	AssetTemplate    struct{} `index:"asset_id,data_template_id,status,id"`
+	WorkflowTemplate struct{} `index:"workflow_instance_id,data_template_id,status,id"`
+	ProductTemplate  struct{} `index:"customer_product_id,data_template_id,status,id"`
+	TaskTemplate     struct{} `index:"task_id,data_template_id,id"`
+	TemplateStatus   struct{} `index:"data_template_id,status,id"`
 }
 
 func NewDataRecordModel() *orm.Model[DataRecord] {
@@ -45,7 +43,6 @@ func NewDataRecordModel() *orm.Model[DataRecord] {
 		Relations: []orm.Relation{
 			customerRelation,
 			assetRelation,
-			businessObjectRelation,
 			workflowInstanceRelation,
 			customerProductRelation,
 			dataTemplateRelation,

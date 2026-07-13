@@ -53,8 +53,7 @@
           "order": "sort asc,id asc",
           "extraFields": [
             "status",
-            "sort",
-            "target_table"
+            "sort"
           ],
           "filters": {
             "status": "1"

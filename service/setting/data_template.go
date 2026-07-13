@@ -9,57 +9,6 @@ import (
 	crmmodel "github.com/dever-package/crm/model"
 )
 
-func (CrmHook) ProviderBeforeSaveDataTemplateCate(_ *server.Context, params []any) any {
-	record := cloneCrmRecord(params)
-	if len(record) == 0 {
-		return record
-	}
-	partial := isPartialCrmRecord(record)
-	trimCrmStringField(record, "name", partial)
-	trimCrmStringField(record, "target_table", partial)
-	defaultCrmInt(record, "business_object_type_id", 0, partial)
-
-	id := util.ToUint64(record["id"])
-	switch id {
-	case crmmodel.CustomerDataTemplateCateID:
-		record["name"] = "客户信息"
-		record["target_table"] = crmmodel.DataTemplateTargetCustomer
-		record["business_object_type_id"] = 0
-	case crmmodel.CustomerAssetDataTemplateCateID:
-		record["name"] = "客户资产"
-		record["target_table"] = crmmodel.DataTemplateTargetCustomerAsset
-		record["business_object_type_id"] = 0
-	default:
-		targetTable := util.ToStringTrimmed(record["target_table"])
-		if targetTable == "" {
-			record["target_table"] = crmmodel.DataTemplateTargetBusinessObject
-			targetTable = crmmodel.DataTemplateTargetBusinessObject
-		}
-		if !validDataTemplateTargetTable(targetTable) {
-			panicCrmField("form.target_table", "扩展主表类型无效。")
-		}
-		if targetTable != crmmodel.DataTemplateTargetBusinessObject {
-			record["business_object_type_id"] = 0
-		} else if util.ToUint64(record["business_object_type_id"]) == 0 {
-			panicCrmField("form.business_object_type_id", "业务对象类型不能为空。")
-		}
-	}
-	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
-	defaultCrmInt(record, "sort", 100, partial)
-	return record
-}
-
-func validDataTemplateTargetTable(targetTable string) bool {
-	switch targetTable {
-	case crmmodel.DataTemplateTargetCustomer,
-		crmmodel.DataTemplateTargetCustomerAsset,
-		crmmodel.DataTemplateTargetBusinessObject:
-		return true
-	default:
-		return false
-	}
-}
-
 func (CrmHook) ProviderBeforeSaveDataTemplate(c *server.Context, params []any) any {
 	record := cloneCrmRecord(params)
 	if len(record) == 0 {

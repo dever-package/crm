@@ -444,9 +444,9 @@ func attachFormFieldDisplay(c *server.Context, row map[string]any) {
 	if cateID > 0 {
 		if cate := crmmodel.NewDataTemplateCateModel().Find(ctx, map[string]any{"id": cateID}); cate != nil {
 			row["data_template_cate"] = map[string]any{
-				"id":           cate.ID,
-				"name":         cate.Name,
-				"target_table": cate.TargetTable,
+				"id":     cate.ID,
+				"name":   cate.Name,
+				"target": crmmodel.DataTemplateRecordTarget(cate.ID),
 			}
 		}
 	}

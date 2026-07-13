@@ -1,0 +1,46 @@
+{
+  "page": {
+    "name": "业务状态调整",
+    "parent": "crm/customer_product/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/customer_product/update",
+        "name": "业务状态调整",
+        "query": { "id": "required" }
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": { "dialog-shell": { "type": "container", "className": "w-full" } }
+      }
+    }
+  },
+  "nodes": {
+    "dialog-shell": [
+      {
+        "type": "form-select",
+        "value": "form.status",
+        "mode": "form",
+        "validate": [
+          { "type": "required", "message": "处理状态不能为空。" }
+        ],
+        "meta": { "formLayout": "horizontal" }
+      }
+    ]
+  },
+  "data": { "form": { "id": "", "status": "" } },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "params": "form",
+      "before": { "service": "crm.setting.CrmHook.BeforeSaveCustomerProduct" }
+    }
+  }
+}

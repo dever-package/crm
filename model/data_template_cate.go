@@ -14,37 +14,38 @@ const (
 )
 
 const (
-	DataTemplateTargetCustomer       = "customer"
-	DataTemplateTargetCustomerAsset  = "customer_asset"
-	DataTemplateTargetBusinessObject = "business_object"
+	DataTemplateTargetCustomer      = "customer"
+	DataTemplateTargetCustomerAsset = "customer_asset"
+	DataTemplateTargetWorkflow      = "workflow"
 )
 
 type DataTemplateCate struct {
-	ID                   uint64    `dorm:"primaryKey;autoIncrement;comment:数据模板分类ID"`
-	Name                 string    `dorm:"type:varchar(128);not null;comment:名称"`
-	TargetTable          string    `dorm:"type:varchar(32);not null;default:'customer';comment:主表"`
-	BusinessObjectTypeID uint64    `dorm:"type:bigint;not null;default:0;comment:业务对象类型"`
-	Status               int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
-	Sort                 int       `dorm:"type:int;not null;default:100;comment:排序"`
-	CreatedAt            time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
+	ID        uint64    `dorm:"primaryKey;autoIncrement;comment:数据模板分类ID"`
+	Name      string    `dorm:"type:varchar(128);not null;comment:名称"`
+	Status    int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
+	Sort      int       `dorm:"type:int;not null;default:100;comment:排序"`
+	CreatedAt time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
 }
 
 type DataTemplateCateIndex struct {
-	Target             struct{} `index:"target_table,id"`
-	BusinessObjectType struct{} `index:"business_object_type_id,status,id"`
-	StatusSort         struct{} `index:"status,sort,id"`
+	StatusSort struct{} `index:"status,sort,id"`
 }
 
 var dataTemplateCateSeed = []map[string]any{
-	{"id": CustomerDataTemplateCateID, "name": "客户信息", "target_table": DataTemplateTargetCustomer, "status": StatusEnabled, "sort": 10},
-	{"id": CustomerAssetDataTemplateCateID, "name": "客户资产", "target_table": DataTemplateTargetCustomerAsset, "status": StatusEnabled, "sort": 20},
-	{"id": BusinessDataTemplateCateID, "name": "业务数据", "target_table": DataTemplateTargetBusinessObject, "status": StatusEnabled, "sort": 30},
+	{"id": CustomerDataTemplateCateID, "name": "客户信息", "status": StatusEnabled, "sort": 10},
+	{"id": CustomerAssetDataTemplateCateID, "name": "客户资产", "status": StatusEnabled, "sort": 20},
+	{"id": BusinessDataTemplateCateID, "name": "业务数据", "status": StatusEnabled, "sort": 30},
 }
 
-var dataTemplateTargetOptions = []map[string]any{
-	{"id": DataTemplateTargetCustomer, "value": "客户信息"},
-	{"id": DataTemplateTargetCustomerAsset, "value": "客户资产"},
-	{"id": DataTemplateTargetBusinessObject, "value": "业务对象"},
+func DataTemplateRecordTarget(cateID uint64) string {
+	switch cateID {
+	case CustomerAssetDataTemplateCateID:
+		return DataTemplateTargetCustomerAsset
+	case BusinessDataTemplateCateID:
+		return DataTemplateTargetWorkflow
+	default:
+		return DataTemplateTargetCustomer
+	}
 }
 
 func NewDataTemplateCateModel() *orm.Model[DataTemplateCate] {
@@ -54,9 +55,7 @@ func NewDataTemplateCateModel() *orm.Model[DataTemplateCate] {
 		Order:    "sort asc,id asc",
 		Database: "default",
 		Options: map[string]any{
-			"target_table": dataTemplateTargetOptions,
-			"status":       statusOptions,
+			"status": statusOptions,
 		},
-		Relations: []orm.Relation{businessObjectTypeRelation},
 	})
 }

@@ -22,6 +22,10 @@ var customerProductStatusOptions = []map[string]any{
 	{"id": CustomerProductStatusLost, "value": "已流失"},
 }
 
+func CustomerProductStatusName(status string) string {
+	return crmOptionName(customerProductStatusOptions, status)
+}
+
 type CustomerProduct struct {
 	ID                       uint64    `dorm:"primaryKey;autoIncrement;comment:客户产品ID"`
 	CustomerID               uint64    `dorm:"type:bigint;not null;comment:客户"`

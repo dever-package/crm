@@ -67,12 +67,6 @@ const (
 )
 
 const (
-	BusinessObjectParentCustomer       = "customer"
-	BusinessObjectParentCustomerAsset  = "customer_asset"
-	BusinessObjectParentBusinessObject = "business_object"
-)
-
-const (
 	StatEventTypeTask       = "task"
 	StatEventTypeTransition = "transition"
 )
@@ -149,20 +143,6 @@ var leadStatusOptions = []map[string]any{
 
 func LeadStatusName(status string) string {
 	return crmOptionName(leadStatusOptions, status)
-}
-
-var businessObjectStatusOptions = []map[string]any{
-	{"id": "active", "value": "进行中"},
-	{"id": "pending", "value": "待出租"},
-	{"id": "rented", "value": "已出租"},
-	{"id": "delivering", "value": "交付中"},
-	{"id": "ended", "value": "已退租"},
-	{"id": "abnormal", "value": "异常"},
-	{"id": "closed", "value": "已关闭"},
-}
-
-func BusinessObjectStatusName(status string) string {
-	return crmOptionName(businessObjectStatusOptions, status)
 }
 
 func crmOptionName(options []map[string]any, id string) string {
@@ -285,12 +265,6 @@ var memberRelationOptions = []map[string]any{
 	{"id": MemberRelationViewer, "value": "查看人"},
 }
 
-var businessObjectParentTargetOptions = []map[string]any{
-	{"id": BusinessObjectParentCustomer, "value": "客户"},
-	{"id": BusinessObjectParentCustomerAsset, "value": "客户资产"},
-	{"id": BusinessObjectParentBusinessObject, "value": "业务对象"},
-}
-
 var fieldTypeOptions = []map[string]any{
 	{"id": "text", "value": "单行文本"},
 	{"id": "textarea", "value": "多行文本"},
@@ -359,24 +333,6 @@ var productCategoryRelation = orm.Relation{
 	Field:      "category_id",
 	Option:     "crm.NewProductCategoryModel",
 	OptionKeys: []string{"name"},
-}
-
-var businessObjectTypeRelation = orm.Relation{
-	Field:      "business_object_type_id",
-	Option:     "crm.NewBusinessObjectTypeModel",
-	OptionKeys: []string{"name", "code", "parent_target"},
-}
-
-var businessObjectRelation = orm.Relation{
-	Field:      "business_object_id",
-	Option:     "crm.NewBusinessObjectModel",
-	OptionKeys: []string{"object_no", "object_name", "object_status", "business_object_type_id"},
-}
-
-var parentBusinessObjectRelation = orm.Relation{
-	Field:      "parent_object_id",
-	Option:     "crm.NewBusinessObjectModel",
-	OptionKeys: []string{"object_no", "object_name", "object_status", "business_object_type_id"},
 }
 
 var assetStatusRelation = orm.Relation{
@@ -472,7 +428,7 @@ var dataTemplateCateRelation = orm.Relation{
 var formFieldDataTemplateCateRelation = orm.Relation{
 	Field:      "data_template_cate_id",
 	Option:     "crm.NewDataTemplateCateModel",
-	OptionKeys: []string{"name", "target_table"},
+	OptionKeys: []string{"name"},
 }
 
 var formFieldDataTemplateRelation = orm.Relation{
