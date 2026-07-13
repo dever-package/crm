@@ -1,19 +1,19 @@
 {
   "page": {
-    "name": "模板字段编辑",
+    "name": "表单字段编辑",
     "parent": "crm/form/list",
     "type": 2,
     "auth": [
       {
         "key": "crm/form_field/create",
-        "name": "模板字段新增",
+        "name": "表单字段新增",
         "query": {
           "id": "empty"
         }
       },
       {
         "key": "crm/form_field/update",
-        "name": "模板字段编辑",
+        "name": "表单字段编辑",
         "query": {
           "id": "required"
         }

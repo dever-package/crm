@@ -1,6 +1,6 @@
 {
   "page": {
-    "name": "资料模板",
+    "name": "任务表单",
     "icon": "clipboard-list",
     "parent": "crm-business-config",
     "sort": 2
@@ -46,7 +46,7 @@
     "header-actions": [
       {
         "type": "show-button",
-        "name": "新增资料模板",
+        "name": "新增任务表单",
         "meta": {
           "variant": "default",
           "size": "sm",
@@ -64,7 +64,7 @@
     "toolbar-row": [
       {
         "type": "form-input",
-        "placeholder": "搜索资料模板名称...",
+        "placeholder": "搜索任务表单名称...",
         "value": "search.keyword",
         "mode": "search"
       },
@@ -92,12 +92,12 @@
           "rowKey": "id",
           "columns": [
             {
-              "name": "模板ID",
+              "name": "表单ID",
               "value": "id",
               "type": "show-base"
             },
             {
-              "name": "模板名称",
+              "name": "表单名称",
               "value": "name",
               "type": "show-base"
             },
@@ -173,7 +173,7 @@
         "meta": {
           "stateKey": "dialog.edit",
           "pageRoute": "/crm/form/update",
-          "title": "编辑资料模板",
+          "title": "编辑任务表单",
           "size": "3xl",
           "width": "64rem",
           "footer": {
@@ -191,7 +191,7 @@
         "meta": {
           "stateKey": "dialog.create",
           "pageRoute": "/crm/form/update",
-          "title": "新增资料模板",
+          "title": "新增任务表单",
           "size": "3xl",
           "width": "64rem",
           "footer": {

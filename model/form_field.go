@@ -7,8 +7,8 @@ import (
 )
 
 type FormField struct {
-	ID                 uint64    `dorm:"primaryKey;autoIncrement;comment:模板字段ID"`
-	FormID             uint64    `dorm:"type:bigint;not null;comment:资料模板"`
+	ID                 uint64    `dorm:"primaryKey;autoIncrement;comment:表单字段ID"`
+	FormID             uint64    `dorm:"type:bigint;not null;comment:任务表单"`
 	DataTemplateCateID uint64    `dorm:"type:bigint;not null;default:0;comment:数据模板分类"`
 	DataTemplateID     uint64    `dorm:"type:bigint;not null;default:0;comment:数据模板"`
 	FieldSource        string    `dorm:"type:varchar(96);not null;default:'';comment:字段来源"`
@@ -33,7 +33,7 @@ type FormFieldIndex struct {
 }
 
 func NewFormFieldModel() *orm.Model[FormField] {
-	return orm.LoadModel[FormField]("模板字段", "crm_form_field", orm.ModelConfig{
+	return orm.LoadModel[FormField]("表单字段", "crm_form_field", orm.ModelConfig{
 		Index:    FormFieldIndex{},
 		Order:    "sort asc,id asc",
 		Database: "default",

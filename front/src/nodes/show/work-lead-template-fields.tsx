@@ -56,32 +56,24 @@ export function WorkLeadTemplateFields({
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
 }) {
-  if (templates.length === 0) return null;
+  const fields = templates.flatMap((template) => template.fields || []);
+  if (fields.length === 0) return null;
   const setFieldValue = (field: WorkLeadTemplateField, value: unknown) => {
     const key = workLeadTemplateFieldKey(field);
     if (!key) return;
     onChange({ ...values, [key]: value });
   };
   return (
-    <div className="col-span-full grid gap-5 border-t border-border/70 pt-4">
-      {templates.map((template) => (
-        <section key={textValue(template.id)} className="grid gap-3">
-          <h3 className="text-sm font-semibold">
-            {displayText(template.name, "线索补充信息")}
-          </h3>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {(template.fields || []).map((field) => (
-              <WorkLeadTemplateFieldControl
-                key={workLeadTemplateFieldKey(field)}
-                field={field}
-                value={values[workLeadTemplateFieldKey(field)]}
-                onChange={(value) => setFieldValue(field, value)}
-              />
-            ))}
-          </div>
-        </section>
+    <>
+      {fields.map((field) => (
+        <WorkLeadTemplateFieldControl
+          key={workLeadTemplateFieldKey(field)}
+          field={field}
+          value={values[workLeadTemplateFieldKey(field)]}
+          onChange={(value) => setFieldValue(field, value)}
+        />
       ))}
-    </div>
+    </>
   );
 }
 

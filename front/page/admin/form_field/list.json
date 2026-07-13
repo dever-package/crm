@@ -1,6 +1,6 @@
 {
   "page": {
-    "name": "模板字段",
+    "name": "表单字段",
     "icon": "list-plus",
     "parent": "crm/form/list",
     "type": 2
@@ -41,7 +41,7 @@
     "header-actions": [
       {
         "type": "show-button",
-        "name": "返回资料模板",
+        "name": "返回任务表单",
         "meta": {
           "icon": "arrow-left",
           "variant": "outline",
@@ -80,7 +80,7 @@
           "rowKey": "id",
           "columns": [
             {
-              "name": "资料模板",
+              "name": "任务表单",
               "value": "form.name",
               "type": "show-base"
             },
@@ -166,7 +166,7 @@
         "meta": {
           "stateKey": "dialog.edit",
           "pageRoute": "/crm/form_field/update",
-          "title": "编辑模板字段",
+          "title": "编辑表单字段",
           "size": "xl",
           "width": "64rem",
           "footer": {
@@ -184,7 +184,7 @@
         "meta": {
           "stateKey": "dialog.create",
           "pageRoute": "/crm/form_field/update",
-          "title": "新增模板字段",
+          "title": "新增表单字段",
           "size": "xl",
           "width": "64rem",
           "footer": {

@@ -1,19 +1,19 @@
 {
   "page": {
-    "name": "资料模板编辑",
+    "name": "任务表单编辑",
     "parent": "crm/form/list",
     "type": 2,
     "auth": [
       {
         "key": "crm/form/create",
-        "name": "资料模板新增",
+        "name": "任务表单新增",
         "query": {
           "id": "empty"
         }
       },
       {
         "key": "crm/form/update",
-        "name": "资料模板编辑",
+        "name": "任务表单编辑",
         "query": {
           "id": "required"
         }
@@ -40,12 +40,12 @@
       {
         "type": "form-input",
         "value": "form.name",
-        "name": "模板名称",
+        "name": "表单名称",
         "mode": "form",
         "validate": [
           {
             "type": "required",
-            "message": "资料模板名称不能为空。"
+            "message": "任务表单名称不能为空。"
           }
         ],
         "meta": {
@@ -54,15 +54,15 @@
       },
       {
         "type": "form-array",
-        "name": "模板字段",
+        "name": "表单字段",
         "value": "form.fields",
         "mode": "form",
-        "info": "选择这个资料模板需要展示和维护的客户信息或客户资产字段，字段按排序从小到大展示。",
+        "info": "组合任务需要填写的客户信息、客户资产或业务数据字段，字段按排序从小到大展示。线索录入字段请在数据模板的线索信息中配置。",
         "meta": {
           "pageRoute": "/crm/form_field/update",
-          "addText": "添加模板字段",
+          "addText": "添加表单字段",
           "drag": "sort",
-          "itemName": "模板字段"
+          "itemName": "表单字段"
         }
       }
     ]

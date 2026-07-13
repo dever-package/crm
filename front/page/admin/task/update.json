@@ -72,7 +72,7 @@
       },
       {
         "type": "form-select",
-        "name": "资料表单",
+        "name": "任务表单",
         "value": "form.form_id",
         "mode": "form",
         "option": {
