@@ -60,23 +60,6 @@
             "value": true
           }
         }
-      },
-      {
-        "type": "show-button",
-        "name": "新增资产",
-        "meta": {
-          "variant": "default",
-          "size": "sm",
-          "icon": "plus"
-        },
-        "className": "shrink-0",
-        "action": {
-          "click": {
-            "type": "modal",
-            "key": "dialog.create",
-            "value": true
-          }
-        }
       }
     ],
     "toolbar-row": [
@@ -171,16 +154,6 @@
               "meta": {
                 "buttons": [
                   {
-                    "icon": "eye",
-                    "variant": "outline",
-                    "size": "sm",
-                    "description": "查看资产详情",
-                    "to": "/crm/customer_asset/detail",
-                    "searchField": "id",
-                    "searchParam": "id",
-                    "withBack": true
-                  },
-                  {
                     "icon": "square-pen",
                     "variant": "outline",
                     "size": "sm",
@@ -240,20 +213,6 @@
           },
           "bodyClassName": "px-6 py-2"
         }
-      },
-      {
-        "id": "crm-customer-asset-create-modal",
-        "type": "feedback-modal",
-        "meta": {
-          "stateKey": "dialog.create",
-          "pageRoute": "/crm/customer_asset/update",
-          "title": "新增资产",
-          "footer": {
-            "confirm": true,
-            "confirmText": "保存"
-          },
-          "bodyClassName": "px-6 py-2"
-        }
       }
     ]
   },
@@ -280,8 +239,7 @@
   "state": {
     "dialog": {
       "assetStatus": false,
-      "edit": false,
-      "create": false
+      "edit": false
     }
   },
   "action": {}
