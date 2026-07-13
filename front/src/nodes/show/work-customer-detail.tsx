@@ -228,8 +228,8 @@ export function WorkCustomerDetailData({
               onClick={() => setActiveSectionID(section.id)}
             >
               <span className="block truncate text-sm font-medium">
-                {section.objectName
-                  ? `${section.objectName} / ${section.name}`
+                {section.productName
+                  ? `${section.productName} / ${section.name}`
                   : section.name}
               </span>
               <span className="mt-1 block text-xs opacity-75">
@@ -246,9 +246,9 @@ export function WorkCustomerDetailData({
             <h3 className="text-sm font-semibold text-foreground">
               {activeSection.name}
             </h3>
-            {activeSection.objectName ? (
+            {activeSection.productName ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                {activeSection.objectName}
+                所属产品：{activeSection.productName}
               </p>
             ) : null}
           </div>

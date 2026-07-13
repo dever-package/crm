@@ -53,9 +53,9 @@ import {
   workTaskValidationErrorsPath,
   type WorkAIFillResponse,
   type WorkAsset,
-  type WorkBusinessObject,
   type WorkCommonOption,
   type WorkCustomer,
+  type WorkCustomerProduct,
   type WorkCustomerMode,
   type WorkCustomerScope,
   type WorkDataCompletenessTemplate,
@@ -176,41 +176,6 @@ function assetTitle(asset?: WorkAsset | null): string {
   );
 }
 
-function workBusinessObjectID(object?: WorkBusinessObject | null): string {
-  return positiveTextID(object?.id) || positiveTextID(object?.business_object_id);
-}
-
-function workBusinessObjectTitle(object?: WorkBusinessObject | null): string {
-  return (
-    textValue(object?.object_name) ||
-    textValue(object?.object_no) ||
-    textValue(object?.business_object_type_name) ||
-    "业务对象"
-  );
-}
-
-function workBusinessObjectOptions(
-  asset: WorkAsset | undefined,
-  task: WorkTask,
-): WorkCommonOption[] {
-  const typeID = positiveTextID(task.business_object_type_id);
-  const objects = Array.isArray(asset?.business_objects)
-    ? asset.business_objects
-    : [];
-  return objects
-    .filter(
-      (object) =>
-        !typeID || positiveTextID(object.business_object_type_id) === typeID,
-    )
-    .map((object) => ({
-      id: workBusinessObjectID(object),
-      value: [workBusinessObjectTitle(object), textValue(object.object_no)]
-        .filter(Boolean)
-        .join(" / "),
-    }))
-    .filter((option) => Boolean(option.id));
-}
-
 function workStatusName(target?: WorkCustomer | WorkAsset | null): string {
   return (
     textValue(target?.status_name) ||
@@ -247,6 +212,10 @@ function workTaskIsRule(task: WorkTask): boolean {
   return workTaskAction(task) === "rule";
 }
 
+function workTaskIsProduct(task: WorkTask): boolean {
+  return workTaskAction(task) === "product";
+}
+
 function workTaskAllowsProgress(task: WorkTask): boolean {
   return workTaskIsForm(task);
 }
@@ -265,6 +234,7 @@ function workTaskButtonLabel(task: WorkTask): string {
   if (workTaskIsForm(task)) return "填写资料";
   if (workTaskIsApproval(task)) return "审核";
   if (workTaskIsRule(task)) return "自动核验";
+  if (workTaskIsProduct(task)) return "确认产品";
   return "办理事项";
 }
 
@@ -287,6 +257,7 @@ function workTaskSubmitSuccessMessage(
 ): string {
   if (mode === "progress") return "进度已保存";
   if (workTaskIsApproval(task)) return "审核结果已提交";
+  if (workTaskIsProduct(task)) return "产品已确认";
   return workTaskIsForm(task) ? "资料已提交" : "任务已完成";
 }
 
@@ -566,7 +537,6 @@ function buildWorkTaskFormState(
   const nodes: WorkTaskFormNode[] = [];
   const values: Record<string, unknown> = {};
   const fieldMap: Record<string, string> = {};
-  addWorkTaskBusinessObjectNode(nodes, values, fieldMap, task, asset);
 
   if (workTaskShouldRenderFields(task)) {
     const groupFields: WorkFormField[] = [];
@@ -619,41 +589,48 @@ function buildWorkTaskFormState(
   };
 }
 
-function addWorkTaskBusinessObjectNode(
-  nodes: WorkTaskFormNode[],
-  values: Record<string, unknown>,
-  fieldMap: Record<string, string>,
-  task: WorkTask,
-  asset?: WorkAsset,
-) {
-  if (!positiveTextID(task.business_object_type_id)) return;
-  const existing = workBusinessObjectOptions(asset, task);
-  if (existing.length === 0) return;
-  const typeName = textValue(task.business_object_type_name) || "运营记录";
-  addWorkTaskConfiguredSection(nodes, values, fieldMap, {
-    id: "business-object",
-    title: "关联记录",
-    fields: [
-      {
-        formKey: "business_object_id",
-        rawKey: "business_object_id",
-        label: typeName,
-        placeholder: `请选择${typeName}`,
-        required: true,
-        type: "form-select",
-        options: [...existing, { id: "0", value: `新建${typeName}` }],
-        initialValue: existing[0].id,
-      },
-    ],
-  });
-}
-
 function addWorkTaskActionFields(
   nodes: WorkTaskFormNode[],
   values: Record<string, unknown>,
   fieldMap: Record<string, string>,
   task: WorkTask,
 ) {
+  if (workTaskIsProduct(task)) {
+    const options = (task.product_options || [])
+      .map((product) => {
+        const id = positiveTextID(product.id);
+        const details = [
+          textValue(product.category_name),
+          textValue(product.service_workflow_name),
+        ].filter(Boolean);
+        return {
+          id,
+          value: `${textValue(product.name) || textValue(product.code) || id}${
+            details.length > 0 ? ` · ${details.join(" / ")}` : ""
+          }`,
+        };
+      })
+      .filter((product) => Boolean(product.id));
+    addWorkTaskConfiguredSection(nodes, values, fieldMap, {
+      id: "product-selection",
+      title: "确认客户产品",
+      fields: [
+        {
+          formKey: "product_ids",
+          rawKey: "product_ids",
+          label: "适用产品",
+          placeholder: "搜索并选择产品",
+          required: Boolean(task.todo_required ?? task.required),
+          type: "form-select",
+          fullWidth: true,
+          options,
+          meta: { multiple: true, searchable: true },
+          initialValue: task.selected_product_ids || [],
+        },
+      ],
+    });
+    return;
+  }
   if (workTaskIsTodo(task)) {
     addWorkTaskConfiguredSection(nodes, values, fieldMap, {
       id: "task-result",
@@ -1091,6 +1068,8 @@ type WorkDetailTargetResponse = {
   list?: WorkOperation[];
   todos?: WorkTodo[];
   flow?: WorkFlowDetail | null;
+  workflow_instances?: WorkFlowDetail[];
+  customer_products?: WorkCustomerProduct[];
   detail_sections?: WorkDetailSection[];
 };
 
@@ -3013,6 +2992,8 @@ function useWorkDetailData(
   const [operations, setOperations] = useState<WorkOperation[]>([]);
   const [todos, setTodos] = useState<WorkTodo[]>([]);
   const [flow, setFlow] = useState<WorkFlowDetail | null>(null);
+  const [workflowInstances, setWorkflowInstances] = useState<WorkFlowDetail[]>([]);
+  const [customerProducts, setCustomerProducts] = useState<WorkCustomerProduct[]>([]);
   const [detailSections, setDetailSections] = useState<WorkDetailSection[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -3023,6 +3004,8 @@ function useWorkDetailData(
       setOperations([]);
       setTodos([]);
       setFlow(null);
+      setWorkflowInstances([]);
+      setCustomerProducts([]);
       setDetailSections([]);
       return;
     }
@@ -3039,12 +3022,20 @@ function useWorkDetailData(
       setOperations(list);
       setTodos(Array.isArray(data?.todos) ? data.todos : []);
       setFlow(data?.flow ?? null);
+      setWorkflowInstances(
+        Array.isArray(data?.workflow_instances) ? data.workflow_instances : [],
+      );
+      setCustomerProducts(
+        Array.isArray(data?.customer_products) ? data.customer_products : [],
+      );
       setDetailSections(normalizeWorkDetailSections(data?.detail_sections));
     } catch (error) {
       toast.error(errorMessage(error, "详情加载失败"));
       setOperations([]);
       setTodos([]);
       setFlow(null);
+      setWorkflowInstances([]);
+      setCustomerProducts([]);
       setDetailSections([]);
     } finally {
       setLoading(false);
@@ -3062,6 +3053,8 @@ function useWorkDetailData(
     setOperations([]);
     setTodos([]);
     setFlow(null);
+    setWorkflowInstances([]);
+    setCustomerProducts([]);
     setDetailSections([]);
   }, [assetID, customerID]);
 
@@ -3085,6 +3078,8 @@ function useWorkDetailData(
     operations,
     todos,
     flow,
+    workflowInstances,
+    customerProducts,
     detailSections,
     loading,
     reload,
@@ -3132,6 +3127,23 @@ function workCustomerDetailHeaderView(
       ? workTaskButtonLabel(primaryTask)
       : undefined,
   };
+}
+
+function workCustomerDetailPrimaryFlow(
+  instances: WorkFlowDetail[],
+  fallback: WorkFlowDetail | null,
+): WorkFlowDetail | null {
+  const active = instances.filter(
+    (instance) => textValue(instance.status) === "active",
+  );
+  return (
+    active.find((instance) => instance.is_current_owner) ||
+    active.find((instance) =>
+      (instance.tasks || []).some((task) => Boolean(task.can_operate)),
+    ) ||
+    active[0] ||
+    fallback
+  );
 }
 
 function WorkCustomerDetailContent({
@@ -3226,10 +3238,13 @@ function WorkAssetDetailContent({
     operations,
     todos,
     flow,
+    workflowInstances,
+    customerProducts,
     detailSections,
     loading: loadingDetail,
   } = useWorkDetailData(customer, asset, store);
   const activeAsset = detailAsset || asset;
+  const primaryFlow = workCustomerDetailPrimaryFlow(workflowInstances, flow);
   const primaryTask = workCustomerDetailPrimaryTask(
     detailCustomer,
     activeAsset,
@@ -3237,7 +3252,7 @@ function WorkAssetDetailContent({
   const headerView = workCustomerDetailHeaderView(
     detailCustomer,
     activeAsset,
-    flow,
+    primaryFlow,
     primaryTask,
   );
 
@@ -3270,6 +3285,7 @@ function WorkAssetDetailContent({
           <WorkCustomerOverview
             customer={detailCustomer}
             asset={detailAsset || undefined}
+            customerProducts={customerProducts}
             operations={operations}
             todos={todos}
             loadingOperations={loadingDetail}
@@ -3277,7 +3293,24 @@ function WorkAssetDetailContent({
           />
         ) : activeTab === "flow" ? (
           <div className="grid gap-5">
-            <WorkFlowActions flow={flow} loading={loadingDetail} />
+            {(
+              workflowInstances.length > 0
+                ? workflowInstances
+                : flow
+                  ? [flow]
+                  : []
+            ).map((currentFlow) => (
+              <WorkFlowActions
+                key={positiveTextID(
+                  currentFlow.workflow_instance_id || currentFlow.id,
+                )}
+                flow={currentFlow}
+                loading={loadingDetail}
+              />
+            ))}
+            {!loadingDetail && workflowInstances.length === 0 && !flow ? (
+              <WorkFlowActions flow={null} loading={false} />
+            ) : null}
             <WorkDetailOverview
               operations={operations}
               loadingOperations={loadingDetail}
@@ -3329,6 +3362,7 @@ function WorkDetailOverview({
 function WorkCustomerOverview({
   customer,
   asset,
+  customerProducts,
   operations,
   todos,
   loadingOperations,
@@ -3336,6 +3370,7 @@ function WorkCustomerOverview({
 }: {
   customer: WorkCustomer;
   asset?: WorkAsset;
+  customerProducts?: WorkCustomerProduct[];
   operations: WorkOperation[];
   todos: WorkTodo[];
   loadingOperations: boolean;
@@ -3347,11 +3382,12 @@ function WorkCustomerOverview({
   const pendingTodoCount = todos.filter(
     (todo) => textValue(todo.status) === "pending",
   ).length;
-  const businessObject = workOverviewPrimaryBusinessObject(primaryAsset);
+  const products =
+    customerProducts || workOverviewCustomerProducts(primaryAsset);
   const completenessItems = workOverviewCompletenessItems(
     customer,
     primaryAsset,
-    businessObject,
+    ...products,
   );
   const completenessPercent = workOverviewAverageCompleteness(completenessItems);
   const latestOperations = workOverviewLatestOperations(operations);
@@ -3424,55 +3460,8 @@ function WorkCustomerOverview({
             />
           </WorkOverviewPanel>
 
-          <WorkOverviewPanel title="租赁与收款">
-            {businessObject ? (
-              <WorkOverviewRows
-                rows={[
-                  ["租赁记录", workBusinessObjectTitle(businessObject)],
-                  ["记录编号", displayText(businessObject.object_no)],
-                  ["状态", displayText(businessObject.object_status)],
-                  [
-                    "租户",
-                    workOverviewFieldValue(
-                      businessObject.display_fields,
-                      [
-                        "租户姓名",
-                        "租客姓名",
-                        "承租人姓名",
-                        "承租人",
-                        "租户",
-                        "租客",
-                      ],
-                    ),
-                  ],
-                  [
-                    "月租金",
-                    workOverviewFieldValue(
-                      businessObject.display_fields,
-                      ["月租金", "租金", "出租月租", "租赁月租"],
-                    ),
-                  ],
-                  [
-                    "收款状态",
-                    workOverviewFieldValue(
-                      businessObject.display_fields,
-                      [
-                        "租户付款状态",
-                        "付款状态",
-                        "收款状态",
-                        "租金收款状态",
-                      ],
-                    ),
-                  ],
-                  [
-                    "费用/收款",
-                    workOverviewFinanceSummary(businessObject.display_fields),
-                  ],
-                ]}
-              />
-            ) : (
-              <WorkEmptyText>暂无租赁记录。</WorkEmptyText>
-            )}
+          <WorkOverviewPanel title="产品与业务">
+            <WorkOverviewCustomerProducts products={products} />
           </WorkOverviewPanel>
         </div>
 
@@ -3541,6 +3530,42 @@ function WorkOverviewRows({ rows }: { rows: Array<[string, unknown]> }) {
           label={label}
           value={value}
         />
+      ))}
+    </div>
+  );
+}
+
+function WorkOverviewCustomerProducts({
+  products,
+}: {
+  products: WorkCustomerProduct[];
+}) {
+  if (products.length === 0) {
+    return <WorkEmptyText>暂无已确认产品。</WorkEmptyText>;
+  }
+  return (
+    <div className="divide-y divide-border/60">
+      {products.map((product, index) => (
+        <div
+          key={
+            positiveTextID(product.customer_product_id || product.id) || index
+          }
+          className="grid gap-1 py-2.5 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+        >
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">
+              {displayText(product.product_name || product.product_code)}
+            </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {[textValue(product.workflow_name), textValue(product.stage_name)]
+                .filter(Boolean)
+                .join(" / ") || "无需后续服务流程"}
+            </div>
+          </div>
+          <span className="text-xs font-medium text-muted-foreground">
+            {displayText(product.status_name || product.status)}
+          </span>
+        </div>
       ))}
     </div>
   );
@@ -3650,7 +3675,7 @@ function workOverviewTaskSummary(taskNames: string[]): string {
 }
 
 function workOverviewCompletenessItems(
-  ...targets: Array<WorkCustomer | WorkAsset | WorkBusinessObject | null | undefined>
+  ...targets: Array<WorkCustomer | WorkAsset | WorkCustomerProduct | null | undefined>
 ): WorkDataCompletenessTemplate[] {
   return targets.flatMap((target) =>
     Array.isArray(target?.data_completeness) ? target.data_completeness : [],
@@ -3725,13 +3750,8 @@ function workOverviewCustomerAssets(customer?: WorkCustomer): WorkAsset[] {
   return Array.isArray(customer?.assets) ? customer.assets : [];
 }
 
-function workOverviewPrimaryBusinessObject(
-  asset?: WorkAsset,
-): WorkBusinessObject | null {
-  const objects = Array.isArray(asset?.business_objects)
-    ? asset.business_objects
-    : [];
-  return objects[0] || null;
+function workOverviewCustomerProducts(asset?: WorkAsset): WorkCustomerProduct[] {
+  return Array.isArray(asset?.customer_products) ? asset.customer_products : [];
 }
 
 function workOverviewFieldValue(
@@ -3762,36 +3782,6 @@ function workOverviewFieldValue(
 
 function workOverviewComparableLabel(label: unknown): string {
   return textValue(label).replace(/\s+/g, "");
-}
-
-function workOverviewFinanceSummary(
-  fields: WorkDisplayField[] | undefined,
-): string {
-  const financeLabels = [
-    "服务费",
-    "律师费",
-    "保证金",
-    "成本",
-    "费用",
-    "投流",
-    "运营",
-    "租金",
-    "收款",
-    "付款",
-  ];
-  const values = (fields || [])
-    .filter((field) => {
-      if (workDisplayFieldEmpty(field)) return false;
-      const fieldLabel = workOverviewComparableLabel(field.label);
-      return financeLabels.some((label) =>
-        fieldLabel.includes(workOverviewComparableLabel(label)),
-      );
-    })
-    .map(
-      (field) => `${displayText(field.label)}：${workDetailDisplayValue(field)}`,
-    )
-    .slice(0, 3);
-  return values.length > 0 ? values.join("；") : "-";
 }
 
 function workDetailDisplayValue(field: WorkDisplayField): string {
@@ -4115,6 +4105,8 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
           body: JSON.stringify({
             task_id: task.id,
             todo_id: positiveTextID(task.todo_id) || undefined,
+            workflow_instance_id:
+              positiveTextID(task.workflow_instance_id) || undefined,
             customer_id: workCustomerID(customer),
             asset_id: workAssetID(asset),
             submit_mode: mode,
@@ -4151,6 +4143,8 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
         body: JSON.stringify({
           task_id: task.id,
           todo_id: positiveTextID(task.todo_id) || undefined,
+          workflow_instance_id:
+            positiveTextID(task.workflow_instance_id) || undefined,
           customer_id: workCustomerID(customer),
           asset_id: workAssetID(asset),
           instruction: textValue(instruction) || undefined,
@@ -4563,6 +4557,8 @@ function workTaskSubmitErrorField(message: string): string {
   if (message.includes("审核意见")) return "opinion";
   if (message.includes("审核结果")) return "approval_result";
   if (message.includes("办理结果")) return "result";
+  if (message.includes("产品") || message.includes("product"))
+    return "product_ids";
   return "";
 }
 

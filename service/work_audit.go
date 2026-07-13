@@ -272,7 +272,43 @@ func currentWorkEntryInstance(ctx context.Context, customerID uint64, assetID ui
 	return crmmodel.NewWorkflowInstanceModel().Find(ctx, filters, map[string]any{"order": "id desc"})
 }
 
-func ensureCurrentWorkEntryInstance(ctx context.Context, _ *WorkStaffSession, customerID uint64, assetID uint64) *crmmodel.WorkflowInstance {
+func currentWorkTargetInstance(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) *crmmodel.WorkflowInstance {
+	if customerID == 0 {
+		return nil
+	}
+	filters := map[string]any{
+		"customer_id": customerID,
+		"status":      crmmodel.ProgressStatusActive,
+	}
+	if assetID > 0 {
+		filters["asset_id"] = assetID
+	}
+	if staff != nil && staff.ID > 0 {
+		ownerFilters := copyMap(filters)
+		ownerFilters["owner_staff_id"] = staff.ID
+		if instance := crmmodel.NewWorkflowInstanceModel().Find(ctx, ownerFilters, map[string]any{"order": "updated_at desc,id desc"}); instance != nil {
+			return instance
+		}
+		todoFilters := map[string]any{
+			"customer_id":       customerID,
+			"assignee_staff_id": staff.ID,
+			"status":            crmmodel.WorkTodoStatusPending,
+		}
+		if assetID > 0 {
+			todoFilters["asset_id"] = assetID
+		}
+		if todo := crmmodel.NewWorkTodoModel().Find(ctx, todoFilters, map[string]any{"order": "updated_at desc,id desc"}); todo != nil {
+			if instance := crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{
+				"id":     todo.WorkflowInstanceID,
+				"status": crmmodel.ProgressStatusActive,
+			}); instance != nil {
+				return instance
+			}
+		}
+	}
+	if instance := crmmodel.NewWorkflowInstanceModel().Find(ctx, filters, map[string]any{"order": "updated_at desc,id desc"}); instance != nil {
+		return instance
+	}
 	return currentWorkEntryInstance(ctx, customerID, assetID)
 }
 

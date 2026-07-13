@@ -123,6 +123,8 @@ export type WorkTask = {
   unassigned?: boolean;
   required?: boolean;
   assignee_mode?: "stage" | "auto" | "manual" | string;
+  workflow_instance_id?: string | number;
+  customer_product_id?: string | number;
   workflow_id?: string | number;
   workflow_name?: string;
   stage_id?: string | number;
@@ -134,8 +136,8 @@ export type WorkTask = {
   assignee_staff_id?: string | number;
   assignee_staff_name?: string;
   task_type?: string;
-  business_object_type_id?: string | number;
-  business_object_type_name?: string;
+  product_options?: WorkProductOption[];
+  selected_product_ids?: Array<string | number>;
   form_id?: string | number;
   form?: WorkForm | null;
 };
@@ -214,19 +216,33 @@ export type WorkAsset = {
   data_value_labels?: Record<string, string>;
   display_fields?: WorkDisplayField[];
   data_completeness?: WorkDataCompletenessTemplate[];
-  business_objects?: WorkBusinessObject[];
+  customer_products?: WorkCustomerProduct[];
   [key: string]: unknown;
 };
 
-export type WorkBusinessObject = {
+export type WorkProductOption = {
   id?: string | number;
-  business_object_id?: string | number;
-  business_object_type_id?: string | number;
-  business_object_type_name?: string;
-  object_no?: string;
-  object_name?: string;
-  object_status?: string;
-  status?: string | number;
+  name?: string;
+  code?: string;
+  category_name?: string;
+  service_workflow_name?: string;
+};
+
+export type WorkCustomerProduct = {
+  id?: string | number;
+  customer_product_id?: string | number;
+  product_id?: string | number;
+  product_name?: string;
+  product_code?: string;
+  status?: string;
+  status_name?: string;
+  workflow_instance_id?: string | number;
+  workflow_id?: string | number;
+  workflow_name?: string;
+  stage_id?: string | number;
+  stage_name?: string;
+  owner_staff_name?: string;
+  flow?: WorkFlowDetail;
   created_at?: string;
   updated_at?: string;
   data_values?: Record<string, unknown>;
@@ -241,6 +257,8 @@ export type WorkOperation = {
   asset_id?: string | number;
   customer_id?: string | number;
   workflow_id?: string | number;
+  workflow_instance_id?: string | number;
+  customer_product_id?: string | number;
   stage_id?: string | number;
   task_type?: string;
   result_value?: string;
@@ -268,6 +286,8 @@ export type WorkTodo = {
   todo_id?: string | number;
   task_id?: string | number;
   workflow_id?: string | number;
+  workflow_instance_id?: string | number;
+  customer_product_id?: string | number;
   workflow_name?: string;
   stage_id?: string | number;
   stage_name?: string;
@@ -298,6 +318,7 @@ export type WorkFlowAssignee = {
   id?: string | number;
   name?: string;
   department_id?: string | number;
+  active_flow_count?: string | number;
   active_asset_count?: string | number;
   pending_task_count?: string | number;
   last_assigned_at?: string;
@@ -305,8 +326,13 @@ export type WorkFlowAssignee = {
 
 export type WorkFlowDetail = {
   id?: string | number;
+  workflow_instance_id?: string | number;
   customer_id?: string | number;
   asset_id?: string | number;
+  customer_product_id?: string | number;
+  product_id?: string | number;
+  product_name?: string;
+  flow_role?: "entry" | "product" | string;
   workflow_id?: string | number;
   workflow_name?: string;
   stage_id?: string | number;
@@ -330,8 +356,6 @@ export type WorkFlowDetail = {
   can_change_owner?: boolean;
   tasks?: WorkTask[];
   next_terminal?: boolean;
-  next_workflow_id?: string | number;
-  next_workflow_name?: string;
   next_stage_id?: string | number;
   next_stage_name?: string;
   next_department_id?: string | number;
@@ -426,10 +450,11 @@ export type WorkDetailField = {
 export type WorkDetailSection = {
   id: string;
   name: string;
-  targetType: "customer" | "asset" | "business_object";
+  targetType: "customer" | "asset" | "workflow";
   templateId?: string | number;
-  objectId?: string | number;
-  objectName?: string;
+  workflowInstanceId?: string | number;
+  customerProductId?: string | number;
+  productName?: string;
   filled: number;
   total: number;
   percent: number;
@@ -1005,7 +1030,7 @@ export function normalizeWorkDetailSections(
   return value.filter(workIsRecord).map((section) => {
     const rawTargetType = textValue(section.target_type);
     const targetType: WorkDetailSection["targetType"] =
-      rawTargetType === "asset" || rawTargetType === "business_object"
+      rawTargetType === "asset" || rawTargetType === "workflow"
         ? rawTargetType
         : "customer";
     return {
@@ -1013,8 +1038,15 @@ export function normalizeWorkDetailSections(
       name: displayText(section.name),
       targetType,
       templateId: section.template_id as string | number | undefined,
-      objectId: section.object_id as string | number | undefined,
-      objectName: textValue(section.object_name),
+      workflowInstanceId: section.workflow_instance_id as
+        | string
+        | number
+        | undefined,
+      customerProductId: section.customer_product_id as
+        | string
+        | number
+        | undefined,
+      productName: textValue(section.product_name),
       filled: Number(section.filled) || 0,
       total: Number(section.total) || 0,
       percent: Number(section.percent) || 0,

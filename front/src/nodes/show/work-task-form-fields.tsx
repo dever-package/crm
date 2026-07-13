@@ -1,6 +1,6 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import type { ReactElement } from "react";
-import { Check } from "lucide-react";
+import { Check, Search } from "lucide-react";
 
 import {
   displayText,
@@ -218,52 +218,96 @@ function renderTaskMultiSelect({
   setValue,
   error,
 }: TaskFieldRendererProps) {
+  return (
+    <TaskMultiSelect
+      field={field}
+      value={value}
+      setValue={setValue}
+      error={error}
+    />
+  );
+}
+
+function TaskMultiSelect({
+  field,
+  value,
+  setValue,
+  error,
+}: TaskFieldRendererProps) {
+  const [keyword, setKeyword] = useState("");
   const selected = new Set(workTaskSelectedValues(value));
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  const options = (field.options || []).filter((option) => {
+    if (!normalizedKeyword) return true;
+    return textValue(option.value || option.id)
+      .toLowerCase()
+      .includes(normalizedKeyword);
+  });
   return (
     <div
-      className={`crm-work-task-multi-options gap-2 rounded-md border bg-background p-2 ${
+      className={`rounded-md border bg-background p-2 ${
         error ? "border-destructive" : "border-input"
       }`}
       aria-invalid={Boolean(error)}
     >
-      {(field.options || []).map((option) => {
-        const checked = selected.has(option.id);
-        return (
-          <label
-            key={option.id}
-            className={`flex min-w-0 items-center gap-2 rounded px-2 py-2 text-sm ${
-              field.readonly
-                ? "cursor-not-allowed"
-                : "cursor-pointer hover:bg-muted/60"
-            }`}
-          >
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={checked}
-              disabled={field.readonly}
-              onChange={() => {
-                const next = new Set(selected);
-                if (checked) next.delete(option.id);
-                else next.add(option.id);
-                setValue(Array.from(next));
-              }}
-            />
-            <span
-              className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                checked
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-input bg-background"
+      {field.meta?.["searchable"] ? (
+        <label className="relative mb-2 block">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            className={`${inputClassName} h-9 pl-8`}
+            placeholder={field.placeholder}
+            value={keyword}
+            disabled={field.readonly}
+            onChange={(event) => setKeyword(event.currentTarget.value)}
+          />
+        </label>
+      ) : null}
+      <div className="crm-work-task-multi-options gap-2">
+        {options.map((option) => {
+          const checked = selected.has(option.id);
+          return (
+            <label
+              key={option.id}
+              className={`flex min-w-0 items-center gap-2 rounded px-2 py-2 text-sm ${
+                field.readonly
+                  ? "cursor-not-allowed"
+                  : "cursor-pointer hover:bg-muted/60"
               }`}
             >
-              {checked ? <Check className="h-3 w-3" /> : null}
-            </span>
-            <span className="min-w-0 break-words">
-              {displayText(option.value || option.id)}
-            </span>
-          </label>
-        );
-      })}
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={checked}
+                disabled={field.readonly}
+                onChange={() => {
+                  const next = new Set(selected);
+                  if (checked) next.delete(option.id);
+                  else next.add(option.id);
+                  setValue(Array.from(next));
+                }}
+              />
+              <span
+                className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                  checked
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-input bg-background"
+                }`}
+              >
+                {checked ? <Check className="h-3 w-3" /> : null}
+              </span>
+              <span className="min-w-0 break-words">
+                {displayText(option.value || option.id)}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {options.length === 0 ? (
+        <div className="px-2 py-5 text-center text-sm text-muted-foreground">
+          没有匹配的产品
+        </div>
+      ) : null}
     </div>
   );
 }

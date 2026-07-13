@@ -188,15 +188,13 @@ func workFlowDetail(ctx context.Context, staff *WorkStaffSession, instanceID uin
 	attachCustomerProductFlowFields(ctx, result, instance.CustomerProductID)
 
 	if isActive {
-		nextWorkflow, nextStage, err := nextWorkflowStage(ctx, instance)
+		_, nextStage, err := nextWorkflowStage(ctx, instance)
 		if err != nil {
 			result["configuration_error"] = err.Error()
 			result["ready_to_complete"] = false
 		} else if nextStage == nil {
 			result["next_terminal"] = true
 		} else {
-			result["next_workflow_id"] = nextWorkflow.ID
-			result["next_workflow_name"] = nextWorkflow.Name
 			result["next_stage_id"] = nextStage.ID
 			result["next_stage_name"] = nextStage.Name
 			result["next_department_id"] = nextStage.OwnerDepartmentID

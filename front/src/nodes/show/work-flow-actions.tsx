@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { ArrowRight, Ban, Check, GitBranch, Loader2, UserRound, X } from "lucide-react";
+import {
+  ArrowRight,
+  Ban,
+  Check,
+  GitBranch,
+  Loader2,
+  UserRound,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -62,7 +70,9 @@ export function WorkFlowActions({
     );
   }
 
-  const assetID = textValue(flow.asset_id);
+  const workflowInstanceID = textValue(
+    flow.workflow_instance_id || flow.id,
+  );
   const tasks = Array.isArray(flow.tasks) ? flow.tasks : [];
   const pendingRequiredCount = Number(flow.pending_required_count) || 0;
   const status = textValue(flow.status);
@@ -110,18 +120,24 @@ export function WorkFlowActions({
   };
 
   const openOwnerPicker = () => {
-    if (!assetID) return;
+    if (!workflowInstanceID) return;
     void loadAssignees(
       { kind: "owner", title: "更换阶段负责人" },
-      new URLSearchParams({ asset_id: assetID, target: "current_owner" }),
+      new URLSearchParams({
+        workflow_instance_id: workflowInstanceID,
+        target: "current_owner",
+      }),
     );
   };
 
   const openCompletePicker = () => {
-    if (!assetID) return;
+    if (!workflowInstanceID) return;
     void loadAssignees(
       { kind: "complete", title: "选择下一阶段负责人" },
-      new URLSearchParams({ asset_id: assetID, target: "next_stage" }),
+      new URLSearchParams({
+        workflow_instance_id: workflowInstanceID,
+        target: "next_stage",
+      }),
     );
   };
 
@@ -134,7 +150,7 @@ export function WorkFlowActions({
   };
 
   const submitPicker = async () => {
-    if (!picker || !selectedStaffID || !assetID) return;
+    if (!picker || !selectedStaffID || !workflowInstanceID) return;
     setSubmitting(true);
     try {
       if (picker.kind === "task") {
@@ -150,7 +166,7 @@ export function WorkFlowActions({
         await workApi("/crm/work/change_flow_owner", {
           method: "POST",
           body: JSON.stringify({
-            asset_id: assetID,
+            workflow_instance_id: workflowInstanceID,
             owner_staff_id: selectedStaffID,
           }),
         });
@@ -159,7 +175,7 @@ export function WorkFlowActions({
         await workApi("/crm/work/complete_flow_stage", {
           method: "POST",
           body: JSON.stringify({
-            asset_id: assetID,
+            workflow_instance_id: workflowInstanceID,
             next_owner_staff_id: selectedStaffID,
           }),
         });
@@ -173,7 +189,7 @@ export function WorkFlowActions({
   };
 
   const completeStage = async () => {
-    if (!assetID || !flow.ready_to_complete) return;
+    if (!workflowInstanceID || !flow.ready_to_complete) return;
     if (flow.next_owner_required) {
       openCompletePicker();
       return;
@@ -186,7 +202,7 @@ export function WorkFlowActions({
     try {
       await workApi("/crm/work/complete_flow_stage", {
         method: "POST",
-        body: JSON.stringify({ asset_id: assetID }),
+        body: JSON.stringify({ workflow_instance_id: workflowInstanceID }),
       });
       finishAction("阶段已完成");
     } catch (error) {
@@ -198,12 +214,15 @@ export function WorkFlowActions({
 
   const terminateFlow = async () => {
     const reason = terminateReason.trim();
-    if (!assetID || !reason) return;
+    if (!workflowInstanceID || !reason) return;
     setSubmitting(true);
     try {
       await workApi("/crm/work/terminate_flow", {
         method: "POST",
-        body: JSON.stringify({ asset_id: assetID, reason }),
+        body: JSON.stringify({
+          workflow_instance_id: workflowInstanceID,
+          reason,
+        }),
       });
       finishAction("流程已终止");
     } catch (error) {
@@ -219,7 +238,14 @@ export function WorkFlowActions({
         <div className="min-w-0">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="font-semibold">{displayText(flow.workflow_name)}</span>
+            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              {textValue(flow.flow_role) === "product"
+                ? displayText(flow.product_name, "产品流程")
+                : "客户流程"}
+            </span>
+            <span className="font-semibold">
+              {displayText(flow.workflow_name)}
+            </span>
             <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="font-semibold">{displayText(flow.stage_name)}</span>
             <WorkFlowStatus status={status} />
@@ -247,7 +273,11 @@ export function WorkFlowActions({
       <div className="divide-y divide-border/60 border-t border-border/60">
         {tasks.length > 0 ? (
           tasks.map((task) => (
-            <WorkFlowTaskRow key={textValue(task.todo_id || task.id)} task={task} onAssign={openTaskPicker} />
+            <WorkFlowTaskRow
+              key={textValue(task.todo_id || task.id)}
+              task={task}
+              onAssign={openTaskPicker}
+            />
           ))
         ) : (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">本阶段暂无任务</div>
@@ -271,8 +301,17 @@ export function WorkFlowActions({
                 </option>
               ))}
             </select>
-            <Button type="button" size="sm" disabled={!selectedStaffID || submitting} onClick={() => void submitPicker()}>
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            <Button
+              type="button"
+              size="sm"
+              disabled={!selectedStaffID || submitting}
+              onClick={() => void submitPicker()}
+            >
+              {submitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4" />
+              )}
               确认
             </Button>
             <Button type="button" variant="ghost" size="icon" onClick={closePicker} disabled={submitting} title="取消">
@@ -345,7 +384,13 @@ export function WorkFlowActions({
   );
 }
 
-function WorkFlowTaskRow({ task, onAssign }: { task: WorkTask; onAssign: (task: WorkTask) => void }) {
+function WorkFlowTaskRow({
+  task,
+  onAssign,
+}: {
+  task: WorkTask;
+  onAssign: (task: WorkTask) => void;
+}) {
   const status = textValue(task.todo_status || task.status);
   const required = Boolean(task.todo_required ?? task.required);
   const assignee = textValue(task.assignee_staff_name) || "待分配";
@@ -366,7 +411,15 @@ function WorkFlowTaskRow({ task, onAssign }: { task: WorkTask; onAssign: (task: 
           </div>
         ) : null}
       </div>
-      <span className={`text-xs font-medium ${status === "done" ? "text-emerald-700" : status === "canceled" ? "text-muted-foreground" : "text-foreground"}`}>
+      <span
+        className={`text-xs font-medium ${
+          status === "done"
+            ? "text-emerald-700"
+            : status === "canceled"
+              ? "text-muted-foreground"
+              : "text-foreground"
+        }`}
+      >
         {workFlowTaskStatusName(status)}
       </span>
       {task.can_assign || task.can_reassign ? (
@@ -385,7 +438,11 @@ function WorkFlowStatus({ status }: { status: string }) {
     completed: "已完成",
     terminated: "已终止",
   };
-  return <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">{labels[status] || status}</span>;
+  return (
+    <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+      {labels[status] || status}
+    </span>
+  );
 }
 
 function workFlowTaskStatusName(status: string): string {
@@ -400,12 +457,14 @@ function workTaskTypeName(type: unknown): string {
     form: "资料",
     approval: "审核",
     rule: "自动核验",
+    product: "确认产品",
   };
   return labels[textValue(type)] || textValue(type);
 }
 
 function workFlowAssigneeLabel(assignee: WorkFlowAssignee): string {
-  const activeAssets = Number(assignee.active_asset_count) || 0;
+  const activeFlows =
+    Number(assignee.active_flow_count ?? assignee.active_asset_count) || 0;
   const pendingTasks = Number(assignee.pending_task_count) || 0;
-  return `${displayText(assignee.name)}（资产 ${activeAssets} / 待办 ${pendingTasks}）`;
+  return `${displayText(assignee.name)}（流程 ${activeFlows} / 待办 ${pendingTasks}）`;
 }

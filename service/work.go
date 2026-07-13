@@ -411,15 +411,23 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 		detailSections = append(detailSections, workCustomerProductDetailSections(ctx, asset)...)
 	}
 	result := map[string]any{
-		"customer":        customer,
-		"asset":           asset,
-		"operations":      operations["list"],
-		"todos":           operations["todos"],
-		"detail_sections": detailSections,
+		"customer":           customer,
+		"asset":              asset,
+		"operations":         operations["list"],
+		"todos":              operations["todos"],
+		"detail_sections":    detailSections,
+		"customer_products":  []map[string]any{},
+		"workflow_instances": []map[string]any{},
 	}
 	if assetID > 0 {
+		customerProducts := mapListFromAny(asset["customer_products"])
+		result["customer_products"] = customerProducts
+		workflowInstances := make([]map[string]any, 0, len(customerProducts)+1)
 		if instance := currentWorkEntryInstance(ctx, customerID, assetID); instance != nil {
-			result["flow"] = workFlowDetail(ctx, staff, instance.ID)
+			entryFlow := workFlowDetail(ctx, staff, instance.ID)
+			entryFlow["flow_role"] = "entry"
+			result["flow"] = entryFlow
+			workflowInstances = append(workflowInstances, entryFlow)
 		} else {
 			result["flow"] = map[string]any{
 				"customer_id": customerID,
@@ -428,6 +436,18 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 				"tasks":       []map[string]any{},
 			}
 		}
+		for _, customerProduct := range customerProducts {
+			flow := mapFromAny(customerProduct["flow"])
+			if len(flow) == 0 {
+				continue
+			}
+			flow["flow_role"] = "product"
+			flow["product_id"] = customerProduct["product_id"]
+			flow["product_name"] = customerProduct["product_name"]
+			flow["customer_product_id"] = customerProduct["customer_product_id"]
+			workflowInstances = append(workflowInstances, flow)
+		}
+		result["workflow_instances"] = workflowInstances
 	}
 	return result, nil
 }
@@ -502,7 +522,7 @@ func (WorkService) Tasks(ctx context.Context, staff *WorkStaffSession, customerI
 		"list":  tasks,
 		"total": len(tasks),
 	}
-	if progress := currentWorkEntryInstance(ctx, customerID, currentAssetID); progress != nil {
+	if progress := currentWorkTargetInstance(ctx, staff, customerID, currentAssetID); progress != nil {
 		result["workflow_instance_id"] = progress.ID
 		result["workflow_id"] = progress.WorkflowID
 		result["stage_id"] = progress.StageID
@@ -914,7 +934,7 @@ func (builder *workCustomerListRowBuilder) activeAssetRows(customerID uint64) []
 		}
 		asset["asset_status_name"] = builder.assetStatusName(inputUint64(asset["asset_status_id"]))
 		asset["customer_products"] = workCustomerProductRows(builder.ctx, builder.staff, customerID, assetID)
-		if state := ensureCurrentWorkEntryInstance(builder.ctx, builder.staff, customerID, assetID); state != nil {
+		if state := currentWorkTargetInstance(builder.ctx, builder.staff, customerID, assetID); state != nil {
 			builder.attachStageFields(asset, state)
 			asset["row_tasks"] = workPendingTodoRowTasks(builder.ctx, builder.staff, customerID, assetID)
 		}
@@ -952,7 +972,7 @@ func (builder *workCustomerListRowBuilder) doneAssetRow(customerID uint64, asset
 	}
 	asset["asset_status_name"] = builder.assetStatusName(inputUint64(asset["asset_status_id"]))
 	asset["customer_products"] = workCustomerProductRows(builder.ctx, builder.staff, customerID, assetID)
-	if state := currentWorkEntryInstance(builder.ctx, customerID, assetID); state != nil {
+	if state := currentWorkTargetInstance(builder.ctx, builder.staff, customerID, assetID); state != nil {
 		builder.attachStageFields(asset, state)
 	}
 	asset["row_tasks"] = workPendingTodoRowTasks(builder.ctx, builder.staff, customerID, assetID)
@@ -1162,6 +1182,8 @@ var workTaskListFields = []string{
 	"form_id",
 	"workflow_instance_id",
 	"customer_product_id",
+	"product_options",
+	"selected_product_ids",
 	"todo_id",
 	"todo_status",
 	"status_name",
@@ -1288,12 +1310,12 @@ func workPendingTargetsForCustomerIDs(ctx context.Context, staff *WorkStaffSessi
 		if customerID == 0 {
 			continue
 		}
-		customerProgress := currentWorkEntryInstance(ctx, customerID, 0)
+		customerProgress := currentWorkTargetInstance(ctx, staff, customerID, 0)
 		if canManageWorkProgress(staff, customerProgress) || len(workPendingTargetTasks(ctx, staff, customerID, 0)) > 0 {
 			targets = append(targets, workPendingTarget{customerID: customerID})
 		}
 		for _, assetID := range workSummaryVisibleAssetIDs(ctx, staff, customerID) {
-			progress := currentWorkEntryInstance(ctx, customerID, assetID)
+			progress := currentWorkTargetInstance(ctx, staff, customerID, assetID)
 			if !canManageWorkProgress(staff, progress) && len(workPendingTargetTasks(ctx, staff, customerID, assetID)) == 0 {
 				continue
 			}
@@ -1314,7 +1336,7 @@ func canManageWorkProgress(staff *WorkStaffSession, progress *crmmodel.WorkflowI
 }
 
 func workPendingTargetTasks(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) []map[string]any {
-	state := ensureCurrentWorkEntryInstance(ctx, staff, customerID, assetID)
+	state := currentWorkTargetInstance(ctx, staff, customerID, assetID)
 	if state == nil {
 		return []map[string]any{}
 	}
@@ -1581,14 +1603,14 @@ func workSummaryExistingAssetIDs(ctx context.Context, customerID uint64, assetID
 }
 
 func workSummaryCustomerTarget(ctx context.Context, staff *WorkStaffSession, customerID uint64) workSummaryTarget {
-	state := currentWorkEntryInstance(ctx, customerID, 0)
+	state := currentWorkTargetInstance(ctx, staff, customerID, 0)
 	target := workSummaryTargetFromState(ctx, state)
 	target.Tasks = workSummaryPendingTodoTasks(ctx, staff, customerID, 0)
 	return target
 }
 
 func workSummaryAssetTarget(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) workSummaryTarget {
-	state := currentWorkEntryInstance(ctx, customerID, assetID)
+	state := currentWorkTargetInstance(ctx, staff, customerID, assetID)
 	target := workSummaryTargetFromState(ctx, state)
 	target.Tasks = workSummaryPendingTodoTasks(ctx, staff, customerID, assetID)
 	return target
@@ -1888,7 +1910,7 @@ func doneWorkCustomerRow(ctx context.Context, staff *WorkStaffSession, customerI
 		displayAssetIDs = workSummaryVisibleAssetIDs(ctx, staff, customerID)
 	}
 	customer["assets"] = doneWorkAssetRows(ctx, staff, customerID, displayAssetIDs)
-	if state := currentWorkEntryInstance(ctx, customerID, 0); state != nil {
+	if state := currentWorkTargetInstance(ctx, staff, customerID, 0); state != nil {
 		attachWorkStageFields(ctx, customer, state)
 	}
 	customer["row_tasks"] = []map[string]any{}
@@ -1926,7 +1948,7 @@ func doneWorkAssetRow(ctx context.Context, staff *WorkStaffSession, customerID u
 	attachWorkEntityDataValues(ctx, asset, workAssetFormValues(ctx, customerID, assetID, asset), crmmodel.CustomerAssetDataTemplateCateID)
 	asset["asset_status_name"] = workAssetStatusName(ctx, inputUint64(asset["asset_status_id"]))
 	asset["customer_products"] = workCustomerProductRows(ctx, staff, customerID, assetID)
-	if state := currentWorkEntryInstance(ctx, customerID, assetID); state != nil {
+	if state := currentWorkTargetInstance(ctx, staff, customerID, assetID); state != nil {
 		attachWorkStageFields(ctx, asset, state)
 	}
 	asset["row_tasks"] = workPendingTodoTasks(ctx, staff, customerID, assetID)
@@ -1987,7 +2009,7 @@ func canViewWorkCustomer(ctx context.Context, staff *WorkStaffSession, customerI
 	}) != nil {
 		return true
 	}
-	if canOperateCurrentState(staff, currentWorkEntryInstance(ctx, customerID, 0)) {
+	if canOperateCurrentState(staff, currentWorkTargetInstance(ctx, staff, customerID, 0)) {
 		return true
 	}
 	if crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{
@@ -2047,7 +2069,7 @@ func canViewWorkAsset(ctx context.Context, staff *WorkStaffSession, customerID u
 	if customer := crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}); customer != nil && customer.CreatedByStaffID == staff.ID {
 		return true
 	}
-	if canOperateCurrentState(staff, currentWorkEntryInstance(ctx, customerID, assetID)) {
+	if canOperateCurrentState(staff, currentWorkTargetInstance(ctx, staff, customerID, assetID)) {
 		return true
 	}
 	if crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
@@ -2150,7 +2172,7 @@ func workAssetRows(ctx context.Context, staff *WorkStaffSession, customerID uint
 		attachWorkEntityDataValues(ctx, asset, workAssetFormValues(ctx, customerID, assetID, asset), crmmodel.CustomerAssetDataTemplateCateID)
 		asset["asset_status_name"] = workAssetStatusName(ctx, inputUint64(asset["asset_status_id"]))
 		asset["customer_products"] = workCustomerProductRows(ctx, staff, customerID, assetID)
-		state := ensureCurrentWorkEntryInstance(ctx, staff, customerID, assetID)
+		state := currentWorkTargetInstance(ctx, staff, customerID, assetID)
 		if state != nil {
 			attachWorkStageFields(ctx, asset, state)
 			asset["row_tasks"] = workPendingTodoTasks(ctx, staff, customerID, assetID)
