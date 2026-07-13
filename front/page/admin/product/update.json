@@ -96,9 +96,9 @@
       },
       {
         "type": "form-select",
-        "name": "服务流程",
+        "name": "签约后流程",
         "value": "form.service_workflow_id",
-        "placeholder": "不选择则入口流程完成后结束",
+        "placeholder": "不选择则签约流程完成后结束",
         "mode": "form",
         "option": {
           "model": "crm.NewWorkflowModel",

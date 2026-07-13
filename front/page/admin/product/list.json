@@ -120,13 +120,13 @@
               "type": "show-base"
             },
             {
-              "value": "product_category.name",
+              "value": "category.name",
               "name": "产品分类",
               "type": "show-base"
             },
             {
               "value": "service_workflow.name",
-              "name": "服务流程",
+              "name": "签约后流程",
               "type": "show-base",
               "meta": {
                 "emptyText": "签约后结束"

@@ -126,7 +126,7 @@ func StartConfirmedProductWorkflows(ctx context.Context, entry *crmmodel.Workflo
 			0,
 		)
 		if err != nil {
-			return fmt.Errorf("产品“%s”服务流程启动失败：%w", product.Name, err)
+			return fmt.Errorf("产品“%s”签约后流程启动失败：%w", product.Name, err)
 		}
 		targetStatus := crmmodel.CustomerProductStatusProcessing
 		if instance.Status == crmmodel.ProgressStatusCompleted {

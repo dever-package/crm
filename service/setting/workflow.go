@@ -78,7 +78,7 @@ func (CrmHook) ProviderBeforeSaveStage(c *server.Context, params []any) any {
 		panicCrmField("form.assignment_mode", "阶段分配方式无效。")
 	}
 	if assignmentMode == crmmodel.StageAssignmentManual && serviceWorkflowStageWouldStartFirst(ctx, effective) {
-		panicCrmField("form.assignment_mode", "产品服务流程首阶段必须自动分配；后续阶段可以使用手动分配。")
+		panicCrmField("form.assignment_mode", "产品签约后流程首阶段必须自动分配；后续阶段可以使用手动分配。")
 	}
 	departmentID := util.ToUint64(effective["owner_department_id"])
 	if departmentID == 0 || crmmodel.NewDepartmentModel().Find(ctx, map[string]any{

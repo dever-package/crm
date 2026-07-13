@@ -48,11 +48,11 @@ func (CrmHook) ProviderBeforeSaveProduct(c *server.Context, params []any) any {
 			"status": crmmodel.StatusEnabled,
 		})
 		if workflow == nil || workflow.DefaultEntry {
-			panicCrmField("form.service_workflow_id", "服务流程必须选择已启用的非入口流程。")
+			panicCrmField("form.service_workflow_id", "签约后流程必须选择已启用的非入口流程。")
 		}
 		firstStage := firstEnabledServiceWorkflowStage(ctx, serviceWorkflowID)
 		if firstStage == nil || firstStage.AssignmentMode == crmmodel.StageAssignmentManual {
-			panicCrmField("form.service_workflow_id", "服务流程首阶段必须启用自动分配；后续阶段仍可使用手动分配。")
+			panicCrmField("form.service_workflow_id", "签约后流程首阶段必须启用自动分配；后续阶段仍可使用手动分配。")
 		}
 	}
 	if shouldNormalizeCrmField(record, "service_workflow_id", partial) {

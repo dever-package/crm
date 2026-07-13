@@ -71,7 +71,7 @@
             { "name": "资产", "value": "asset.asset_name", "type": "show-base" },
             { "name": "产品", "value": "product.name", "type": "show-base" },
             { "name": "处理状态", "value": "status_name", "type": "show-tag" },
-            { "name": "服务流程", "value": "workflow_name", "type": "show-base" },
+            { "name": "签约后流程", "value": "workflow_name", "type": "show-base" },
             { "name": "当前阶段", "value": "stage_name", "type": "show-base" },
             { "name": "负责人", "value": "owner_staff_name", "type": "show-base" },
             { "name": "更新时间", "value": "updated_at", "type": "show-date" },
