@@ -12,6 +12,8 @@ type StatEvent struct {
 	EventKey             string    `dorm:"type:varchar(128);not null;comment:事件编码"`
 	CustomerID           uint64    `dorm:"type:bigint;not null;comment:客户"`
 	AssetID              uint64    `dorm:"type:bigint;not null;default:0;comment:客户资产"`
+	WorkflowInstanceID   uint64    `dorm:"type:bigint;not null;default:0;comment:流程实例"`
+	CustomerProductID    uint64    `dorm:"type:bigint;not null;default:0;comment:客户产品"`
 	WorkflowID           uint64    `dorm:"type:bigint;not null;default:0;comment:流程"`
 	StageID              uint64    `dorm:"type:bigint;not null;default:0;comment:阶段"`
 	FromStageID          uint64    `dorm:"type:bigint;not null;default:0;comment:来源阶段"`
@@ -31,6 +33,8 @@ type StatEventIndex struct {
 	EventTime      struct{} `index:"event_type,event_at,id"`
 	CustomerTime   struct{} `index:"customer_id,event_at,id"`
 	AssetTime      struct{} `index:"asset_id,event_at,id"`
+	InstanceTime   struct{} `index:"workflow_instance_id,event_at,id"`
+	ProductTime    struct{} `index:"customer_product_id,event_at,id"`
 	StageTime      struct{} `index:"workflow_id,stage_id,event_at,id"`
 	TransitionTime struct{} `index:"from_stage_id,to_stage_id,event_at,id"`
 	TaskValue      struct{} `index:"task_id,result_value,event_at,id"`
@@ -49,6 +53,8 @@ func NewStatEventModel() *orm.Model[StatEvent] {
 		Relations: []orm.Relation{
 			customerRelation,
 			assetRelation,
+			workflowInstanceRelation,
+			customerProductRelation,
 			workflowRelation,
 			stageRelation,
 			fromStageRelation,

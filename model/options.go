@@ -319,6 +319,30 @@ var assetRelation = orm.Relation{
 	OptionKeys: []string{"asset_no", "asset_name", "asset_status_id"},
 }
 
+var productRelation = orm.Relation{
+	Field:      "product_id",
+	Option:     "crm.NewProductModel",
+	OptionKeys: []string{"name", "code", "category_id", "service_workflow_id"},
+}
+
+var customerProductRelation = orm.Relation{
+	Field:      "customer_product_id",
+	Option:     "crm.NewCustomerProductModel",
+	OptionKeys: []string{"customer_id", "asset_id", "product_id", "status"},
+}
+
+var workflowInstanceRelation = orm.Relation{
+	Field:      "workflow_instance_id",
+	Option:     "crm.NewWorkflowInstanceModel",
+	OptionKeys: []string{"customer_id", "asset_id", "customer_product_id", "workflow_id", "stage_id", "status"},
+}
+
+var sourceWorkflowInstanceRelation = orm.Relation{
+	Field:      "source_workflow_instance_id",
+	Option:     "crm.NewWorkflowInstanceModel",
+	OptionKeys: []string{"customer_id", "asset_id", "workflow_id", "status"},
+}
+
 var workflowRelation = orm.Relation{
 	Field:      "workflow_id",
 	Option:     "crm.NewWorkflowModel",

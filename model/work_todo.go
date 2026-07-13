@@ -10,6 +10,8 @@ type WorkTodo struct {
 	ID                   uint64     `dorm:"primaryKey;autoIncrement;comment:任务待办ID"`
 	CustomerID           uint64     `dorm:"type:bigint;not null;comment:客户"`
 	AssetID              uint64     `dorm:"type:bigint;not null;comment:客户资产"`
+	WorkflowInstanceID   uint64     `dorm:"type:bigint;not null;default:0;comment:流程实例"`
+	CustomerProductID    uint64     `dorm:"type:bigint;not null;default:0;comment:客户产品"`
 	WorkflowID           uint64     `dorm:"type:bigint;not null;comment:流程"`
 	StageID              uint64     `dorm:"type:bigint;not null;comment:阶段"`
 	TaskID               uint64     `dorm:"type:bigint;not null;comment:任务"`
@@ -28,6 +30,7 @@ type WorkTodoIndex struct {
 	AssigneeStatus struct{} `index:"assignee_department_id,assignee_staff_id,status,due_at,id"`
 	CustomerStatus struct{} `index:"customer_id,asset_id,status,id"`
 	StageTask      struct{} `unique:"asset_id,stage_id,task_id"`
+	InstanceStatus struct{} `index:"workflow_instance_id,status,id"`
 	WorkflowStatus struct{} `index:"workflow_id,stage_id,status,id"`
 }
 
@@ -42,6 +45,8 @@ func NewWorkTodoModel() *orm.Model[WorkTodo] {
 		Relations: []orm.Relation{
 			customerRelation,
 			assetRelation,
+			workflowInstanceRelation,
+			customerProductRelation,
 			workflowRelation,
 			stageRelation,
 			taskRelation,
