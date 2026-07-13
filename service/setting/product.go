@@ -50,6 +50,10 @@ func (CrmHook) ProviderBeforeSaveProduct(c *server.Context, params []any) any {
 		if workflow == nil || workflow.DefaultEntry {
 			panicCrmField("form.service_workflow_id", "服务流程必须选择已启用的非入口流程。")
 		}
+		firstStage := firstEnabledServiceWorkflowStage(ctx, serviceWorkflowID)
+		if firstStage == nil || firstStage.AssignmentMode == crmmodel.StageAssignmentManual {
+			panicCrmField("form.service_workflow_id", "服务流程首阶段必须启用自动分配；后续阶段仍可使用手动分配。")
+		}
 	}
 	if shouldNormalizeCrmField(record, "service_workflow_id", partial) {
 		record["service_workflow_id"] = serviceWorkflowID
@@ -57,6 +61,16 @@ func (CrmHook) ProviderBeforeSaveProduct(c *server.Context, params []any) any {
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
 	return record
+}
+
+func firstEnabledServiceWorkflowStage(ctx context.Context, workflowID uint64) *crmmodel.Stage {
+	if workflowID == 0 {
+		return nil
+	}
+	return crmmodel.NewStageModel().Find(ctx, map[string]any{
+		"workflow_id": workflowID,
+		"status":      crmmodel.StatusEnabled,
+	}, map[string]any{"order": "sort asc,id asc"})
 }
 
 func effectiveProductConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {

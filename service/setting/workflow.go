@@ -77,6 +77,9 @@ func (CrmHook) ProviderBeforeSaveStage(c *server.Context, params []any) any {
 	if !stageAssignmentModes[assignmentMode] {
 		panicCrmField("form.assignment_mode", "阶段分配方式无效。")
 	}
+	if assignmentMode == crmmodel.StageAssignmentManual && serviceWorkflowStageWouldStartFirst(ctx, effective) {
+		panicCrmField("form.assignment_mode", "产品服务流程首阶段必须自动分配；后续阶段可以使用手动分配。")
+	}
 	departmentID := util.ToUint64(effective["owner_department_id"])
 	if departmentID == 0 || crmmodel.NewDepartmentModel().Find(ctx, map[string]any{
 		"id":     departmentID,
@@ -210,18 +213,48 @@ func validateStageCanEnable(ctx context.Context, stageID uint64) {
 }
 
 func effectiveStageConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
-	effective := map[string]any{"assignment_mode": crmmodel.StageAssignmentAuto}
+	effective := map[string]any{
+		"assignment_mode": crmmodel.StageAssignmentAuto,
+		"status":          crmmodel.StatusDisabled,
+		"sort":            100,
+	}
 	if partial {
 		if stage := crmmodel.NewStageModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); stage != nil {
 			effective["workflow_id"] = stage.WorkflowID
 			effective["owner_department_id"] = stage.OwnerDepartmentID
 			effective["assignment_mode"] = stage.AssignmentMode
+			effective["status"] = stage.Status
+			effective["sort"] = stage.Sort
 		}
 	}
 	for key, value := range record {
 		effective[key] = value
 	}
 	return effective
+}
+
+func serviceWorkflowStageWouldStartFirst(ctx context.Context, effective map[string]any) bool {
+	workflowID := util.ToUint64(effective["workflow_id"])
+	if workflowID == 0 || int16(util.ToIntDefault(effective["status"], int(crmmodel.StatusDisabled))) != crmmodel.StatusEnabled {
+		return false
+	}
+	if crmmodel.NewProductModel().Count(ctx, map[string]any{"service_workflow_id": workflowID}) == 0 {
+		return false
+	}
+	stageID := util.ToUint64(effective["id"])
+	candidateSort := util.ToIntDefault(effective["sort"], 100)
+	firstStage := crmmodel.NewStageModel().Find(ctx, map[string]any{
+		"workflow_id": workflowID,
+		"status":      crmmodel.StatusEnabled,
+		"id":          map[string]any{"!=": stageID},
+	}, map[string]any{"order": "sort asc,id asc"})
+	if firstStage == nil {
+		return true
+	}
+	if candidateSort != firstStage.Sort {
+		return candidateSort < firstStage.Sort
+	}
+	return stageID > 0 && stageID < firstStage.ID
 }
 
 func effectiveTaskConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
