@@ -20,7 +20,6 @@ type Workflow struct {
 type WorkflowIndex struct {
 	StatusSort   struct{} `index:"status,sort,id"`
 	DefaultEntry struct{} `index:"default_entry,status,id"`
-	NextWorkflow struct{} `index:"next_workflow_id,id"`
 }
 
 func NewWorkflowModel() *orm.Model[Workflow] {
@@ -31,6 +30,5 @@ func NewWorkflowModel() *orm.Model[Workflow] {
 		Options: map[string]any{
 			"status": statusOptions,
 		},
-		Relations: []orm.Relation{nextWorkflowRelation},
 	})
 }

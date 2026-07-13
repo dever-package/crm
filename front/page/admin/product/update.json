@@ -72,18 +72,44 @@
       },
       {
         "type": "form-select",
-        "value": "form.category",
+        "name": "产品分类",
+        "value": "form.category_id",
         "mode": "form",
-        "option": "option.category",
+        "option": {
+          "model": "crm.NewProductCategoryModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "filters": {
+            "status": 1
+          }
+        },
+        "validate": [
+          {
+            "type": "required",
+            "message": "请选择产品分类。"
+          }
+        ],
         "meta": {
           "formLayout": "horizontal"
         }
       },
       {
         "type": "form-select",
-        "value": "form.default_signing_business_type",
+        "name": "服务流程",
+        "value": "form.service_workflow_id",
+        "placeholder": "不选择则入口流程完成后结束",
         "mode": "form",
-        "option": "option.default_signing_business_type",
+        "option": {
+          "model": "crm.NewWorkflowModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "filters": {
+            "status": 1,
+            "default_entry": false
+          }
+        },
         "meta": {
           "formLayout": "horizontal"
         }
@@ -96,56 +122,6 @@
           "formLayout": "horizontal",
           "rows": 3
         }
-      },
-      {
-        "type": "form-switch",
-        "value": "form.need_pm_review",
-        "mode": "form",
-        "meta": {
-          "formLayout": "horizontal",
-          "trueValue": true,
-          "falseValue": false
-        }
-      },
-      {
-        "type": "form-switch",
-        "value": "form.need_lawyer_review",
-        "mode": "form",
-        "meta": {
-          "formLayout": "horizontal",
-          "trueValue": true,
-          "falseValue": false
-        }
-      },
-      {
-        "type": "form-switch",
-        "value": "form.need_ala_review",
-        "mode": "form",
-        "meta": {
-          "formLayout": "horizontal",
-          "trueValue": true,
-          "falseValue": false
-        }
-      },
-      {
-        "type": "form-switch",
-        "value": "form.need_finance_review",
-        "mode": "form",
-        "meta": {
-          "formLayout": "horizontal",
-          "trueValue": true,
-          "falseValue": false
-        }
-      },
-      {
-        "type": "form-switch",
-        "value": "form.need_contract_review",
-        "mode": "form",
-        "meta": {
-          "formLayout": "horizontal",
-          "trueValue": true,
-          "falseValue": false
-        }
       }
     ]
   },
@@ -154,14 +130,11 @@
       "id": "",
       "name": "",
       "code": "",
-      "category": "consulting",
-      "default_signing_business_type": "manual_review",
+      "category_id": "",
+      "service_workflow_id": "",
       "description": "",
-      "need_pm_review": true,
-      "need_lawyer_review": false,
-      "need_ala_review": false,
-      "need_finance_review": false,
-      "need_contract_review": true
+      "status": 1,
+      "sort": 100
     }
   },
   "state": {},

@@ -7,28 +7,23 @@ import (
 )
 
 type Product struct {
-	ID                         uint64    `dorm:"primaryKey;autoIncrement;comment:产品ID"`
-	Code                       string    `dorm:"type:varchar(64);not null;comment:产品编码"`
-	Name                       string    `dorm:"type:varchar(128);not null;comment:产品名称"`
-	Category                   string    `dorm:"type:varchar(32);not null;default:'consulting';comment:产品分类"`
-	DefaultSigningBusinessType string    `dorm:"type:varchar(64);not null;default:'manual_review';comment:默认签约方向"`
-	Description                string    `dorm:"type:text;not null;default:'';comment:说明"`
-	NeedPMReview               bool      `dorm:"type:boolean;not null;default:true;comment:需要PM审核"`
-	NeedLawyerReview           bool      `dorm:"type:boolean;not null;default:false;comment:需要律师审核"`
-	NeedALAReview              bool      `dorm:"type:boolean;not null;default:false;comment:需要ALA审核"`
-	NeedFinanceReview          bool      `dorm:"type:boolean;not null;default:false;comment:需要财务审核"`
-	NeedContractReview         bool      `dorm:"type:boolean;not null;default:true;comment:需要合同审核"`
-	Status                     int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
-	Sort                       int       `dorm:"type:int;not null;default:100;comment:排序"`
-	CreatedAt                  time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
-	UpdatedAt                  time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
+	ID                uint64    `dorm:"primaryKey;autoIncrement;comment:产品ID"`
+	Code              string    `dorm:"type:varchar(64);not null;comment:产品编码"`
+	Name              string    `dorm:"type:varchar(128);not null;comment:产品名称"`
+	CategoryID        uint64    `dorm:"type:bigint;not null;default:0;comment:产品分类"`
+	ServiceWorkflowID uint64    `dorm:"type:bigint;not null;default:0;comment:服务流程"`
+	Description       string    `dorm:"type:text;not null;default:'';comment:说明"`
+	Status            int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
+	Sort              int       `dorm:"type:int;not null;default:100;comment:排序"`
+	CreatedAt         time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
+	UpdatedAt         time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
 }
 
 type ProductIndex struct {
-	Code        struct{} `unique:"code"`
-	StatusSort  struct{} `index:"status,sort,id"`
-	Category    struct{} `index:"category,status,sort,id"`
-	SigningType struct{} `index:"default_signing_business_type,status,id"`
+	Code           struct{} `unique:"code"`
+	StatusSort     struct{} `index:"status,sort,id"`
+	CategoryStatus struct{} `index:"category_id,status,sort,id"`
+	WorkflowStatus struct{} `index:"service_workflow_id,status,id"`
 }
 
 func NewProductModel() *orm.Model[Product] {
@@ -37,9 +32,11 @@ func NewProductModel() *orm.Model[Product] {
 		Order:    "sort asc,id asc",
 		Database: "default",
 		Options: map[string]any{
-			"category":                      productCategoryOptions,
-			"default_signing_business_type": productSigningTypeOptions,
-			"status":                        statusOptions,
+			"status": statusOptions,
+		},
+		Relations: []orm.Relation{
+			productCategoryRelation,
+			serviceWorkflowRelation,
 		},
 	})
 }

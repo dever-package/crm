@@ -1,16 +1,14 @@
 {
   "page": {
-    "name": "产品配置",
-    "icon": "package-check",
-    "parent": "crm-business-config",
-    "sort": 7
+    "name": "产品分类",
+    "parent": "crm/product/list",
+    "type": 2
   },
   "layout": {
     "type": "container",
     "children": {
       "page-header": {
         "type": "header",
-        "className": "gap-4",
         "children": {
           "header-actions": {
             "type": "row",
@@ -38,18 +36,11 @@
     }
   },
   "nodes": {
-    "page-header": [
-      {
-        "type": "show-title",
-        "value": "page",
-        "className": "min-w-0 flex-1"
-      }
-    ],
+    "page-header": [],
     "header-actions": [
       {
         "type": "show-button",
-        "name": "新增产品",
-        "className": "shrink-0",
+        "name": "新增分类",
         "meta": {
           "variant": "default",
           "size": "sm",
@@ -62,29 +53,12 @@
             "value": true
           }
         }
-      },
-      {
-        "type": "show-button",
-        "name": "产品分类",
-        "className": "shrink-0",
-        "meta": {
-          "variant": "outline",
-          "size": "sm",
-          "icon": "tags"
-        },
-        "action": {
-          "click": {
-            "type": "modal",
-            "key": "dialog.category",
-            "value": true
-          }
-        }
       }
     ],
     "toolbar-row": [
       {
         "type": "form-input",
-        "placeholder": "搜索产品名称、编码...",
+        "placeholder": "搜索分类名称...",
         "value": "search.keyword",
         "mode": "search"
       },
@@ -108,29 +82,12 @@
           "totalPath": "data.table.total",
           "remote": true,
           "externalPagination": true,
-          "savePath": "crm/product/update",
+          "savePath": "crm/product_category/update",
           "rowKey": "id",
           "columns": [
             {
               "value": "name",
               "type": "show-base"
-            },
-            {
-              "value": "code",
-              "type": "show-base"
-            },
-            {
-              "value": "product_category.name",
-              "name": "产品分类",
-              "type": "show-base"
-            },
-            {
-              "value": "service_workflow.name",
-              "name": "服务流程",
-              "type": "show-base",
-              "meta": {
-                "emptyText": "签约后结束"
-              }
             },
             {
               "value": "status",
@@ -161,12 +118,33 @@
                       "click": [
                         {
                           "type": "data",
-                          "key": "actionTarget.productId",
+                          "key": "actionTarget.categoryId",
                           "value": "$row.id"
                         },
                         {
                           "type": "modal",
                           "key": "dialog.edit",
+                          "value": true
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "icon": "trash-2",
+                    "variant": "outline",
+                    "size": "sm",
+                    "description": "删除",
+                    "className": "text-destructive hover:text-destructive",
+                    "action": {
+                      "click": [
+                        {
+                          "type": "data",
+                          "key": "actionTarget.deleteCategoryId",
+                          "value": "$row.id"
+                        },
+                        {
+                          "type": "modal",
+                          "key": "dialog.delete",
                           "value": true
                         }
                       ]
@@ -187,14 +165,13 @@
         "type": "feedback-modal",
         "meta": {
           "stateKey": "dialog.create",
-          "pageRoute": "/crm/product/update",
-          "title": "新增产品",
-          "assistant": false,
+          "pageRoute": "/crm/product_category/update",
+          "title": "新增产品分类",
           "footer": {
             "confirm": true,
             "confirmText": "保存"
           },
-          "size": "lg",
+          "size": "sm",
           "bodyClassName": "px-6 py-2"
         }
       },
@@ -202,28 +179,36 @@
         "type": "feedback-modal",
         "meta": {
           "stateKey": "dialog.edit",
-          "pageRoute": "/crm/product/update",
-          "title": "编辑产品",
-          "assistant": false,
+          "pageRoute": "/crm/product_category/update",
+          "title": "编辑产品分类",
           "footer": {
             "confirm": true,
             "confirmText": "保存"
           },
           "pageRouteQuery": {
-            "id": "data.actionTarget.productId"
+            "id": "data.actionTarget.categoryId"
           },
-          "size": "lg",
+          "size": "sm",
           "bodyClassName": "px-6 py-2"
         }
       },
       {
-        "type": "feedback-modal",
+        "type": "feedback-confirm",
+        "name": "删除产品分类",
+        "info": "确认删除这个产品分类吗？",
         "meta": {
-          "stateKey": "dialog.category",
-          "pageRoute": "/crm/product_category/list",
-          "title": "产品分类",
-          "size": "2xl",
-          "bodyClassName": "px-6 py-2"
+          "stateKey": "dialog.delete",
+          "successMessage": "产品分类已删除"
+        },
+        "action": {
+          "confirm": {
+            "type": "delete",
+            "model": "crm.NewProductCategoryModel",
+            "params": "data.actionTarget.deleteCategoryId",
+            "before": {
+              "service": "crm.setting.CrmHook.BeforeDeleteProductCategory"
+            }
+          }
         }
       }
     ]
@@ -233,19 +218,19 @@
     "table": {
       "pageSize": 20,
       "searchFields": [
-        "name",
-        "code"
+        "name"
       ]
     },
     "actionTarget": {
-      "productId": ""
+      "categoryId": "",
+      "deleteCategoryId": ""
     }
   },
   "state": {
     "dialog": {
       "create": false,
       "edit": false,
-      "category": false
+      "delete": false
     }
   },
   "action": {}

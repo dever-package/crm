@@ -14,6 +14,7 @@ var simpleTaskTypes = map[string]bool{
 	crmmodel.TaskTypeForm:     true,
 	crmmodel.TaskTypeApproval: true,
 	crmmodel.TaskTypeRule:     true,
+	crmmodel.TaskTypeProduct:  true,
 }
 
 var simpleTaskAssigneeModes = map[string]bool{
@@ -39,9 +40,7 @@ func (CrmHook) ProviderBeforeSaveWorkflow(c *server.Context, params []any) any {
 	defaultCrmInt(record, "sort", 100, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusDisabled, partial)
 	defaultCrmBool(record, "default_entry", false, partial)
-	defaultCrmInt(record, "next_workflow_id", 0, partial)
 	effective := effectiveWorkflowConfig(ctx, record, partial)
-	validateWorkflowNext(ctx, util.ToUint64(record["id"]), util.ToUint64(effective["next_workflow_id"]))
 	if recordEnablesConfig(record, partial) {
 		validateWorkflowCanEnable(ctx, util.ToUint64(record["id"]))
 	}
@@ -149,13 +148,11 @@ func recordEnablesConfig(record map[string]any, partial bool) bool {
 
 func effectiveWorkflowConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
 	effective := map[string]any{
-		"default_entry":    false,
-		"next_workflow_id": uint64(0),
+		"default_entry": false,
 	}
 	if partial {
 		if workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); workflow != nil {
 			effective["default_entry"] = workflow.DefaultEntry
-			effective["next_workflow_id"] = workflow.NextWorkflowID
 		}
 	}
 	for key, value := range record {
@@ -191,36 +188,6 @@ func configBool(value any) bool {
 		return flag
 	}
 	return util.ToIntDefault(value, 0) != 0 || util.ToStringTrimmed(value) == "true"
-}
-
-func validateWorkflowNext(ctx context.Context, workflowID, nextWorkflowID uint64) {
-	if nextWorkflowID == 0 {
-		return
-	}
-	if workflowID > 0 && nextWorkflowID == workflowID {
-		panicCrmField("form.next_workflow_id", "后续流程不能选择当前流程。")
-	}
-	next := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": nextWorkflowID})
-	if next == nil {
-		panicCrmField("form.next_workflow_id", "后续流程不存在。")
-	}
-	visited := map[uint64]bool{}
-	if workflowID > 0 {
-		visited[workflowID] = true
-	}
-	for next != nil {
-		if visited[next.ID] {
-			panicCrmField("form.next_workflow_id", "后续流程不能形成循环。")
-		}
-		visited[next.ID] = true
-		if next.NextWorkflowID == 0 {
-			return
-		}
-		next = crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": next.NextWorkflowID})
-		if next == nil {
-			panicCrmField("form.next_workflow_id", "后续流程配置指向了不存在的流程。")
-		}
-	}
 }
 
 func validateWorkflowCanEnable(ctx context.Context, workflowID uint64) {
@@ -354,8 +321,8 @@ func (CrmHook) ProviderBeforeDeleteWorkflow(c *server.Context, params []any) any
 		panicCrmField("form.id", "流程不存在。")
 	}
 	ctx := contextFromServer(c)
-	if crmmodel.NewWorkflowModel().Count(ctx, map[string]any{"next_workflow_id": id}) > 0 {
-		panicCrmField("form.id", "该流程被其他流程设为后续流程，请先取消引用。")
+	if crmmodel.NewProductModel().Count(ctx, map[string]any{"service_workflow_id": id}) > 0 {
+		panicCrmField("form.id", "该流程正在被产品使用，请先取消产品关联。")
 	}
 	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": id})
 	if workflow != nil && workflow.DefaultEntry && crmmodel.NewWorkflowModel().Count(ctx, map[string]any{

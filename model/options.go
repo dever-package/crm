@@ -17,6 +17,7 @@ const (
 	TaskTypeForm     = "form"
 	TaskTypeApproval = "approval"
 	TaskTypeRule     = "rule"
+	TaskTypeProduct  = "product"
 )
 
 const (
@@ -122,17 +123,6 @@ const (
 
 const (
 	ProductOptionSetName = "S产品"
-
-	ProductCategoryJudicial       = "judicial"
-	ProductCategoryAssetOperation = "asset_operation"
-	ProductCategoryDebtStructure  = "debt_structure"
-	ProductCategoryStageService   = "stage_service"
-	ProductCategoryRiskDisposal   = "risk_disposal"
-	ProductCategoryConsulting     = "consulting"
-
-	ProductSigningNonSealed = "non_sealed_asset_signing"
-	ProductSigningSealed    = "sealed_asset_service_signing"
-	ProductSigningManual    = "manual_review"
 )
 
 const (
@@ -238,21 +228,6 @@ var financeDirectionOptions = []map[string]any{
 	{"id": FinanceDirectionExpense, "value": "支出"},
 }
 
-var productCategoryOptions = []map[string]any{
-	{"id": ProductCategoryJudicial, "value": "司法推进类"},
-	{"id": ProductCategoryAssetOperation, "value": "资产运营类"},
-	{"id": ProductCategoryDebtStructure, "value": "债务结构类"},
-	{"id": ProductCategoryStageService, "value": "阶段性服务类"},
-	{"id": ProductCategoryRiskDisposal, "value": "风险处置类"},
-	{"id": ProductCategoryConsulting, "value": "咨询/预审类"},
-}
-
-var productSigningTypeOptions = []map[string]any{
-	{"id": ProductSigningNonSealed, "value": "非查封资产签约"},
-	{"id": ProductSigningSealed, "value": "查封服务签约"},
-	{"id": ProductSigningManual, "value": "人工复核"},
-}
-
 var financeLedgerSourceOptions = []map[string]any{
 	{"id": FinanceLedgerSourceForm, "value": "表单"},
 	{"id": FinanceLedgerSourceReverse, "value": "冲正"},
@@ -268,6 +243,7 @@ var taskTypeOptions = []map[string]any{
 	{"id": TaskTypeForm, "value": "填写资料"},
 	{"id": TaskTypeApproval, "value": "审核"},
 	{"id": TaskTypeRule, "value": "自动核验"},
+	{"id": TaskTypeProduct, "value": "确认产品"},
 }
 
 var taskAssigneeModeOptions = []map[string]any{
@@ -349,9 +325,15 @@ var workflowRelation = orm.Relation{
 	OptionKeys: []string{"name"},
 }
 
-var nextWorkflowRelation = orm.Relation{
-	Field:      "next_workflow_id",
+var serviceWorkflowRelation = orm.Relation{
+	Field:      "service_workflow_id",
 	Option:     "crm.NewWorkflowModel",
+	OptionKeys: []string{"name"},
+}
+
+var productCategoryRelation = orm.Relation{
+	Field:      "category_id",
+	Option:     "crm.NewProductCategoryModel",
 	OptionKeys: []string{"name"},
 }
 

@@ -1,18 +1,19 @@
 {
   "page": {
-    "name": "流程编辑",
-    "parent": "crm/workflow/list",
+    "name": "产品分类编辑",
+    "parent": "crm/product_category/list",
+    "type": 2,
     "auth": [
       {
-        "key": "crm/workflow/create",
-        "name": "流程新增",
+        "key": "crm/product_category/create",
+        "name": "产品分类新增",
         "query": {
           "id": "empty"
         }
       },
       {
-        "key": "crm/workflow/update",
-        "name": "流程编辑",
+        "key": "crm/product_category/update",
+        "name": "产品分类编辑",
         "query": {
           "id": "required"
         }
@@ -38,28 +39,17 @@
     "dialog-shell": [
       {
         "type": "form-input",
-        "name": "流程名称",
+        "name": "分类名称",
         "value": "form.name",
         "mode": "form",
         "validate": [
           {
             "type": "required",
-            "message": "流程名称不能为空。"
+            "message": "产品分类名称不能为空。"
           }
         ],
         "meta": {
           "formLayout": "horizontal"
-        }
-      },
-      {
-        "type": "form-switch",
-        "name": "默认入口",
-        "value": "form.default_entry",
-        "mode": "form",
-        "meta": {
-          "formLayout": "horizontal",
-          "trueValue": true,
-          "falseValue": false
         }
       },
       {
@@ -90,14 +80,13 @@
     "form": {
       "_fields": [
         "name",
-        "default_entry",
         "sort",
         "status"
       ],
+      "id": "",
       "name": "",
-      "default_entry": false,
       "sort": 100,
-      "status": 2
+      "status": 1
     }
   },
   "state": {},
@@ -106,7 +95,7 @@
       "type": "save",
       "params": "form",
       "before": {
-        "service": "crm.setting.CrmHook.BeforeSaveWorkflow"
+        "service": "crm.setting.CrmHook.BeforeSaveProductCategory"
       }
     }
   }
