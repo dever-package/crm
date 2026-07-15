@@ -10,17 +10,18 @@ import (
 )
 
 type workFormInput struct {
+	leadFields          map[string]any
 	customerFields      map[string]any
 	assetFields         map[string]any
+	leadDataRecords     map[uint64]map[string]any
 	customerDataRecords map[uint64]map[string]any
 	assetDataRecords    map[uint64]map[string]any
-	businessDataRecords map[uint64]map[string]any
 }
 
 type workFormInputOptions struct {
 	allowEmptyCustomerContactFields bool
 	allowMissingRequiredFields      bool
-	skipEmptyFields                 bool
+	skipMissingFields               bool
 }
 
 func collectWorkFormInput(ctx context.Context, task *crmmodel.Task, values map[string]any) (*workFormInput, error) {
@@ -52,11 +53,12 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 		return nil, fmt.Errorf("资料模板未配置字段")
 	}
 	result := &workFormInput{
+		leadFields:          map[string]any{},
 		customerFields:      map[string]any{},
 		assetFields:         map[string]any{},
+		leadDataRecords:     map[uint64]map[string]any{},
 		customerDataRecords: map[uint64]map[string]any{},
 		assetDataRecords:    map[uint64]map[string]any{},
-		businessDataRecords: map[uint64]map[string]any{},
 	}
 	inputOptions := workFormInputOptions{}
 	if len(options) > 0 {
@@ -67,16 +69,20 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 			if field == nil {
 				continue
 			}
-			value := values[workFieldInputKey(field)]
+			value, submitted := values[workFieldInputKey(field)]
 			if field.Required && emptyWorkFieldValue(value) {
 				if !inputOptions.allowMissingRequiredFields && (!inputOptions.allowEmptyCustomerContactFields || !isWorkCustomerContactField(field)) {
 					return nil, fmt.Errorf("%s不能为空", field.Name)
 				}
 			}
-			if inputOptions.skipEmptyFields && emptyWorkFieldValue(value) {
+			if inputOptions.skipMissingFields && !submitted {
 				continue
 			}
 			if field.MainField != "" {
+				if isWorkLeadTemplateField(field) {
+					applyWorkLeadMainField(result.leadFields, field.MainField, value)
+					continue
+				}
 				if isWorkAssetMainField(field) {
 					applyWorkAssetMainField(result.assetFields, field.MainField, value)
 					continue
@@ -137,14 +143,14 @@ func collectWorkProgressFormInput(ctx context.Context, task *crmmodel.Task, valu
 	}
 	return collectWorkFormInputByFormID(ctx, task.FormID, values, workFormInputOptions{
 		allowMissingRequiredFields: true,
-		skipEmptyFields:            true,
+		skipMissingFields:          true,
 	})
 }
 
 func collectWorkProgressFormInputForForm(ctx context.Context, formID uint64, values map[string]any) (*workFormInput, error) {
 	return collectWorkFormInputByFormID(ctx, formID, values, workFormInputOptions{
 		allowMissingRequiredFields: true,
-		skipEmptyFields:            true,
+		skipMissingFields:          true,
 	})
 }
 
@@ -157,11 +163,12 @@ func collectOptionalWorkFormInput(ctx context.Context, task *crmmodel.Task, valu
 
 func emptyWorkFormInput() *workFormInput {
 	return &workFormInput{
+		leadFields:          map[string]any{},
 		customerFields:      map[string]any{},
 		assetFields:         map[string]any{},
+		leadDataRecords:     map[uint64]map[string]any{},
 		customerDataRecords: map[uint64]map[string]any{},
 		assetDataRecords:    map[uint64]map[string]any{},
-		businessDataRecords: map[uint64]map[string]any{},
 	}
 }
 
@@ -172,15 +179,18 @@ func mergeWorkFormInput(target *workFormInput, source *workFormInput) *workFormI
 	if source == nil {
 		return target
 	}
+	for key, value := range source.leadFields {
+		target.leadFields[key] = value
+	}
 	for key, value := range source.customerFields {
 		target.customerFields[key] = value
 	}
 	for key, value := range source.assetFields {
 		target.assetFields[key] = value
 	}
+	mergeWorkFormRecordMap(target.leadDataRecords, source.leadDataRecords)
 	mergeWorkFormRecordMap(target.customerDataRecords, source.customerDataRecords)
 	mergeWorkFormRecordMap(target.assetDataRecords, source.assetDataRecords)
-	mergeWorkFormRecordMap(target.businessDataRecords, source.businessDataRecords)
 	return target
 }
 
@@ -210,11 +220,17 @@ func ensureWorkFormAsset(ctx context.Context, customerID uint64, assetID uint64,
 	return createdAssetID, true, nil
 }
 
-func saveWorkFormInput(ctx context.Context, customerID uint64, assetID uint64, formInput *workFormInput) error {
+func saveWorkFormInput(ctx context.Context, leadID uint64, customerID uint64, assetID uint64, formInput *workFormInput) error {
 	if formInput == nil {
 		return nil
 	}
+	if err := saveWorkLeadFormInput(ctx, leadID, formInput); err != nil {
+		return err
+	}
 	if len(formInput.customerFields) > 0 {
+		if customerID == 0 {
+			return fmt.Errorf("客户不能为空")
+		}
 		formInput.customerFields["updated_at"] = time.Now()
 		crmmodel.NewCustomerModel().Update(ctx, map[string]any{"id": customerID}, formInput.customerFields)
 	}
@@ -224,6 +240,79 @@ func saveWorkFormInput(ctx context.Context, customerID uint64, assetID uint64, f
 		}
 		formInput.assetFields["updated_at"] = time.Now()
 		crmmodel.NewCustomerAssetModel().Update(ctx, map[string]any{"id": assetID, "customer_id": customerID}, formInput.assetFields)
+	}
+	return nil
+}
+
+func saveWorkLeadFormInput(ctx context.Context, leadID uint64, formInput *workFormInput) error {
+	if formInput == nil || len(formInput.leadFields) == 0 && len(formInput.leadDataRecords) == 0 {
+		return nil
+	}
+	if leadID == 0 {
+		return fmt.Errorf("线索不能为空")
+	}
+	lead := crmmodel.NewLeadModel().Find(ctx, map[string]any{"id": leadID})
+	if lead == nil {
+		return fmt.Errorf("线索不存在")
+	}
+	updates := copyMap(formInput.leadFields)
+	phone := lead.Phone
+	wechat := lead.Wechat
+	sourceID := lead.SourceID
+	externalID := lead.ExternalID
+	if value, exists := updates["phone"]; exists {
+		phone = normalizeWorkLeadPhone(inputText(value))
+		updates["phone"] = phone
+	}
+	if value, exists := updates["wechat"]; exists {
+		wechat = inputText(value)
+		updates["wechat"] = wechat
+	}
+	if phone == "" && wechat == "" {
+		return fmt.Errorf("手机号和微信号至少填写一项")
+	}
+	if value, exists := updates["source_id"]; exists {
+		sourceID = inputUint64(value)
+		if sourceID == 0 || crmmodel.NewCustomerSourceModel().Find(ctx, map[string]any{
+			"id": sourceID, "status": crmmodel.StatusEnabled,
+		}) == nil {
+			return fmt.Errorf("线索来源不存在或已停用")
+		}
+		updates["source_id"] = sourceID
+	}
+	if value, exists := updates["channel_id"]; exists {
+		channelID := inputUint64(value)
+		if channelID == 0 || crmmodel.NewCustomerChannelModel().Find(ctx, map[string]any{
+			"id": channelID, "status": crmmodel.StatusEnabled,
+		}) == nil {
+			return fmt.Errorf("线索渠道不存在或已停用")
+		}
+		updates["channel_id"] = channelID
+	}
+	if value, exists := updates["external_id"]; exists {
+		externalID = inputText(value)
+		updates["external_id"] = externalID
+	}
+	if duplicate := findWorkLeadDuplicate(ctx, lead.ID, phone, wechat, sourceID, externalID); duplicate != nil {
+		return fmt.Errorf("线索信息与现有记录重复：%s", duplicate.Reason)
+	}
+	if len(formInput.leadDataRecords) > 0 {
+		record := mapFromAny(lead.RecordJSON)
+		values := workLeadDataValues(lead)
+		for _, fields := range formInput.leadDataRecords {
+			for fieldID, value := range fields {
+				values["data:"+fieldID] = value
+			}
+		}
+		record["data_values"] = values
+		updates["record_json"] = jsonText(record)
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	updates["updated_at"] = time.Now()
+	if crmmodel.NewLeadModel().Update(ctx, map[string]any{"id": lead.ID}, updates) == 0 {
+		return fmt.Errorf("线索信息保存失败")
 	}
 	return nil
 }
@@ -298,15 +387,6 @@ func saveWorkFormDataRecords(ctx context.Context, ownership workDataOwnership, t
 				AssetID:    ownership.AssetID,
 			}, templateID, taskID, operationID, record)
 		}
-	}
-	if len(formInput.businessDataRecords) == 0 {
-		return nil
-	}
-	if ownership.WorkflowInstanceID == 0 {
-		return fmt.Errorf("业务数据必须归属流程实例")
-	}
-	for templateID, record := range formInput.businessDataRecords {
-		saveWorkDataRecord(ctx, ownership, templateID, taskID, operationID, record)
 	}
 	return nil
 }
@@ -393,6 +473,17 @@ func applyWorkCustomerMainField(record map[string]any, field string, value any) 
 	}
 }
 
+func applyWorkLeadMainField(record map[string]any, field string, value any) {
+	switch field {
+	case "name", "phone", "wechat", "external_id", "city", "initial_need":
+		record[field] = inputText(value)
+	case "source_id", "channel_id":
+		if id := inputUint64(value); id > 0 {
+			record[field] = id
+		}
+	}
+}
+
 func applyWorkAssetMainField(record map[string]any, field string, value any) {
 	switch field {
 	case "asset_name", "remark":
@@ -427,6 +518,10 @@ func isWorkAssetTemplateField(field *crmmodel.FormField) bool {
 	return field != nil && field.DataTemplateCateID == crmmodel.CustomerAssetDataTemplateCateID
 }
 
+func isWorkLeadTemplateField(field *crmmodel.FormField) bool {
+	return field != nil && field.DataTemplateCateID == crmmodel.LeadDataTemplateCateID
+}
+
 func isWorkCustomerContactField(field *crmmodel.FormField) bool {
 	if field == nil || isWorkAssetTemplateField(field) {
 		return false
@@ -444,10 +539,10 @@ func workFormRecordBucket(_ context.Context, formInput *workFormInput, field *cr
 		return formInput.customerDataRecords
 	}
 	switch field.DataTemplateCateID {
+	case crmmodel.LeadDataTemplateCateID:
+		return formInput.leadDataRecords
 	case crmmodel.CustomerAssetDataTemplateCateID:
 		return formInput.assetDataRecords
-	case crmmodel.BusinessDataTemplateCateID:
-		return formInput.businessDataRecords
 	default:
 		return formInput.customerDataRecords
 	}

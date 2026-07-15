@@ -23,17 +23,19 @@ import (
 )
 
 const (
-	workSiteKey                 = "work"
-	workAuthProvider            = "crm_work"
-	feishuAPIBase               = "https://open.feishu.cn/open-apis"
-	feishuRequestTimeout        = 10 * time.Second
-	workResultProgress          = "progress"
-	workCustomerModeAll         = "all"
-	workCustomerModePending     = "pending"
-	workCustomerModeDone        = "done"
-	workSubmitModeComplete      = "complete"
-	workSubmitModeProgress      = "progress"
-	workCustomerDefaultPageSize = 10
+	workSiteKey                    = "work"
+	workAuthProvider               = "crm_work"
+	feishuAPIBase                  = "https://open.feishu.cn/open-apis"
+	feishuRequestTimeout           = 10 * time.Second
+	workResultProgress             = "progress"
+	workBusinessEventLeadCreated   = "lead_created"
+	workBusinessEventLeadConverted = "lead_converted"
+	workCustomerModeAll            = "all"
+	workCustomerModePending        = "pending"
+	workCustomerModeDone           = "done"
+	workSubmitModeComplete         = "complete"
+	workSubmitModeProgress         = "progress"
+	workCustomerDefaultPageSize    = 10
 )
 
 type WorkService struct{}
@@ -44,6 +46,7 @@ type WorkStaffSession struct {
 	Phone        string
 	FeishuOpenID string
 	DepartmentID uint64
+	StaffType    string
 	CanDispatch  bool
 	ViewAll      bool
 }
@@ -245,6 +248,9 @@ func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, paylo
 	if staff == nil || staff.ID == 0 {
 		return nil, fmt.Errorf("请先登录")
 	}
+	if workflowID := firstUint64(payload, "workflow_id", "workflowId"); workflowID > 0 {
+		return workflowCustomerList(ctx, staff, workflowID, payload)
+	}
 	scope := normalizeWorkScope(staff, firstText(payload, "scope"))
 	staff = workStaffWithScope(staff, scope)
 	mode := normalizeWorkCustomerMode(firstText(payload, "mode"))
@@ -289,10 +295,12 @@ func (WorkService) Customers(ctx context.Context, staff *WorkStaffSession, paylo
 	}, nil
 }
 
-func workStageOptions(ctx context.Context) []map[string]any {
-	rows := crmmodel.NewStageModel().Select(ctx, map[string]any{
-		"status": crmmodel.StatusEnabled,
-	})
+func workStageOptions(ctx context.Context, workflowIDs ...uint64) []map[string]any {
+	filters := map[string]any{"status": crmmodel.StatusEnabled}
+	if len(workflowIDs) > 0 && workflowIDs[0] > 0 {
+		filters["workflow_id"] = workflowIDs[0]
+	}
+	rows := crmmodel.NewStageModel().Select(ctx, filters)
 	result := make([]map[string]any, 0, len(rows))
 	for _, stage := range rows {
 		if stage == nil || stage.ID == 0 || strings.TrimSpace(stage.Name) == "" {
@@ -342,7 +350,7 @@ func (WorkService) Summary(ctx context.Context, staff *WorkStaffSession) (map[st
 		return nil, fmt.Errorf("请先登录")
 	}
 	operationRows := workStaffOperationRows(ctx, staff.ID)
-	summary := workSummarySnapshot(ctx, staff, operationRows)
+	summary := workSummarySnapshot(ctx, staff)
 	recentOperations := workRecentOperationRows(operationRows, 8)
 	enrichWorkOperationRows(ctx, staff, recentOperations)
 	return map[string]any{
@@ -424,7 +432,6 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 			crmmodel.CustomerAssetDataTemplateCateID,
 			mapFromAny(asset["data_values"]),
 		)...)
-		detailSections = append(detailSections, workCustomerProductDetailSections(ctx, asset)...)
 	}
 	result := map[string]any{
 		"customer":           customer,
@@ -473,27 +480,43 @@ func (WorkService) Operations(ctx context.Context, staff *WorkStaffSession, payl
 		return nil, fmt.Errorf("请先登录")
 	}
 	filter := map[string]any{}
-	if customerID := firstUint64(payload, "customer_id", "customerId"); customerID > 0 {
+	customerID := firstUint64(payload, "customer_id", "customerId")
+	workflowInstanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId")
+	var workflowInstance *crmmodel.WorkflowInstance
+	if customerID > 0 {
 		if !canViewWorkCustomer(ctx, staff, customerID) {
 			return nil, fmt.Errorf("无权查看该客户")
 		}
 		filter["customer_id"] = customerID
-	} else {
+	}
+	if workflowInstanceID > 0 {
+		workflowInstance = crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{"id": workflowInstanceID})
+		if workflowInstance == nil || !canViewWorkflowInstance(ctx, staff, workflowInstance) {
+			return nil, fmt.Errorf("无权查看该流程记录")
+		}
+		filter["workflow_instance_id"] = workflowInstanceID
+	}
+	if customerID == 0 && workflowInstanceID == 0 {
 		filter["operator_staff_id"] = staff.ID
 	}
 	if assetID := firstUint64(payload, "asset_id", "assetId"); assetID > 0 {
 		filter["asset_id"] = assetID
 	}
-	if booleanFromAny(payload["mine"]) {
+	mineOnly := booleanFromAny(payload["mine"])
+	if mineOnly && (workflowInstance == nil || workflowInstance.LeadID == 0) {
 		filter["operator_staff_id"] = staff.ID
 	}
 	rows := crmmodel.NewOperationLogModel().SelectMap(ctx, filter)
+	rows = workBusinessOperationRows(ctx, rows)
+	if mineOnly && workflowInstance != nil && workflowInstance.LeadID > 0 {
+		rows = workOperationRowsByOperator(rows, staff.ID)
+	}
 	if keyword := firstText(payload, "keyword"); keyword != "" {
 		rows = filterWorkOperations(rows, keyword)
 	}
 	enrichWorkOperationRows(ctx, staff, rows)
 	todos := []map[string]any{}
-	if customerID := firstUint64(payload, "customer_id", "customerId"); customerID > 0 {
+	if customerID > 0 {
 		todos = workTodoRows(ctx, staff, customerID, firstUint64(payload, "asset_id", "assetId"))
 	}
 	return map[string]any{
@@ -558,12 +581,68 @@ func (WorkService) Execute(ctx context.Context, staff *WorkStaffSession, payload
 	err := orm.Transaction(ctx, func(txCtx context.Context) error {
 		var executeErr error
 		result, executeErr = executeWorkTask(txCtx, staff, payload)
-		return executeErr
+		if executeErr != nil {
+			return executeErr
+		}
+		if inputText(result["result_value"]) == workResultProgress {
+			return nil
+		}
+		nextOwnerStaffID := firstUint64(payload, "next_owner_staff_id", "nextOwnerStaffId")
+		advanced, err := advanceWorkflowAfterTaskCompletion(txCtx, staff, result, nextOwnerStaffID)
+		if err != nil {
+			return err
+		}
+		if advanced != nil {
+			result["workflow_id"] = advanced.WorkflowID
+			result["stage_id"] = advanced.StageID
+			result["workflow_status"] = advanced.Status
+			result["stage_advanced"] = true
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+func advanceWorkflowAfterTaskCompletion(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	result map[string]any,
+	nextOwnerStaffID uint64,
+) (*crmmodel.WorkflowInstance, error) {
+	instance, err := activeWorkflowInstance(ctx, inputUint64(result["workflow_instance_id"]))
+	if err != nil {
+		return nil, err
+	}
+	if instance.StageID != inputUint64(result["stage_id"]) || pendingRequiredTodoCount(ctx, instance) > 0 {
+		return nil, nil
+	}
+	if instance.LeadID > 0 {
+		nextTarget, err := nextWorkflowAssignmentTarget(ctx, instance)
+		if err != nil {
+			return nil, err
+		}
+		if nextTarget.CrossObject {
+			if nextOwnerStaffID == 0 {
+				return nil, fmt.Errorf("请选择%s阶段负责人", nextTarget.Stage.Name)
+			}
+			lead := crmmodel.NewLeadModel().Find(ctx, map[string]any{"id": instance.LeadID})
+			if lead == nil {
+				return nil, fmt.Errorf("线索不存在")
+			}
+			converted, err := convertWorkLead(ctx, staff, lead, instance, instance.WorkflowID, nextOwnerStaffID)
+			if err != nil {
+				return nil, err
+			}
+			for key, value := range converted {
+				result[key] = value
+			}
+			return workflowInstanceByID(ctx, instance.ID)
+		}
+	}
+	return completeWorkflowStage(ctx, staff, instance, nextOwnerStaffID)
 }
 
 func CurrentWorkStaff(ctx context.Context) *WorkStaffSession {
@@ -591,6 +670,7 @@ func CurrentWorkStaff(ctx context.Context) *WorkStaffSession {
 		Phone:        staff.Phone,
 		FeishuOpenID: staff.FeishuOpenID,
 		DepartmentID: staff.DepartmentID,
+		StaffType:    staff.StaffType,
 		CanDispatch:  staff.CanDispatch,
 	}
 }
@@ -662,6 +742,7 @@ func workStaffPayload(staff *crmmodel.Staff, expiredAt time.Time) map[string]any
 		"phone":          staff.Phone,
 		"feishu_open_id": staff.FeishuOpenID,
 		"department_id":  staff.DepartmentID,
+		"staff_type":     staff.StaffType,
 		"can_dispatch":   staff.CanDispatch,
 		"exp":            expiredAt.UnixMilli(),
 	}
@@ -677,6 +758,7 @@ func workStaffSessionPayload(staff *WorkStaffSession) map[string]any {
 		"phone":          staff.Phone,
 		"feishu_open_id": staff.FeishuOpenID,
 		"department_id":  staff.DepartmentID,
+		"staff_type":     staff.StaffType,
 		"can_dispatch":   staff.CanDispatch,
 	}
 }
@@ -1006,6 +1088,7 @@ func (builder *workCustomerListRowBuilder) attachStageFields(target map[string]a
 	target["state.owner_department_id"] = state.OwnerDepartmentID
 	target["state.owner_staff_id"] = state.OwnerStaffID
 	target["workflow_id"] = state.WorkflowID
+	target["workflow_instance_id"] = state.ID
 	target["stage_id"] = state.StageID
 	target["stage_code"] = fmt.Sprintf("%d", state.StageID)
 	target["stage_name"] = builder.stageName(state.StageID)
@@ -1082,6 +1165,9 @@ var workAssetListFields = []string{
 	"asset_name",
 	"asset_status_id",
 	"asset_status_name",
+	"workflow_instance_id",
+	"workflow_id",
+	"progress_status",
 	"status_name",
 	"stage_name",
 	"stage_code",
@@ -1133,6 +1219,9 @@ func workAssetListRow(row map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	result := pickWorkListFields(row, workAssetListFields)
+	if flow := mapFromAny(row["flow"]); len(flow) > 0 {
+		result["flow"] = flow
+	}
 	if tasks := workListRowTasks(row); len(tasks) > 0 {
 		result["row_tasks"] = tasks
 	}
@@ -1534,56 +1623,41 @@ type workSummaryData struct {
 	CustomerCount         int
 	AssetCount            int
 	MissingAssetCustomers int
+	PendingTaskCount      int
 	Targets               []workSummaryTarget
 }
 
-func workSummarySnapshot(ctx context.Context, staff *WorkStaffSession, _ []map[string]any) workSummaryData {
-	customerIDs := visibleWorkCustomerIDs(ctx, staff)
-	doneTargets := doneWorkCustomerTargets(ctx, staff)
-	seen := map[uint64]bool{}
+func workSummarySnapshot(ctx context.Context, staff *WorkStaffSession) workSummaryData {
+	workload := currentWorkPersonalWorkload(ctx, staff)
+	customerIDs := map[uint64]bool{}
+	assetIDs := map[uint64]bool{}
 	summary := workSummaryData{}
-
-	for _, customerID := range customerIDs {
-		if customerID == 0 || seen[customerID] {
+	for _, instance := range workload.instances {
+		if instance == nil {
 			continue
 		}
-		seen[customerID] = true
-		workSummaryAppendCustomer(ctx, staff, &summary, customerID, nil)
+		if instance.CustomerID > 0 {
+			customerIDs[instance.CustomerID] = true
+		}
+		if instance.AssetID > 0 {
+			assetIDs[instance.AssetID] = true
+		}
+		todos := workload.pendingTodosByInstance[instance.ID]
+		summary.PendingTaskCount += len(todos)
+		summary.Targets = append(summary.Targets, workSummaryTarget{
+			StageID:   instance.StageID,
+			StageName: workStageName(ctx, instance.StageID),
+			Tasks:     workload.pendingTaskRows(ctx, staff, instance.ID),
+		})
 	}
-	for _, target := range doneTargets {
-		if target.customerID == 0 || seen[target.customerID] {
-			continue
+	summary.CustomerCount = len(customerIDs)
+	summary.AssetCount = len(assetIDs)
+	for customerID := range customerIDs {
+		if crmmodel.NewCustomerAssetModel().Count(ctx, map[string]any{"customer_id": customerID}) == 0 {
+			summary.MissingAssetCustomers++
 		}
-		seen[target.customerID] = true
-		workSummaryAppendCustomer(ctx, staff, &summary, target.customerID, target.assetIDs)
 	}
 	return summary
-}
-
-func workSummaryAppendCustomer(ctx context.Context, staff *WorkStaffSession, summary *workSummaryData, customerID uint64, fallbackAssetIDs []uint64) {
-	if summary == nil || customerID == 0 {
-		return
-	}
-	if crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}) == nil {
-		return
-	}
-	summary.CustomerCount++
-	assetIDs := workSummaryVisibleAssetIDs(ctx, staff, customerID)
-	if len(assetIDs) == 0 && len(fallbackAssetIDs) > 0 {
-		assetIDs = workSummaryExistingAssetIDs(ctx, customerID, uniqueUint64Values(fallbackAssetIDs))
-	}
-	if len(assetIDs) == 0 {
-		summary.MissingAssetCustomers++
-		summary.Targets = append(summary.Targets, workSummaryCustomerTarget(ctx, staff, customerID))
-		return
-	}
-	summary.AssetCount += len(assetIDs)
-	for _, assetID := range assetIDs {
-		if assetID == 0 {
-			continue
-		}
-		summary.Targets = append(summary.Targets, workSummaryAssetTarget(ctx, staff, customerID, assetID))
-	}
 }
 
 func workSummaryVisibleAssetIDs(ctx context.Context, staff *WorkStaffSession, customerID uint64) []uint64 {
@@ -1602,68 +1676,13 @@ func workSummaryVisibleAssetIDs(ctx context.Context, staff *WorkStaffSession, cu
 	return assetIDs
 }
 
-func workSummaryExistingAssetIDs(ctx context.Context, customerID uint64, assetIDs []uint64) []uint64 {
-	if customerID == 0 || len(assetIDs) == 0 {
-		return []uint64{}
-	}
-	result := make([]uint64, 0, len(assetIDs))
-	for _, assetID := range assetIDs {
-		if assetID == 0 {
-			continue
-		}
-		if crmmodel.NewCustomerAssetModel().Find(ctx, map[string]any{"id": assetID, "customer_id": customerID}) != nil {
-			result = append(result, assetID)
-		}
-	}
-	return result
-}
-
-func workSummaryCustomerTarget(ctx context.Context, staff *WorkStaffSession, customerID uint64) workSummaryTarget {
-	state := currentWorkTargetInstance(ctx, staff, customerID, 0)
-	target := workSummaryTargetFromState(ctx, state)
-	target.Tasks = workSummaryPendingTodoTasks(ctx, staff, customerID, 0)
-	return target
-}
-
-func workSummaryAssetTarget(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) workSummaryTarget {
-	state := currentWorkTargetInstance(ctx, staff, customerID, assetID)
-	target := workSummaryTargetFromState(ctx, state)
-	target.Tasks = workSummaryPendingTodoTasks(ctx, staff, customerID, assetID)
-	return target
-}
-
-func workSummaryTargetFromState(ctx context.Context, state *crmmodel.WorkflowInstance) workSummaryTarget {
-	if state == nil {
-		return workSummaryTarget{}
-	}
-	return workSummaryTarget{
-		StageID:   state.StageID,
-		StageName: workStageName(ctx, state.StageID),
-	}
-}
-
-func workSummaryPendingTodoTasks(ctx context.Context, staff *WorkStaffSession, customerID uint64, assetID uint64) []map[string]any {
-	if staff == nil || customerID == 0 {
-		return []map[string]any{}
-	}
-	return queryWorkTodoTasks(ctx, staff, customerID, assetID, false)
-}
-
 func workSummaryMetricRows(summary workSummaryData, recentOperations []map[string]any) []map[string]any {
-	pendingTargets := 0
-	pendingTasks := 0
-	for _, target := range summary.Targets {
-		if len(target.Tasks) > 0 {
-			pendingTargets++
-			pendingTasks += len(target.Tasks)
-		}
-	}
 	return []map[string]any{
-		workSummaryMetric("customers", "客户", summary.CustomerCount, "当前可查看的客户数量"),
-		workSummaryMetric("assets", "已录资产", summary.AssetCount, "客户名下已建立的资产记录"),
-		workSummaryMetric("pending_targets", "待处理对象", pendingTargets, "当前有任务待处理的客户或资产"),
-		workSummaryMetric("pending_tasks", "待办任务", pendingTasks, "当前账号可处理的任务"),
-		workSummaryMetric("missing_assets", "未录资产客户", summary.MissingAssetCustomers, "已建客户但尚未补充资产"),
+		workSummaryMetric("customers", "客户", summary.CustomerCount, "当前负责或协作流程涉及的客户"),
+		workSummaryMetric("assets", "已录资产", summary.AssetCount, "当前负责或协作流程涉及的资产"),
+		workSummaryMetric("pending_targets", "待处理流程", len(summary.Targets), "当前账号负责或参与的活动流程"),
+		workSummaryMetric("pending_tasks", "待办任务", summary.PendingTaskCount, "当前账号被分配的未完成任务"),
+		workSummaryMetric("missing_assets", "未录资产客户", summary.MissingAssetCustomers, "当前负责客户中尚未建立资产"),
 		workSummaryMetric("recent_operations", "最近操作", len(recentOperations), "最近 8 条我的操作记录"),
 	}
 }
@@ -1682,15 +1701,13 @@ func workSummaryStageRows(targets []workSummaryTarget) []map[string]any {
 	names := map[string]string{}
 	for _, target := range targets {
 		key := "_empty"
+		name := "未进入阶段"
 		if target.StageID > 0 {
 			key = fmt.Sprintf("%d", target.StageID)
-		}
-		name := target.StageName
-		if name == "" {
-			name = key
-		}
-		if name == "" {
-			name = "未进入阶段"
+			name = target.StageName
+			if name == "" {
+				name = key
+			}
 		}
 		counts[key]++
 		names[key] = name
@@ -2019,25 +2036,12 @@ func canViewWorkCustomer(ctx context.Context, staff *WorkStaffSession, customerI
 	if staff.CanDispatch && staff.ViewAll {
 		return crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}) != nil
 	}
+	if canViewWorkWorkflowSubject(ctx, staff, customerID, 0) {
+		return true
+	}
 	if crmmodel.NewOperationLogModel().Find(ctx, map[string]any{
 		"customer_id":       customerID,
 		"operator_staff_id": staff.ID,
-	}) != nil {
-		return true
-	}
-	if canOperateCurrentState(staff, currentWorkTargetInstance(ctx, staff, customerID, 0)) {
-		return true
-	}
-	if crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{
-		"customer_id":    customerID,
-		"owner_staff_id": staff.ID,
-	}) != nil {
-		return true
-	}
-	if crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
-		"customer_id":       customerID,
-		"assignee_staff_id": staff.ID,
-		"status":            crmmodel.WorkTodoStatusPending,
 	}) != nil {
 		return true
 	}
@@ -2075,6 +2079,9 @@ func canViewWorkAsset(ctx context.Context, staff *WorkStaffSession, customerID u
 			"customer_id": customerID,
 		}) != nil
 	}
+	if canViewWorkWorkflowSubject(ctx, staff, customerID, assetID) {
+		return true
+	}
 	if crmmodel.NewOperationLogModel().Find(ctx, map[string]any{
 		"customer_id":       customerID,
 		"asset_id":          assetID,
@@ -2083,17 +2090,6 @@ func canViewWorkAsset(ctx context.Context, staff *WorkStaffSession, customerID u
 		return true
 	}
 	if customer := crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}); customer != nil && customer.CreatedByStaffID == staff.ID {
-		return true
-	}
-	if canOperateCurrentState(staff, currentWorkTargetInstance(ctx, staff, customerID, assetID)) {
-		return true
-	}
-	if crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
-		"customer_id":       customerID,
-		"asset_id":          assetID,
-		"assignee_staff_id": staff.ID,
-		"status":            crmmodel.WorkTodoStatusPending,
-	}) != nil {
 		return true
 	}
 	if crmmodel.NewCustomerMemberModel().Find(ctx, map[string]any{
@@ -2131,6 +2127,19 @@ func canViewWorkAsset(ctx context.Context, staff *WorkStaffSession, customerID u
 			"status":        crmmodel.StatusEnabled,
 			"can_view":      true,
 		}) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func canViewWorkWorkflowSubject(ctx context.Context, staff *WorkStaffSession, customerID, assetID uint64) bool {
+	filters := map[string]any{"customer_id": customerID}
+	if assetID > 0 {
+		filters["asset_id"] = assetID
+	}
+	for _, instance := range crmmodel.NewWorkflowInstanceModel().Select(ctx, filters) {
+		if canViewWorkflowInstanceInScope(ctx, staff, instance) {
 			return true
 		}
 	}
@@ -2248,9 +2257,6 @@ func workCustomerProductRows(ctx context.Context, staff *WorkStaffSession, custo
 			if owner := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": instance.OwnerStaffID}); owner != nil {
 				row["owner_staff_name"] = owner.Name
 			}
-			values := workWorkflowDataFormValues(ctx, customerProduct.CustomerID, customerProduct.AssetID, instance.ID)
-			attachWorkEntityDataValues(ctx, row, values, crmmodel.BusinessDataTemplateCateID)
-			row["display_fields"] = workBusinessDataDisplayFields(ctx, values)
 		}
 		result = append(result, row)
 	}
@@ -2649,6 +2655,16 @@ func filterWorkOperations(rows []map[string]any, keyword string) []map[string]an
 	return result
 }
 
+func workOperationRowsByOperator(rows []map[string]any, staffID uint64) []map[string]any {
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if inputUint64(row["operator_staff_id"]) == staffID {
+			result = append(result, row)
+		}
+	}
+	return result
+}
+
 func enrichWorkOperationRows(ctx context.Context, staff *WorkStaffSession, rows []map[string]any) {
 	for _, row := range rows {
 		enrichWorkOperationRow(ctx, staff, row)
@@ -2694,8 +2710,15 @@ func workOperationSummary(_ context.Context, row map[string]any, items []map[str
 	case crmmodel.TaskTypeTodo:
 		return "完成事项"
 	case crmmodel.TaskTypeForm:
+		isChangeSnapshot := inputText(mapFromAny(row["data_snapshot_json"])["snapshot_type"]) == workFormChangeSnapshotType
 		if len(items) > 0 {
+			if isChangeSnapshot {
+				return fmt.Sprintf("变更 %d 项资料", len(items))
+			}
 			return fmt.Sprintf("补充 %d 项资料", len(items))
+		}
+		if isChangeSnapshot {
+			return "本次未修改资料"
 		}
 		return "提交资料"
 	case crmmodel.TaskTypeApproval:
@@ -2718,6 +2741,20 @@ func workOperationSummaryItems(ctx context.Context, row map[string]any) []map[st
 	if len(values) == 0 {
 		return []map[string]any{}
 	}
+	if inputText(values["snapshot_type"]) == workFormChangeSnapshotType {
+		return workOperationChangeSummaryItems(ctx, row, mapListFromAny(values["changes"]))
+	}
+	if inputText(row["result_value"]) == workBusinessEventLeadConverted {
+		if items := mapListFromAny(values["summary_items"]); len(items) > 0 {
+			return items
+		}
+		return workLeadConversionSummaryItems(
+			ctx,
+			firstUint64(values, "lead_id", "leadId"),
+			firstUint64(values, "customer_id", "customerId"),
+			firstUint64(values, "asset_id", "assetId"),
+		)
+	}
 	items := make([]map[string]any, 0, len(values))
 	for _, key := range sortedMapKeys(values) {
 		value := values[key]
@@ -2739,6 +2776,73 @@ func workOperationSummaryItems(ctx context.Context, row map[string]any) []map[st
 		items = append(items, item)
 	}
 	return items
+}
+
+func workOperationChangeSummaryItems(ctx context.Context, row map[string]any, changes []map[string]any) []map[string]any {
+	items := make([]map[string]any, 0, len(changes))
+	for _, change := range changes {
+		key := firstText(change, "key")
+		if key == "" {
+			continue
+		}
+		before := firstPresent(change, "before")
+		after := firstPresent(change, "after")
+		beforeLabel, beforeValue, beforeMeta := workOperationSnapshotItem(ctx, row, key, before)
+		afterLabel, afterValue, afterMeta := workOperationSnapshotItem(ctx, row, key, after)
+		label := afterLabel
+		if label == "" {
+			label = beforeLabel
+		}
+		if label == "" {
+			continue
+		}
+		changeType := workOperationChangeType(before, after)
+		if changeType == "cleared" {
+			afterValue = "已清空"
+		}
+		if afterValue == "" {
+			continue
+		}
+		item := map[string]any{
+			"key":         key,
+			"label":       label,
+			"value":       afterValue,
+			"change_type": changeType,
+		}
+		if beforeValue != "" {
+			item["previous_value"] = beforeValue
+		}
+		for metaKey, metaValue := range workOperationChangeMeta(afterMeta, beforeMeta, changeType == "cleared") {
+			item[metaKey] = metaValue
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func workOperationChangeType(before any, after any) string {
+	if emptyWorkFieldValue(before) {
+		return "added"
+	}
+	if emptyWorkFieldValue(after) {
+		return "cleared"
+	}
+	return "updated"
+}
+
+func workOperationChangeMeta(after map[string]any, before map[string]any, cleared bool) map[string]any {
+	result := map[string]any{}
+	if !cleared {
+		for key, value := range after {
+			result[key] = value
+		}
+	}
+	for _, key := range []string{"group_id", "group_label"} {
+		if result[key] == nil && before[key] != nil {
+			result[key] = before[key]
+		}
+	}
+	return result
 }
 
 func workOperationSnapshotItem(ctx context.Context, row map[string]any, key string, value any) (string, string, map[string]any) {
@@ -2801,6 +2905,8 @@ func WorkOperationResultName(value string) string {
 		return "已取消"
 	case "entered":
 		return "进入阶段"
+	case workBusinessEventLeadConverted:
+		return "已转化"
 	default:
 		return ""
 	}
@@ -2808,7 +2914,7 @@ func WorkOperationResultName(value string) string {
 
 func workOperationInternalSnapshotKey(key string) bool {
 	switch key {
-	case "todo_id", "todoId", "submit_mode", "submitMode", "workflow_instance_id", "workflowInstanceId", "raw_result", "duration_ms":
+	case "todo_id", "todoId", "submit_mode", "submitMode", "workflow_instance_id", "workflowInstanceId", "raw_result", "duration_ms", "summary_items", "summaryItems", "snapshot_type", "changes":
 		return true
 	default:
 		return false
@@ -2993,6 +3099,12 @@ func workMainFieldLabel(field string) string {
 		return "手机号"
 	case "wechat":
 		return "微信"
+	case "external_id":
+		return "外部线索ID"
+	case "city":
+		return "城市"
+	case "initial_need":
+		return "初始诉求"
 	case "id_card":
 		return "身份证号"
 	case "gender":
@@ -3003,6 +3115,8 @@ func workMainFieldLabel(field string) string {
 		return "渠道"
 	case "level_id":
 		return "客户等级"
+	case "tags":
+		return "标签"
 	case "asset_name":
 		return "资产名称"
 	case "asset_no":
@@ -3186,30 +3300,6 @@ func workDataRecordFieldValues(ctx context.Context, customerID uint64, assetID u
 	return values
 }
 
-func workWorkflowDataFormValues(ctx context.Context, customerID uint64, assetID uint64, workflowInstanceID uint64) map[string]any {
-	values := map[string]any{}
-	if customerID == 0 || workflowInstanceID == 0 {
-		return values
-	}
-	records := crmmodel.NewDataRecordModel().Select(ctx, map[string]any{
-		"customer_id":          customerID,
-		"asset_id":             assetID,
-		"workflow_instance_id": workflowInstanceID,
-		"status":               crmmodel.StatusEnabled,
-	})
-	for _, record := range records {
-		if record == nil {
-			continue
-		}
-		for fieldID, value := range mapFromAny(record.RecordJSON) {
-			if fieldID != "" {
-				values["data:"+fieldID] = value
-			}
-		}
-	}
-	return values
-}
-
 func workDataTemplateFieldsByID(ctx context.Context, templateID uint64) map[uint64]*crmmodel.DataField {
 	result := map[uint64]*crmmodel.DataField{}
 	if templateID == 0 {
@@ -3263,9 +3353,34 @@ func workDataValueLabels(ctx context.Context, values map[string]any) map[string]
 
 func attachWorkEntityDataValues(ctx context.Context, row map[string]any, values map[string]any, templateCateID uint64) {
 	row["data_values"] = values
+	row["data_file_values"] = workDataFileValues(ctx, values)
 	row["data_value_labels"] = workDataValueLabels(ctx, values)
 	row["display_fields"] = workDisplayDataFields(ctx, values)
 	row["data_completeness"] = workDataCompletenessTemplates(ctx, templateCateID, values)
+}
+
+func workDataFileValues(ctx context.Context, values map[string]any) map[string]any {
+	filesByField := map[string]any{}
+	for key, value := range values {
+		if !strings.HasPrefix(key, "data:") {
+			continue
+		}
+		fieldID := inputUint64(strings.TrimPrefix(key, "data:"))
+		if fieldID == 0 {
+			continue
+		}
+		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+			"id":     fieldID,
+			"status": crmmodel.StatusEnabled,
+		})
+		if field == nil || !workIsAttachmentFieldType(field.FieldType) {
+			continue
+		}
+		if files := workUploadFilePayloads(ctx, uint64ListFromAny(value)); len(files) > 0 {
+			filesByField[key] = files
+		}
+	}
+	return filesByField
 }
 
 func workDisplayDataFields(ctx context.Context, values map[string]any) []map[string]any {
@@ -3309,69 +3424,6 @@ func workDisplayDataFields(ctx context.Context, values map[string]any) []map[str
 			item[metaKey] = metaValue
 		}
 		result = append(result, item)
-	}
-	return result
-}
-
-func workBusinessDataDisplayFields(ctx context.Context, values map[string]any) []map[string]any {
-	if len(values) == 0 {
-		return []map[string]any{}
-	}
-	type displayField struct {
-		id    uint64
-		sort  int
-		key   string
-		value any
-		field *crmmodel.DataField
-	}
-	fields := make([]displayField, 0, len(values))
-	for key, value := range values {
-		if !strings.HasPrefix(key, "data:") || emptyWorkFieldValue(value) {
-			continue
-		}
-		fieldID := inputUint64(strings.TrimPrefix(key, "data:"))
-		if fieldID == 0 {
-			continue
-		}
-		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-			"id":     fieldID,
-			"status": crmmodel.StatusEnabled,
-		})
-		if field == nil || field.FieldType == "group" {
-			continue
-		}
-		fields = append(fields, displayField{
-			id:    field.ID,
-			sort:  field.Sort,
-			key:   key,
-			value: value,
-			field: field,
-		})
-	}
-	sort.SliceStable(fields, func(i, j int) bool {
-		if fields[i].sort == fields[j].sort {
-			return fields[i].id < fields[j].id
-		}
-		return fields[i].sort < fields[j].sort
-	})
-	result := make([]map[string]any, 0, len(fields))
-	for _, item := range fields {
-		displayValue, meta := workDataFieldDisplayValue(ctx, item.field, item.value)
-		if displayValue == "" {
-			continue
-		}
-		row := map[string]any{
-			"key":        item.key,
-			"field_key":  item.field.FieldKey,
-			"field_id":   item.field.ID,
-			"label":      item.field.Name,
-			"value":      displayValue,
-			"value_type": "text",
-		}
-		for metaKey, metaValue := range meta {
-			row[metaKey] = metaValue
-		}
-		result = append(result, row)
 	}
 	return result
 }
@@ -3450,31 +3502,6 @@ func workDataDetailFields(ctx context.Context, templateID uint64, values map[str
 			item[metaKey] = metaValue
 		}
 		result = append(result, item)
-	}
-	return result
-}
-
-func workCustomerProductDetailSections(ctx context.Context, asset map[string]any) []map[string]any {
-	result := []map[string]any{}
-	for _, customerProduct := range mapListFromAny(asset["customer_products"]) {
-		customerProductID := inputUint64(customerProduct["customer_product_id"])
-		workflowInstanceID := inputUint64(customerProduct["workflow_instance_id"])
-		if customerProductID == 0 || workflowInstanceID == 0 {
-			continue
-		}
-		sections := workDataDetailSections(
-			ctx,
-			crmmodel.DataTemplateTargetWorkflow,
-			crmmodel.BusinessDataTemplateCateID,
-			mapFromAny(customerProduct["data_values"]),
-		)
-		for _, section := range sections {
-			section["id"] = fmt.Sprintf("workflow:%d:%v", workflowInstanceID, section["template_id"])
-			section["workflow_instance_id"] = workflowInstanceID
-			section["customer_product_id"] = customerProductID
-			section["product_name"] = firstText(customerProduct, "product_name", "product_code")
-			result = append(result, section)
-		}
 	}
 	return result
 }
@@ -3790,7 +3817,7 @@ func workFieldInputKey(field *crmmodel.FormField) string {
 
 func mainFieldInputType(field string) string {
 	switch field {
-	case "remark":
+	case "remark", "initial_need":
 		return "textarea"
 	case "gender":
 		return "radio"

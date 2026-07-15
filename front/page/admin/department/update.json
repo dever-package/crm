@@ -1,7 +1,7 @@
 {
   "page": {
     "name": "部门编辑",
-    "parent": "crm/department/list",
+    "parent": "crm/staff/list",
     "type": 2,
     "auth": [
       {

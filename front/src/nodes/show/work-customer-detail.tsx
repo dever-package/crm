@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ClipboardList,
   Download,
   FileText,
   Loader2,
@@ -21,20 +20,6 @@ import {
 } from "./work-core";
 import { WorkTaskUploadPreviewDialog } from "./work-upload";
 
-export type WorkCustomerDetailHeaderView = {
-  customerName: string;
-  statusName: string;
-  customerNo: string;
-  phone: string;
-  assetNo: string;
-  workflowName: string;
-  stageName: string;
-  ownerName: string;
-  stageDays: number;
-  hasStage: boolean;
-  primaryTaskLabel?: string;
-};
-
 export type WorkCustomerFlowEntryView = {
   id: string;
   title: string;
@@ -49,6 +34,7 @@ export type WorkCustomerFlowEntryView = {
 };
 
 export type WorkCustomerOperationScope = "all" | "mine";
+export type WorkDetailTab = "info" | "records";
 
 const operationScopeOptions: Array<{
   value: WorkCustomerOperationScope;
@@ -67,15 +53,21 @@ export function WorkCustomerDetailStyles() {
         gap: 20px;
       }
 
+      .crm-customer-detail-section-nav {
+        align-self: start;
+        grid-auto-rows: 56px;
+      }
+
+      .crm-customer-detail-section-nav button {
+        height: 56px;
+        min-height: 56px;
+        max-height: 56px;
+      }
+
       .crm-customer-detail-fields {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         column-gap: 24px;
-      }
-
-      .crm-customer-detail-header-metrics {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
       .crm-customer-flow-dot {
@@ -102,81 +94,51 @@ export function WorkCustomerDetailStyles() {
           grid-template-columns: minmax(0, 1fr);
         }
 
-        .crm-customer-detail-header-metrics {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
       }
     `}</style>
   );
 }
 
-export function WorkCustomerDetailContextHeader({
-  view,
-  onOpenPrimaryTask,
+export function WorkDetailTabs({
+  activeTab,
+  onChange,
 }: {
-  view: WorkCustomerDetailHeaderView;
-  onOpenPrimaryTask?: () => void;
+  activeTab: WorkDetailTab;
+  onChange: (tab: WorkDetailTab) => void;
 }) {
+  const tabs: Array<{ key: WorkDetailTab; label: string }> = [
+    { key: "records", label: "记录" },
+    { key: "info", label: "资料" },
+  ];
+
   return (
-    <header className="crm-customer-detail-header sticky top-0 z-10 -mx-1 border-b border-border/70 bg-background px-1 pb-4 pt-1">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="break-words text-base font-semibold text-foreground">
-              {view.customerName}
-            </h2>
-            <span className="rounded bg-muted px-2 py-1 text-xs font-medium text-foreground">
-              {view.statusName}
-            </span>
-          </div>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground">
-            <span>{view.customerNo}</span>
-            <span>{view.phone}</span>
-            {view.assetNo !== "-" ? <span>{view.assetNo}</span> : null}
-          </div>
-        </div>
-        {view.primaryTaskLabel && onOpenPrimaryTask ? (
-          <Button type="button" size="sm" onClick={onOpenPrimaryTask}>
-            <ClipboardList className="h-4 w-4" />
-            处理当前任务
+    <div className="border-b border-border/70">
+      <div className="flex gap-1">
+        {tabs.map((tab) => (
+          <Button
+            type="button"
+            key={tab.key}
+            variant="ghost"
+            aria-pressed={activeTab === tab.key}
+            className={`h-auto rounded-none border-b-2 px-1.5 py-3 text-sm font-medium ${
+              activeTab === tab.key
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => onChange(tab.key)}
+          >
+            {tab.label}
           </Button>
-        ) : null}
-      </div>
-
-      <div className="crm-customer-detail-header-metrics mt-3 gap-px overflow-hidden rounded-md border border-border/60 bg-border/60">
-        <WorkCustomerDetailHeaderMetric label="流程" value={view.workflowName} />
-        <WorkCustomerDetailHeaderMetric label="当前阶段" value={view.stageName} />
-        <WorkCustomerDetailHeaderMetric label="负责人" value={view.ownerName} />
-        <WorkCustomerDetailHeaderMetric
-          label="阶段时长"
-          value={
-            view.hasStage
-              ? view.stageDays > 0
-                ? `${view.stageDays} 天`
-                : "今日进入"
-              : "-"
-          }
-        />
-      </div>
-    </header>
-  );
-}
-
-function WorkCustomerDetailHeaderMetric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="min-w-0 bg-background px-3 py-2.5">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 truncate text-sm font-medium text-foreground">
-        {displayText(value)}
+        ))}
       </div>
     </div>
   );
+}
+
+export function workDetailValueEmpty(value: unknown): boolean {
+  if (value === null || value === undefined || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
 }
 
 export function WorkCustomerDetailData({
@@ -192,6 +154,16 @@ export function WorkCustomerDetailData({
     () => workCustomerDetailSections(customer, asset, sections),
     [asset, customer, sections],
   );
+
+  return <WorkDetailSectionsData sections={allSections} />;
+}
+
+export function WorkDetailSectionsData({
+  sections,
+}: {
+  sections: WorkDetailSection[];
+}) {
+  const allSections = sections;
   const [activeSectionID, setActiveSectionID] = useState(
     allSections[0]?.id || "",
   );
@@ -217,10 +189,12 @@ export function WorkCustomerDetailData({
         {allSections.map((section) => {
           const active = section.id === activeSection.id;
           return (
-            <button
+            <Button
               type="button"
               key={section.id}
-              className={`rounded-md px-3 py-2.5 text-left transition-colors ${
+              variant="ghost"
+              aria-pressed={active}
+              className={`h-auto w-full flex-col items-stretch gap-0 rounded-md px-3 py-2.5 text-left ${
                 active
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -235,7 +209,7 @@ export function WorkCustomerDetailData({
               <span className="mt-1 block text-xs opacity-75">
                 {section.filled} / {section.total} · {section.percent}%
               </span>
-            </button>
+            </Button>
           );
         })}
       </nav>
@@ -439,22 +413,25 @@ function WorkCustomerDetailFieldValue({
         {files.map((file) => (
           <div key={String(file.id || file.name)} className="flex min-w-0 items-center gap-2">
             <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <button
+            <Button
               type="button"
-              className="min-w-0 flex-1 truncate text-left hover:text-primary hover:underline"
+              variant="ghost"
+              className="h-auto min-w-0 flex-1 justify-start truncate px-0 py-0 text-left font-normal hover:bg-transparent hover:text-primary hover:underline"
               onClick={() => onPreviewFile(file)}
             >
               {file.name || "附件"}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0 text-muted-foreground"
               aria-label="下载附件"
               title="下载附件"
               onClick={() => void downloadUploadFile(file)}
             >
               <Download className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
         ))}
       </div>
@@ -469,21 +446,27 @@ export function WorkCustomerFlowTimeline({
   scope,
   onScopeChange,
   onOpen,
+  loadingText = "正在加载流程记录",
+  emptyText = "暂无流程记录",
 }: {
   entries: WorkCustomerFlowEntryView[];
   loading: boolean;
   scope: WorkCustomerOperationScope;
   onScopeChange: (scope: WorkCustomerOperationScope) => void;
   onOpen: (entry: WorkCustomerFlowEntryView) => void;
+  loadingText?: string;
+  emptyText?: string;
 }) {
   return (
     <div className="grid gap-4">
       <div className="inline-flex w-fit rounded-md border border-border/70 bg-muted/20 p-1">
         {operationScopeOptions.map((option) => (
-          <button
+          <Button
             type="button"
             key={option.value}
-            className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+            variant="ghost"
+            aria-pressed={scope === option.value}
+            className={`h-auto rounded px-3 py-1.5 text-sm font-medium ${
               scope === option.value
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -491,26 +474,27 @@ export function WorkCustomerFlowTimeline({
             onClick={() => onScopeChange(option.value)}
           >
             {option.label}
-          </button>
+          </Button>
         ))}
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          正在加载流程记录
+          {loadingText}
         </div>
       ) : entries.length === 0 ? (
         <div className="py-10 text-center text-sm text-muted-foreground">
-          暂无流程记录
+          {emptyText}
         </div>
       ) : (
         <div className="crm-customer-flow-timeline relative grid gap-3 border-l border-border/70 pl-5">
           {entries.map((entry) => (
-            <button
+            <Button
               type="button"
               key={entry.id}
-              className="relative rounded-md border border-border/60 bg-background px-4 py-3 text-left transition-colors hover:bg-muted/20"
+              variant="outline"
+              className="relative h-auto w-full flex-col items-stretch gap-0 rounded-md border-border/60 bg-background px-4 py-3 text-left font-normal hover:bg-muted/20"
               onClick={() => onOpen(entry)}
             >
               <span
@@ -540,7 +524,7 @@ export function WorkCustomerFlowTimeline({
                   {entry.description}
                 </p>
               ) : null}
-            </button>
+            </Button>
           ))}
         </div>
       )}

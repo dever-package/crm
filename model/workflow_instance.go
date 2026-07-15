@@ -8,7 +8,8 @@ import (
 
 type WorkflowInstance struct {
 	ID                uint64     `dorm:"primaryKey;autoIncrement;comment:流程实例ID"`
-	CustomerID        uint64     `dorm:"type:bigint;not null;comment:客户"`
+	LeadID            uint64     `dorm:"type:bigint;not null;default:0;comment:线索"`
+	CustomerID        uint64     `dorm:"type:bigint;not null;default:0;comment:客户"`
 	AssetID           uint64     `dorm:"type:bigint;not null;default:0;comment:客户资产"`
 	CustomerProductID uint64     `dorm:"type:bigint;not null;default:0;comment:客户产品"`
 	WorkflowID        uint64     `dorm:"type:bigint;not null;comment:流程"`
@@ -24,6 +25,7 @@ type WorkflowInstance struct {
 }
 
 type WorkflowInstanceIndex struct {
+	LeadFlow      struct{} `index:"lead_id,workflow_id,status,id"`
 	CustomerAsset struct{} `index:"customer_id,asset_id,status,id"`
 	ProductFlow   struct{} `index:"customer_product_id,workflow_id,status,id"`
 	WorkflowStage struct{} `index:"workflow_id,stage_id,status,id"`
@@ -39,6 +41,7 @@ func NewWorkflowInstanceModel() *orm.Model[WorkflowInstance] {
 			"status": progressStatusOptions,
 		},
 		Relations: []orm.Relation{
+			leadRelation,
 			customerRelation,
 			assetRelation,
 			customerProductRelation,

@@ -1,9 +1,9 @@
 {
   "page": {
-    "name": "线索池",
+    "name": "线索流程",
     "icon": "users-round",
     "parent": "crm-work-customer-center",
-    "type": 1,
+    "type": 2,
     "sort": 1
   },
   "layout": {
@@ -13,6 +13,9 @@
       "content": {
         "type": "container",
         "className": "min-w-0"
+      },
+      "feedback-shell": {
+        "type": "container"
       }
     }
   },
@@ -21,9 +24,107 @@
       {
         "type": "show-crm-work-lead-pool"
       }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.workTask",
+          "formSection": "work-task-form-section",
+          "title": "处理线索任务",
+          "titlePath": "data.actionTarget.workTaskName",
+          "descriptionPath": "data.actionTarget.workTaskDescription",
+          "assistant": false,
+          "size": "lg",
+          "width": "42rem",
+          "footer": {
+            "close": true,
+            "closeText": "取消",
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "bodyClassName": "crm-work-task-modal-body crm-work-task-scroll-area max-h-[70vh] overflow-y-auto px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.workLeadEditor",
+          "formSection": "work-lead-editor-section",
+          "title": "录入线索",
+          "titlePath": "data.actionTarget.workLeadEditorTitle",
+          "descriptionPath": "data.actionTarget.workLeadEditorDescription",
+          "assistant": false,
+          "size": "lg",
+          "width": "42rem",
+          "footer": {
+            "close": true,
+            "closeText": "取消",
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "bodyClassName": "crm-work-task-modal-body crm-work-task-scroll-area max-h-[70vh] overflow-y-auto px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-drawer",
+        "meta": {
+          "stateKey": "drawer.workLeadDetail",
+          "formSection": "work-lead-detail-section",
+          "title": "线索详情",
+          "titlePath": "data.actionTarget.workLeadDetailTitle",
+          "descriptionPath": "data.actionTarget.workLeadDetailDescription",
+          "assistant": false,
+          "side": "right",
+          "width": "52rem",
+          "bodyClassName": "crm-customer-detail-drawer-body px-6 py-2"
+        }
+      },
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.workRecordDetail",
+          "formSection": "work-record-detail-section",
+          "title": "任务记录",
+          "titlePath": "data.actionTarget.workRecordDetailName",
+          "descriptionPath": "data.actionTarget.workRecordDetailDescription",
+          "assistant": false,
+          "size": "lg",
+          "width": "48rem",
+          "footer": {
+            "close": true,
+            "closeText": "关闭"
+          },
+          "bodyClassName": "max-h-[70vh] overflow-y-auto px-6 py-2"
+        }
+      }
+    ],
+    "work-lead-editor-section": [
+      {
+        "type": "show-crm-work-lead-editor-form"
+      }
+    ],
+    "work-lead-detail-section": [
+      {
+        "type": "show-crm-work-lead-detail"
+      }
+    ],
+    "work-record-detail-section": [
+      {
+        "type": "show-crm-work-record-detail"
+      }
     ]
   },
   "data": {},
-  "state": {},
+  "state": {
+    "dialog": {
+      "workTask": false,
+      "workLeadEditor": false,
+      "workRecordDetail": false
+    },
+    "drawer": {
+      "workLeadDetail": false
+    }
+  },
   "action": {}
 }

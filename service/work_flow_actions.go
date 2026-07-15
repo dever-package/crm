@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/shemic/dever/orm"
+
 	crmmodel "github.com/dever-package/crm/model"
 )
 
@@ -24,17 +26,17 @@ func (WorkService) FlowAssignees(ctx context.Context, staff *WorkStaffSession, p
 		if !canCompleteWorkflowStage(staff, instance) {
 			return nil, fmt.Errorf("无权选择下一阶段负责人")
 		}
-		_, stage, nextErr := nextWorkflowStage(ctx, instance)
+		nextTarget, nextErr := nextWorkflowAssignmentTarget(ctx, instance)
 		if nextErr != nil {
 			return nil, nextErr
 		}
-		if stage == nil {
+		if nextTarget.Stage == nil {
 			return map[string]any{"list": []map[string]any{}, "terminal": true}, nil
 		}
-		return workDepartmentAssignees(ctx, stage.OwnerDepartmentID, stage.AssignmentMode), nil
+		return workDepartmentAssignees(ctx, nextTarget.Stage.OwnerDepartmentID, nextTarget.Stage.AssignmentMode), nil
 	}
-	if !staff.CanDispatch {
-		return nil, fmt.Errorf("只有流程调度员可以选择阶段负责人")
+	if !canChangeWorkflowOwner(staff, instance) {
+		return nil, fmt.Errorf("只有当前负责部门负责人或流程调度员可以选择阶段负责人")
 	}
 	return workDepartmentAssignees(ctx, instance.OwnerDepartmentID, "manual"), nil
 }
@@ -83,6 +85,64 @@ func (WorkService) TerminateFlow(ctx context.Context, staff *WorkStaffSession, p
 		return nil, err
 	}
 	return workFlowActionResult(ctx, staff, instance.ID), nil
+}
+
+func (WorkService) RestartFlow(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
+	instanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId")
+	var restarted *crmmodel.WorkflowInstance
+	err := orm.Transaction(ctx, func(txCtx context.Context) error {
+		previous, err := workflowInstanceByID(txCtx, instanceID)
+		if err != nil {
+			return err
+		}
+		if previous.Status != crmmodel.ProgressStatusTerminated {
+			return fmt.Errorf("只有已终止的流程可以重新发起")
+		}
+		if previous.LeadID > 0 || previous.CustomerID == 0 || previous.AssetID == 0 || previous.CustomerProductID > 0 {
+			return fmt.Errorf("该流程不支持重新发起")
+		}
+		if staff == nil || staff.ID == 0 || previous.OwnerStaffID != staff.ID && !staff.CanDispatch {
+			return fmt.Errorf("只有原负责人或流程调度员可以重新发起流程")
+		}
+		workflow := crmmodel.NewWorkflowModel().Find(txCtx, map[string]any{
+			"id":           previous.WorkflowID,
+			"subject_type": crmmodel.WorkflowSubjectCustomerAsset,
+			"status":       crmmodel.StatusEnabled,
+		})
+		if workflow == nil {
+			return fmt.Errorf("原流程不存在或已停用")
+		}
+		if crmmodel.NewWorkflowInstanceModel().Find(txCtx, map[string]any{
+			"customer_id":         previous.CustomerID,
+			"asset_id":            previous.AssetID,
+			"customer_product_id": uint64(0),
+			"workflow_id":         workflow.ID,
+			"status":              crmmodel.ProgressStatusActive,
+		}) != nil {
+			return fmt.Errorf("该客户资产已在此流程中")
+		}
+		restarted, err = restartWorkflowInstance(
+			txCtx,
+			assetWorkflowSubject(previous.CustomerID, previous.AssetID, 0),
+			workflow.ID,
+		)
+		if err != nil {
+			return err
+		}
+		if restarted == nil || restarted.ID == previous.ID {
+			return fmt.Errorf("流程重新发起失败")
+		}
+		if recordWorkManagementOperation(txCtx, staff, restarted, "workflow_restarted", "重新发起流程", previous.TerminatedReason, map[string]any{
+			"source_workflow_instance_id": previous.ID,
+		}) == 0 {
+			return fmt.Errorf("流程重新发起记录创建失败")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return workFlowActionResult(ctx, staff, restarted.ID), nil
 }
 
 func workTodoAssignees(ctx context.Context, staff *WorkStaffSession, todoID uint64) (map[string]any, error) {
@@ -160,6 +220,7 @@ func workFlowDetail(ctx context.Context, staff *WorkStaffSession, instanceID uin
 	canComplete := isActive && canCompleteWorkflowStage(staff, instance)
 
 	result["id"] = instance.ID
+	result["lead_id"] = instance.LeadID
 	result["customer_id"] = instance.CustomerID
 	result["asset_id"] = instance.AssetID
 	result["customer_product_id"] = instance.CustomerProductID
@@ -183,23 +244,35 @@ func workFlowDetail(ctx context.Context, staff *WorkStaffSession, instanceID uin
 	result["can_complete_stage"] = canComplete
 	result["ready_to_complete"] = canComplete && pendingRequired == 0
 	result["can_terminate"] = isActive && isCurrentOwner
-	result["can_change_owner"] = isActive && staff != nil && staff.CanDispatch
+	result["can_change_owner"] = canChangeWorkflowOwner(staff, instance)
+	result["can_restart"] = instance.Status == crmmodel.ProgressStatusTerminated && instance.LeadID == 0 &&
+		instance.CustomerID > 0 && instance.AssetID > 0 && instance.CustomerProductID == 0 &&
+		staff != nil && (isCurrentOwner || staff.CanDispatch) && workflow != nil &&
+		workflow.Status == crmmodel.StatusEnabled && workflow.SubjectType == crmmodel.WorkflowSubjectCustomerAsset
 	result["tasks"] = workCurrentStageTodoRows(ctx, staff, instance)
 	attachCustomerProductFlowFields(ctx, result, instance.CustomerProductID)
 
 	if isActive {
-		_, nextStage, err := nextWorkflowStage(ctx, instance)
+		nextTarget, err := nextWorkflowAssignmentTarget(ctx, instance)
 		if err != nil {
 			result["configuration_error"] = err.Error()
 			result["ready_to_complete"] = false
-		} else if nextStage == nil {
+		} else if nextTarget.Stage == nil {
 			result["next_terminal"] = true
 		} else {
+			nextStage := nextTarget.Stage
+			nextAssignmentMode := stageAssignmentMode(nextStage)
+			canInheritOwner := inheritedStageOwner(ctx, instance, nextStage) != nil
+			if nextTarget.Workflow != nil {
+				result["next_workflow_id"] = nextTarget.Workflow.ID
+				result["next_workflow_name"] = nextTarget.Workflow.Name
+			}
 			result["next_stage_id"] = nextStage.ID
 			result["next_stage_name"] = nextStage.Name
 			result["next_department_id"] = nextStage.OwnerDepartmentID
-			result["next_assignment_mode"] = stageAssignmentMode(nextStage)
-			result["next_owner_required"] = stageAssignmentMode(nextStage) == crmmodel.StageAssignmentManual
+			result["next_assignment_mode"] = nextAssignmentMode
+			result["next_owner_required"] = nextTarget.CrossObject ||
+				(!canInheritOwner && nextAssignmentMode == crmmodel.StageAssignmentManual)
 		}
 	}
 	return result
@@ -220,7 +293,7 @@ func attachCustomerProductFlowFields(ctx context.Context, target map[string]any,
 	}
 }
 
-func workCurrentStageTodoRows(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) []map[string]any {
+func workCurrentStageTodoRows(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance, withForm ...bool) []map[string]any {
 	if instance == nil {
 		return []map[string]any{}
 	}
@@ -230,7 +303,7 @@ func workCurrentStageTodoRows(ctx context.Context, staff *WorkStaffSession, inst
 	})
 	rows := make([]map[string]any, 0, len(todos))
 	for _, todo := range todos {
-		row := workTodoTaskMap(ctx, staff, todo, false)
+		row := workTodoTaskMap(ctx, staff, todo, len(withForm) > 0 && withForm[0])
 		if len(row) == 0 {
 			continue
 		}

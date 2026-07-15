@@ -90,23 +90,6 @@ func resolveDataRecordOwnership(ctx context.Context, ownership workDataOwnership
 	if template == nil {
 		return workDataOwnership{}, fmt.Errorf("数据模板不存在或已停用")
 	}
-	if template.CateID == crmmodel.BusinessDataTemplateCateID {
-		instance, err := workflowInstanceByID(ctx, ownership.WorkflowInstanceID)
-		if err != nil {
-			return workDataOwnership{}, fmt.Errorf("业务数据必须选择流程实例")
-		}
-		if ownership.CustomerID > 0 && ownership.CustomerID != instance.CustomerID ||
-			ownership.AssetID > 0 && ownership.AssetID != instance.AssetID ||
-			ownership.CustomerProductID > 0 && ownership.CustomerProductID != instance.CustomerProductID {
-			return workDataOwnership{}, fmt.Errorf("业务数据归属与流程实例不一致")
-		}
-		return workDataOwnership{
-			CustomerID:         instance.CustomerID,
-			AssetID:            instance.AssetID,
-			WorkflowInstanceID: instance.ID,
-			CustomerProductID:  instance.CustomerProductID,
-		}, nil
-	}
 	if ownership.CustomerID == 0 || crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": ownership.CustomerID}) == nil {
 		return workDataOwnership{}, fmt.Errorf("客户不存在")
 	}

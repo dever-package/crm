@@ -1,28 +1,26 @@
 import { useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   ClipboardList,
   Ellipsis,
   Eye,
-  Inbox,
   RefreshCw,
-  Search,
   ShieldCheck,
-  SlidersHorizontal,
+  UserRound,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 import {
   displayText,
   type WorkCustomerMode,
   type WorkCustomerScope,
+  type WorkFlowDetail,
   type WorkItem,
-  type WorkSearchFilters,
-  type WorkStageOption,
   type WorkTask,
 } from "./work-core";
+import { WorkFlowOwnerDialog } from "./work-flow-owner-dialog";
+import { WorkListState } from "./work-list-state";
 
 export type WorkCustomerListTaskView = {
   key: string;
@@ -47,6 +45,7 @@ export type WorkCustomerListRowView = {
   ownerName: string;
   stageDays: number;
   lastOperatedAt: string;
+  flow: WorkFlowDetail | null;
   tasks: WorkCustomerListTaskView[];
 };
 
@@ -57,20 +56,13 @@ type WorkCustomerListViewProps = {
   modeCounts: Record<WorkCustomerMode, number>;
   scope: WorkCustomerScope;
   canDispatch: boolean;
-  filters: WorkSearchFilters;
-  stageFilter: string;
-  stageOptions: WorkStageOption[];
   page: number;
   pageSize: number;
   total: number;
   emptyTitle: string;
   emptyDescription: string;
-  onFiltersChange: (filters: WorkSearchFilters) => void;
-  onSearch: () => void;
-  onReset: () => void;
   onModeChange: (mode: WorkCustomerMode) => void;
   onScopeChange: (scope: WorkCustomerScope) => void;
-  onStageChange: (stage: string) => void;
   onPageChange: (page: number) => void;
   onRefresh: () => void;
   onOpenDetail: (row: WorkCustomerListRowView) => void;
@@ -91,20 +83,6 @@ const scopeOptions: Array<{ value: WorkCustomerScope; label: string }> = [
   { value: "all", label: "全部" },
 ];
 
-const exactFilterFields: Array<{
-  key: keyof Pick<
-    WorkSearchFilters,
-    "customerNo" | "customerName" | "phone" | "wechat" | "assetNo"
-  >;
-  placeholder: string;
-}> = [
-  { key: "customerNo", placeholder: "客户编号" },
-  { key: "customerName", placeholder: "姓名" },
-  { key: "phone", placeholder: "手机号" },
-  { key: "wechat", placeholder: "微信号" },
-  { key: "assetNo", placeholder: "资产编号" },
-];
-
 export function WorkCustomerListView({
   rows,
   loading,
@@ -112,35 +90,23 @@ export function WorkCustomerListView({
   modeCounts,
   scope,
   canDispatch,
-  filters,
-  stageFilter,
-  stageOptions,
   page,
   pageSize,
   total,
   emptyTitle,
   emptyDescription,
-  onFiltersChange,
-  onSearch,
-  onReset,
   onModeChange,
   onScopeChange,
-  onStageChange,
   onPageChange,
   onRefresh,
   onOpenDetail,
   onOpenTask,
 }: WorkCustomerListViewProps) {
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [reassignFlow, setReassignFlow] = useState<WorkFlowDetail | null>(null);
   const initialLoading = loading && rows.length === 0;
 
-  const submitSearch = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    onSearch();
-  };
-
   return (
-    <div className="grid gap-3">
+    <div className="crm-work-customer-list space-y-4">
       <WorkCustomerListStyles />
       <div className="flex flex-wrap items-center gap-3">
         <WorkCustomerModeTabs
@@ -154,7 +120,7 @@ export function WorkCustomerListView({
           ) : null}
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="icon"
             aria-label="刷新"
             title="刷新"
@@ -166,90 +132,8 @@ export function WorkCustomerListView({
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-md border border-border/70 bg-background">
-        <form
-          onSubmit={submitSearch}
-          className="border-b border-border/70 bg-muted/10 px-4 py-3"
-        >
-          <div className="crm-customer-list-search-grid grid gap-2.5">
-            <label className="min-w-0">
-              <span className="sr-only">综合搜索</span>
-              <Input
-                className="w-full"
-                value={filters.keyword}
-                onChange={(event) =>
-                  onFiltersChange({
-                    ...filters,
-                    keyword: event.currentTarget.value,
-                  })
-                }
-                placeholder="搜索姓名、手机、微信、客户或资产编号"
-              />
-            </label>
-            <label>
-              <span className="sr-only">当前阶段</span>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                value={stageFilter}
-                onChange={(event) => onStageChange(event.currentTarget.value)}
-              >
-                <option value="">全部阶段</option>
-                {stageOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.value}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button type="submit" size="sm" disabled={loading}>
-              <Search className="h-4 w-4" />
-              搜索
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-expanded={advancedOpen}
-              onClick={() => setAdvancedOpen((open) => !open)}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              更多筛选
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onReset}
-              disabled={loading}
-            >
-              <RefreshCw className="h-4 w-4" />
-              重置
-            </Button>
-          </div>
-
-          {advancedOpen ? (
-            <div className="crm-customer-list-advanced-grid mt-3 grid gap-2.5 border-t border-border/60 pt-3">
-              {exactFilterFields.map((field) => (
-                <label key={field.key}>
-                  <span className="sr-only">{field.placeholder}</span>
-                  <Input
-                    className="w-full"
-                    value={filters[field.key]}
-                    placeholder={field.placeholder}
-                    onChange={(event) =>
-                      onFiltersChange({
-                        ...filters,
-                        [field.key]: event.currentTarget.value,
-                      })
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-          ) : null}
-        </form>
-
-        <div className="p-3 md:hidden">
+      <section className="overflow-hidden bg-background">
+        <div className="md:hidden">
           <WorkCustomerMobileList
             rows={rows}
             loading={initialLoading}
@@ -257,32 +141,37 @@ export function WorkCustomerListView({
             emptyDescription={emptyDescription}
             onOpenDetail={onOpenDetail}
             onOpenTask={onOpenTask}
+            onOpenReassign={(row) => setReassignFlow(row.flow)}
           />
         </div>
 
         <div className="hidden overflow-x-auto md:block">
-          <table className="crm-customer-list-table w-full table-fixed border-collapse text-sm">
+          <table className="crm-customer-list-table w-full table-fixed border-collapse">
             <colgroup>
-              <col style={{ width: 288 }} />
-              <col style={{ width: 320 }} />
-              <col style={{ width: 240 }} />
-              <col style={{ width: 288 }} />
-              <col style={{ width: 160 }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "24%" }} />
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "18%" }} />
             </colgroup>
-            <thead className="bg-muted/20">
-              <tr className="border-b border-border/70">
+            <thead className="crm-customer-list-table-head text-left">
+              <tr>
                 <WorkCustomerTableHead>客户</WorkCustomerTableHead>
                 <WorkCustomerTableHead>房产/资产</WorkCustomerTableHead>
                 <WorkCustomerTableHead>流程阶段</WorkCustomerTableHead>
                 <WorkCustomerTableHead>当前待办</WorkCustomerTableHead>
-                <WorkCustomerTableHead className="text-center">
+                <WorkCustomerTableHead className="text-right">
                   操作
                 </WorkCustomerTableHead>
               </tr>
             </thead>
             <tbody>
               {initialLoading ? (
-                <WorkCustomerTableState title="正在加载" description="正在同步客户数据" />
+                <WorkCustomerTableState
+                  loading
+                  title="正在加载"
+                  description="正在同步客户数据"
+                />
               ) : rows.length === 0 ? (
                 <WorkCustomerTableState
                   title={emptyTitle}
@@ -295,6 +184,7 @@ export function WorkCustomerListView({
                     row={row}
                     onOpenDetail={onOpenDetail}
                     onOpenTask={onOpenTask}
+                    onOpenReassign={(row) => setReassignFlow(row.flow)}
                   />
                 ))
               )}
@@ -310,7 +200,16 @@ export function WorkCustomerListView({
           total={total}
           onPageChange={onPageChange}
         />
-      </div>
+      </section>
+      <WorkFlowOwnerDialog
+        flow={reassignFlow}
+        open={Boolean(reassignFlow)}
+        title="改派负责人"
+        confirmLabel="确认改派"
+        onOpenChange={(open) => {
+          if (!open) setReassignFlow(null);
+        }}
+      />
     </div>
   );
 }
@@ -318,20 +217,50 @@ export function WorkCustomerListView({
 function WorkCustomerListStyles() {
   return (
     <style>{`
-      .crm-customer-list-search-grid {
-        grid-template-columns: minmax(280px, 1fr) 180px auto auto auto;
-      }
-
-      .crm-customer-list-advanced-grid {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-      }
-
       .crm-customer-list-table {
-        min-width: 1296px;
+        min-width: 1120px;
       }
 
-      .crm-customer-list-row {
-        height: 84px;
+      .crm-work-customer-list {
+        color: var(--crm-body-text, #171a19);
+        font-size: 12.8px;
+        line-height: 1.45;
+      }
+
+      .crm-work-customer-list button,
+      .crm-work-customer-list input,
+      .crm-work-customer-list select,
+      .crm-work-customer-list textarea {
+        font-size: 12.8px;
+      }
+
+      .crm-customer-list-table-head {
+        background: var(--crm-body-bg, #f4f6f5);
+      }
+
+      .crm-customer-list-table-head {
+        color: var(--crm-body-muted, #6b7370);
+      }
+
+      .crm-customer-list-table-head tr,
+      .crm-customer-list-row,
+      .crm-customer-list-mobile-row {
+        border-bottom: 1px solid var(--crm-body-line, #e4e8e6);
+      }
+
+      .crm-customer-list-row,
+      .crm-customer-list-mobile-row {
+        transition: background-color 120ms ease;
+      }
+
+      .crm-customer-list-row:hover,
+      .crm-customer-list-mobile-row:hover {
+        background: var(--crm-body-bg, #f4f6f5);
+      }
+
+      .crm-customer-list-row:last-child,
+      .crm-customer-list-mobile-row:last-child {
+        border-bottom: 0;
       }
 
       .crm-customer-task-menu {
@@ -349,31 +278,14 @@ function WorkCustomerListStyles() {
         -webkit-line-clamp: 2;
       }
 
-      @media (max-width: 1180px) {
-        .crm-customer-list-search-grid {
-          grid-template-columns: minmax(240px, 1fr) 170px auto auto;
-        }
-
-        .crm-customer-list-advanced-grid {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-      }
-
       @media (max-width: 767px) {
-        .crm-customer-list-search-grid {
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        .crm-customer-task-menu-trigger {
+          height: 2.75rem;
+          width: 2.75rem;
         }
 
-        .crm-customer-list-search-grid > :first-child {
-          grid-column: 1 / -1;
-        }
-
-        .crm-customer-list-search-grid > :last-child {
-          grid-column: auto;
-        }
-
-        .crm-customer-list-advanced-grid {
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        .crm-customer-task-menu {
+          top: 3rem;
         }
       }
     `}</style>
@@ -390,14 +302,16 @@ function WorkCustomerModeTabs({
   onChange: (mode: WorkCustomerMode) => void;
 }) {
   return (
-    <div className="inline-flex rounded-md border border-border/60 bg-muted/25 p-1">
+    <div className="inline-flex items-center gap-1 rounded-md bg-muted/40 p-1">
       {modeOptions.map((option) => (
-        <button
+        <Button
           type="button"
           key={option.value}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+          variant="ghost"
+          aria-pressed={mode === option.value}
+          className={`h-auto rounded px-3 py-1.5 text-sm font-medium ${
             mode === option.value
-              ? "bg-background text-foreground shadow-sm ring-1 ring-border/50"
+              ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"
           }`}
           onClick={() => onChange(option.value)}
@@ -406,7 +320,7 @@ function WorkCustomerModeTabs({
           <span className="ml-1 text-xs text-muted-foreground">
             {counts[option.value] || 0}
           </span>
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -420,21 +334,23 @@ function WorkCustomerScopeToggle({
   onChange: (scope: WorkCustomerScope) => void;
 }) {
   return (
-    <div className="inline-flex rounded-md border border-border/60 bg-muted/25 p-1">
+    <div className="inline-flex items-center gap-1 rounded-md bg-muted/40 p-1">
       {scopeOptions.map((option) => (
-          <button
-            type="button"
-            key={option.value}
-            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              scope === option.value
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => onChange(option.value)}
-          >
-            {option.label}
-          </button>
-        ))}
+        <Button
+          type="button"
+          key={option.value}
+          variant="ghost"
+          aria-pressed={scope === option.value}
+          className={`h-auto rounded px-2.5 py-1 text-xs font-medium ${
+            scope === option.value
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </Button>
+      ))}
     </div>
   );
 }
@@ -447,7 +363,7 @@ function WorkCustomerTableHead({
   className?: string;
 }) {
   return (
-    <th className={`h-11 px-4 text-left text-xs font-medium text-muted-foreground ${className}`}>
+    <th className={`px-3 py-2.5 text-left font-medium ${className}`}>
       {children}
     </th>
   );
@@ -456,14 +372,20 @@ function WorkCustomerTableHead({
 function WorkCustomerTableState({
   title,
   description,
+  loading = false,
 }: {
   title: string;
   description: string;
+  loading?: boolean;
 }) {
   return (
     <tr>
-      <td colSpan={5} className="px-6 py-16">
-        <WorkCustomerEmpty title={title} description={description} />
+      <td colSpan={5} className="p-0">
+        <WorkListState
+          loading={loading}
+          title={title}
+          description={description}
+        />
       </td>
     </tr>
   );
@@ -473,6 +395,7 @@ function WorkCustomerTableRow({
   row,
   onOpenDetail,
   onOpenTask,
+  onOpenReassign,
 }: {
   row: WorkCustomerListRowView;
   onOpenDetail: (row: WorkCustomerListRowView) => void;
@@ -480,21 +403,20 @@ function WorkCustomerTableRow({
     row: WorkCustomerListRowView,
     task: WorkCustomerListTaskView,
   ) => void;
+  onOpenReassign: (row: WorkCustomerListRowView) => void;
 }) {
-  const actionableTasks = row.tasks.filter((task) => task.kind === "action");
-  const primaryTask = actionableTasks[0];
-  const ruleTask = row.tasks.find((task) => task.kind === "rule");
-  const extraTasks = actionableTasks.slice(1);
+  const { primaryTask, ruleTask, extraTasks } = workCustomerTaskGroups(row);
 
   return (
     <tr
-      className="crm-customer-list-row border-b border-border/60 bg-background transition-colors hover:bg-muted/20 last:border-b-0"
+      className="crm-customer-list-row align-top"
       onClick={() => onOpenDetail(row)}
     >
-      <td className="px-4 py-3 align-middle">
-        <button
+      <td className="px-3 py-3">
+        <Button
           type="button"
-          className="block w-full min-w-0 text-left"
+          variant="ghost"
+          className="h-auto w-full min-w-0 flex-col items-stretch gap-0 px-0 py-0 text-left hover:bg-transparent"
           onClick={(event) => {
             event.stopPropagation();
             onOpenDetail(row);
@@ -510,9 +432,9 @@ function WorkCustomerTableRow({
             {row.phone}
             {row.wechat !== "-" ? ` / ${row.wechat}` : ""}
           </span>
-        </button>
+        </Button>
       </td>
-      <td className="px-4 py-3 align-middle">
+      <td className="px-3 py-3">
         <div className="crm-customer-two-line font-medium text-foreground">
           {row.assetName}
         </div>
@@ -525,7 +447,7 @@ function WorkCustomerTableRow({
           </div>
         ) : null}
       </td>
-      <td className="px-4 py-3 align-middle">
+      <td className="px-3 py-3">
         <span className="inline-flex rounded bg-muted px-2 py-1 text-xs font-medium text-foreground">
           {row.stageName}
         </span>
@@ -544,35 +466,22 @@ function WorkCustomerTableRow({
           </div>
         )}
       </td>
-      <td className="px-4 py-3 align-middle">
+      <td className="px-3 py-3">
         <WorkCustomerTaskSummary
           primaryTask={primaryTask}
           ruleTask={ruleTask}
           total={row.tasks.length}
         />
       </td>
-      <td className="px-4 py-3 align-middle">
-        <div
-          className="flex items-center justify-center gap-1.5"
-          onClick={(event) => event.stopPropagation()}
-        >
-          {primaryTask ? (
-            <Button type="button" size="sm" onClick={() => onOpenTask(row, primaryTask)}>
-              <ClipboardList className="h-4 w-4" />
-              处理
-            </Button>
-          ) : (
-            <Button type="button" variant="outline" size="sm" onClick={() => onOpenDetail(row)}>
-              <Eye className="h-4 w-4" />
-              查看
-            </Button>
-          )}
-          <WorkCustomerTaskMenu
-            row={row}
-            tasks={extraTasks}
-            onOpenTask={onOpenTask}
-          />
-        </div>
+      <td className="px-3 py-3">
+        <WorkCustomerRowActions
+          row={row}
+          primaryTask={primaryTask}
+          extraTasks={extraTasks}
+          onOpenDetail={onOpenDetail}
+          onOpenTask={onOpenTask}
+          onOpenReassign={onOpenReassign}
+        />
       </td>
     </tr>
   );
@@ -604,7 +513,7 @@ function WorkCustomerTaskSummary({
       <div className="flex min-w-0 items-start gap-2 text-amber-800">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{ruleTask.label}</div>
+          <div className="truncate font-medium">{ruleTask.label}</div>
           <div className="mt-0.5 crm-customer-two-line text-xs opacity-80">
             {displayText(ruleTask.result, "等待核验条件")}
           </div>
@@ -612,7 +521,16 @@ function WorkCustomerTaskSummary({
       </div>
     );
   }
-  return <span className="text-sm text-muted-foreground">暂无待办</span>;
+  return <span className="text-muted-foreground">暂无待办</span>;
+}
+
+function workCustomerTaskGroups(row: WorkCustomerListRowView) {
+  const actionableTasks = row.tasks.filter((task) => task.kind === "action");
+  return {
+    primaryTask: actionableTasks[0],
+    extraTasks: actionableTasks.slice(1),
+    ruleTask: row.tasks.find((task) => task.kind === "rule"),
+  };
 }
 
 function WorkCustomerTaskMenu({
@@ -639,10 +557,11 @@ function WorkCustomerTaskMenu({
       </summary>
       <div className="crm-customer-task-menu absolute right-0 top-10 z-50 overflow-hidden rounded-md border border-border bg-background p-1 shadow-lg">
         {tasks.map((task) => (
-          <button
+          <Button
             type="button"
             key={task.key}
-            className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-muted"
+            variant="ghost"
+            className="h-auto w-full min-w-0 flex-col items-stretch gap-0 px-3 py-2 text-left text-sm font-normal"
             onClick={() => onOpenTask(row, task)}
           >
             <span className="block truncate font-medium">{task.label}</span>
@@ -651,10 +570,90 @@ function WorkCustomerTaskMenu({
                 {task.result}
               </span>
             ) : null}
-          </button>
+          </Button>
         ))}
       </div>
     </details>
+  );
+}
+
+function WorkCustomerRowActions({
+  row,
+  primaryTask,
+  extraTasks,
+  mobile = false,
+  onOpenDetail,
+  onOpenTask,
+  onOpenReassign,
+}: {
+  row: WorkCustomerListRowView;
+  primaryTask?: WorkCustomerListTaskView;
+  extraTasks: WorkCustomerListTaskView[];
+  mobile?: boolean;
+  onOpenDetail: (row: WorkCustomerListRowView) => void;
+  onOpenTask: (
+    row: WorkCustomerListRowView,
+    task: WorkCustomerListTaskView,
+  ) => void;
+  onOpenReassign: (row: WorkCustomerListRowView) => void;
+}) {
+  const canReassign = Boolean(row.flow?.can_change_owner);
+  const primaryClassName = mobile
+    ? "min-h-11 min-w-0 flex-1 px-3"
+    : "min-w-0 max-w-[9rem]";
+  const mobileDetailClassName = primaryTask
+    ? "min-h-11 shrink-0 px-3"
+    : canReassign
+      ? "min-h-11 min-w-0 flex-1 px-3"
+      : "min-h-11 w-full px-3";
+  const detailClassName = mobile ? mobileDetailClassName : "shrink-0";
+
+  return (
+    <div
+      className={`flex items-center justify-end gap-1.5 ${mobile ? "w-full" : "flex-wrap"}`}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {primaryTask ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={primaryClassName}
+          title={primaryTask.label}
+          onClick={() => onOpenTask(row, primaryTask)}
+        >
+          <ClipboardList className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 truncate">{primaryTask.label}</span>
+        </Button>
+      ) : null}
+      {canReassign ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={detailClassName}
+          onClick={() => onOpenReassign(row)}
+        >
+          <UserRound className="h-4 w-4" />
+          改派
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className={detailClassName}
+        onClick={() => onOpenDetail(row)}
+      >
+        <Eye className="h-4 w-4" />
+        详情
+      </Button>
+      <WorkCustomerTaskMenu
+        row={row}
+        tasks={extraTasks}
+        onOpenTask={onOpenTask}
+      />
+    </div>
   );
 }
 
@@ -665,6 +664,7 @@ function WorkCustomerMobileList({
   emptyDescription,
   onOpenDetail,
   onOpenTask,
+  onOpenReassign,
 }: {
   rows: WorkCustomerListRowView[];
   loading: boolean;
@@ -675,81 +675,81 @@ function WorkCustomerMobileList({
     row: WorkCustomerListRowView,
     task: WorkCustomerListTaskView,
   ) => void;
+  onOpenReassign: (row: WorkCustomerListRowView) => void;
 }) {
   if (loading) {
-    return <WorkCustomerEmpty title="正在加载" description="正在同步客户数据" />;
+    return (
+      <WorkListState
+        loading
+        title="正在加载"
+        description="正在同步客户数据"
+      />
+    );
   }
   if (rows.length === 0) {
-    return <WorkCustomerEmpty title={emptyTitle} description={emptyDescription} />;
+    return <WorkListState title={emptyTitle} description={emptyDescription} />;
   }
   return (
-    <div className="grid gap-3">
+    <div>
       {rows.map((row) => {
-        const actionableTasks = row.tasks.filter((task) => task.kind === "action");
-        const primaryTask = actionableTasks[0];
+        const { primaryTask, ruleTask, extraTasks } =
+          workCustomerTaskGroups(row);
         return (
-          <article key={row.id} className="rounded-md border border-border/70 bg-background p-4">
-            <button type="button" className="block w-full text-left" onClick={() => onOpenDetail(row)}>
+          <article
+            key={row.id}
+            className="crm-customer-list-mobile-row space-y-3 px-3 py-4"
+          >
+            <button
+              type="button"
+              className="block w-full min-w-0 text-left"
+              onClick={() => onOpenDetail(row)}
+            >
               <div className="flex min-w-0 items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate font-semibold">{row.customerName}</div>
-                  <div className="mt-1 truncate text-xs text-muted-foreground">
-                    {row.customerNo} / {row.phone}
+                  <div className="break-words font-medium">{row.customerName}</div>
+                  <div className="mt-1 break-words text-xs text-muted-foreground">
+                    {row.customerNo}
                   </div>
                 </div>
-                <span className="shrink-0 rounded bg-muted px-2 py-1 text-xs font-medium">
+                <span className="shrink-0 rounded bg-muted px-2 py-1 text-xs font-medium text-foreground">
                   {row.stageName}
                 </span>
               </div>
-              <div className="mt-3 border-t border-border/60 pt-3">
-                <div className="truncate text-sm font-medium">{row.assetName}</div>
-                <div className="mt-1 truncate text-xs text-muted-foreground">
-                  {row.assetNo}
-                </div>
+              <div className="mt-3 text-foreground">
+                {row.phone}
+                {row.wechat !== "-" ? ` / ${row.wechat}` : ""}
               </div>
-              <div className="mt-3 text-sm text-muted-foreground">
-                {primaryTask ? primaryTask.label : "暂无待办"}
+              <div className="mt-2 text-muted-foreground">
+                <span className="break-words text-foreground">{row.assetName}</span>
+                <span className="mx-1.5">·</span>
+                {row.assetNo}
+              </div>
+              {row.hasStage ? (
+                <div className="mt-2 text-muted-foreground">
+                  {row.ownerName !== "-" ? row.ownerName : "暂未分配负责人"}
+                  <span className="mx-1.5">·</span>
+                  {row.stageDays > 0 ? `停留 ${row.stageDays} 天` : "今日进入"}
+                </div>
+              ) : null}
+              <div className="mt-2">
+                <span className="mr-2 text-xs text-muted-foreground">当前待办</span>
+                <span className="text-foreground">
+                  {primaryTask?.label || ruleTask?.label || "暂无待办"}
+                </span>
               </div>
             </button>
-            <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
-              {primaryTask ? (
-                <Button type="button" size="sm" className="flex-1" onClick={() => onOpenTask(row, primaryTask)}>
-                  <ClipboardList className="h-4 w-4" />
-                  处理
-                </Button>
-              ) : (
-                <Button type="button" variant="outline" size="sm" className="flex-1" onClick={() => onOpenDetail(row)}>
-                  <Eye className="h-4 w-4" />
-                  查看
-                </Button>
-              )}
-              <WorkCustomerTaskMenu
-                row={row}
-                tasks={actionableTasks.slice(1)}
-                onOpenTask={onOpenTask}
-              />
-            </div>
+            <WorkCustomerRowActions
+              row={row}
+              primaryTask={primaryTask}
+              extraTasks={extraTasks}
+              mobile
+              onOpenDetail={onOpenDetail}
+              onOpenTask={onOpenTask}
+              onOpenReassign={onOpenReassign}
+            />
           </article>
         );
       })}
-    </div>
-  );
-}
-
-function WorkCustomerEmpty({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex min-h-40 flex-col items-center justify-center px-5 py-10 text-center">
-      <Inbox className="h-5 w-5 text-muted-foreground" />
-      <div className="mt-2 text-sm font-medium text-foreground">{title}</div>
-      <div className="mt-1 text-xs leading-5 text-muted-foreground">
-        {description}
-      </div>
     </div>
   );
 }

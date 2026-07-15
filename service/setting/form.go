@@ -20,6 +20,16 @@ const (
 )
 
 var collectMainFields = map[uint64][]collectFieldOption{
+	crmmodel.LeadDataTemplateCateID: {
+		{Key: "name", Name: "姓名"},
+		{Key: "phone", Name: "手机号"},
+		{Key: "wechat", Name: "微信号"},
+		{Key: "source_id", Name: "来源"},
+		{Key: "channel_id", Name: "渠道"},
+		{Key: "external_id", Name: "外部线索ID"},
+		{Key: "city", Name: "城市"},
+		{Key: "initial_need", Name: "初始诉求"},
+	},
 	crmmodel.CustomerDataTemplateCateID: {
 		{Key: "name", Name: "姓名"},
 		{Key: "phone", Name: "手机号"},

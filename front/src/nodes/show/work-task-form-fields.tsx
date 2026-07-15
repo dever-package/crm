@@ -2,9 +2,19 @@ import { useCallback, useState, useSyncExternalStore } from "react";
 import type { ReactElement } from "react";
 import { Check, Search } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+
 import {
   displayText,
-  inputClassName,
   setWorkStoreValue,
   textValue,
   workStoreValue,
@@ -150,7 +160,7 @@ function renderTaskInput({
   error,
 }: TaskFieldRendererProps) {
   return (
-    <input
+    <Input
       type={field.inputType || "text"}
       step={field.inputType === "number" ? "any" : undefined}
       className={workTaskControlClassName(error)}
@@ -170,8 +180,8 @@ function renderTaskTextarea({
   error,
 }: TaskFieldRendererProps) {
   return (
-    <textarea
-      className={`${workTaskControlClassName(error)} min-h-24 resize-y py-2`}
+    <Textarea
+      className={`${workTaskControlClassName(error)} min-h-24 resize-y`}
       rows={Number(field.meta?.["rows"] || 4)}
       placeholder={field.placeholder}
       value={workTaskTextValue(value)}
@@ -195,20 +205,25 @@ function renderTaskSingleSelect({
   error,
 }: TaskFieldRendererProps) {
   return (
-    <select
-      className={workTaskControlClassName(error)}
+    <Select
       value={textValue(value)}
       disabled={field.readonly}
-      aria-invalid={Boolean(error)}
-      onChange={(event) => setValue(event.currentTarget.value)}
+      onValueChange={setValue}
     >
-      <option value="">{field.placeholder}</option>
-      {(field.options || []).map((option) => (
-        <option key={option.id} value={option.id}>
-          {displayText(option.value || option.id)}
-        </option>
-      ))}
-    </select>
+      <SelectTrigger
+        className={workTaskControlClassName(error)}
+        aria-invalid={Boolean(error)}
+      >
+        <SelectValue placeholder={field.placeholder || "请选择"} />
+      </SelectTrigger>
+      <SelectContent position="popper">
+        {(field.options || []).map((option) => (
+          <SelectItem key={option.id} value={option.id}>
+            {displayText(option.value || option.id)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -251,42 +266,42 @@ function TaskMultiSelect({
       aria-invalid={Boolean(error)}
     >
       {field.meta?.["searchable"] ? (
-        <label className="relative mb-2 block">
+        <div className="relative mb-2">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
+          <Input
             type="search"
-            className={`${inputClassName} h-9 pl-8`}
+            className="h-9 pl-8"
             placeholder={field.placeholder}
             value={keyword}
             disabled={field.readonly}
             onChange={(event) => setKeyword(event.currentTarget.value)}
           />
-        </label>
+        </div>
       ) : null}
       <div className="crm-work-task-multi-options gap-2">
         {options.map((option) => {
           const checked = selected.has(option.id);
+          const optionLabel = displayText(option.value || option.id);
           return (
-            <label
+            <Button
               key={option.id}
-              className={`flex min-w-0 items-center gap-2 rounded px-2 py-2 text-sm ${
+              type="button"
+              variant="ghost"
+              aria-pressed={checked}
+              title={optionLabel}
+              disabled={field.readonly}
+              className={`h-auto w-full min-w-0 justify-start gap-2 px-2 py-2 text-sm font-normal ${
                 field.readonly
                   ? "cursor-not-allowed"
                   : "cursor-pointer hover:bg-muted/60"
               }`}
+              onClick={() => {
+                const next = new Set(selected);
+                if (checked) next.delete(option.id);
+                else next.add(option.id);
+                setValue(Array.from(next));
+              }}
             >
-              <input
-                type="checkbox"
-                className="sr-only"
-                checked={checked}
-                disabled={field.readonly}
-                onChange={() => {
-                  const next = new Set(selected);
-                  if (checked) next.delete(option.id);
-                  else next.add(option.id);
-                  setValue(Array.from(next));
-                }}
-              />
               <span
                 className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
                   checked
@@ -296,10 +311,10 @@ function TaskMultiSelect({
               >
                 {checked ? <Check className="h-3 w-3" /> : null}
               </span>
-              <span className="min-w-0 break-words">
-                {displayText(option.value || option.id)}
+              <span className="min-w-0 flex-1 truncate text-left">
+                {optionLabel}
               </span>
-            </label>
+            </Button>
           );
         })}
       </div>
@@ -332,10 +347,12 @@ function renderTaskBoolean({
       ].map((option) => {
         const active = selected === option.value;
         return (
-          <button
+          <Button
             key={option.label}
             type="button"
-            className={`min-w-16 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+            variant="ghost"
+            aria-pressed={active}
+            className={`h-auto min-w-16 px-3 py-1.5 text-sm font-medium ${
               active
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -344,7 +361,7 @@ function renderTaskBoolean({
             onClick={() => setValue(option.value)}
           >
             {option.label}
-          </button>
+          </Button>
         );
       })}
     </div>
@@ -374,8 +391,10 @@ function renderTaskUpload({
 }
 
 function workTaskControlClassName(error?: string): string {
-  return `${inputClassName} ${
-    error ? "border-destructive focus:border-destructive" : ""
+  return `w-full ${
+    error
+      ? "border-destructive focus-visible:ring-destructive/20"
+      : ""
   }`;
 }
 

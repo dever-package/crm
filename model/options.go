@@ -38,6 +38,11 @@ const (
 )
 
 const (
+	WorkflowSubjectLead          = "lead"
+	WorkflowSubjectCustomerAsset = "customer_asset"
+)
+
+const (
 	LeadStatusPending   = "pending"
 	LeadStatusInvalid   = "invalid"
 	LeadStatusDuplicate = "duplicate"
@@ -81,7 +86,6 @@ const (
 	DataUsageTypeStat    = "stat"
 	DataUsageTypeFinance = "finance"
 	DataUsageTypeDisplay = "display"
-	DataUsageTypeReport  = "report"
 )
 
 const (
@@ -113,10 +117,6 @@ const (
 const (
 	FinanceDirectionIncome  = "income"
 	FinanceDirectionExpense = "expense"
-)
-
-const (
-	ProductOptionSetName = "S产品"
 )
 
 const (
@@ -183,7 +183,6 @@ var dataUsageTypeOptions = []map[string]any{
 	{"id": DataUsageTypeStat, "value": "统计"},
 	{"id": DataUsageTypeFinance, "value": "财务"},
 	{"id": DataUsageTypeDisplay, "value": "展示"},
-	{"id": DataUsageTypeReport, "value": "报表"},
 }
 
 var dataUsageValueTypeOptions = []map[string]any{
@@ -243,6 +242,11 @@ var progressStatusOptions = []map[string]any{
 	{"id": ProgressStatusTerminated, "value": "已终止"},
 }
 
+var workflowSubjectTypeOptions = []map[string]any{
+	{"id": WorkflowSubjectLead, "value": "线索"},
+	{"id": WorkflowSubjectCustomerAsset, "value": "客户资产"},
+}
+
 var workTodoStatusOptions = []map[string]any{
 	{"id": WorkTodoStatusPending, "value": "待处理"},
 	{"id": WorkTodoStatusDone, "value": "已完成"},
@@ -287,6 +291,12 @@ var customerRelation = orm.Relation{
 	OptionKeys: []string{"name", "phone"},
 }
 
+var leadRelation = orm.Relation{
+	Field:      "lead_id",
+	Option:     "crm.NewLeadModel",
+	OptionKeys: []string{"code", "name", "phone", "status"},
+}
+
 var assetRelation = orm.Relation{
 	Field:      "asset_id",
 	Option:     "crm.NewCustomerAssetModel",
@@ -308,7 +318,7 @@ var customerProductRelation = orm.Relation{
 var workflowInstanceRelation = orm.Relation{
 	Field:      "workflow_instance_id",
 	Option:     "crm.NewWorkflowInstanceModel",
-	OptionKeys: []string{"customer_id", "asset_id", "customer_product_id", "workflow_id", "stage_id", "status"},
+	OptionKeys: []string{"lead_id", "customer_id", "asset_id", "customer_product_id", "workflow_id", "stage_id", "status"},
 }
 
 var sourceWorkflowInstanceRelation = orm.Relation{
@@ -320,13 +330,13 @@ var sourceWorkflowInstanceRelation = orm.Relation{
 var workflowRelation = orm.Relation{
 	Field:      "workflow_id",
 	Option:     "crm.NewWorkflowModel",
-	OptionKeys: []string{"name"},
+	OptionKeys: []string{"name", "subject_type"},
 }
 
 var serviceWorkflowRelation = orm.Relation{
 	Field:      "service_workflow_id",
 	Option:     "crm.NewWorkflowModel",
-	OptionKeys: []string{"name"},
+	OptionKeys: []string{"name", "subject_type"},
 }
 
 var productCategoryRelation = orm.Relation{

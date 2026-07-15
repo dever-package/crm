@@ -107,7 +107,8 @@
           "pageSize": 200,
           "filters": {
             "status": 1,
-            "default_entry": false
+            "default_entry": false,
+            "subject_type": "customer_asset"
           }
         },
         "meta": {
@@ -144,9 +145,6 @@
       "params": "form",
       "before": {
         "service": "crm.setting.CrmHook.BeforeSaveProduct"
-      },
-      "after": {
-        "service": "crm.setting.CrmHook.AfterSaveProduct"
       }
     }
   }

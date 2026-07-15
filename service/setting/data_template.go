@@ -193,6 +193,15 @@ func defaultCrmInt16(record map[string]any, field string, fallback int16, partia
 	}
 }
 
+func defaultCrmString(record map[string]any, field string, fallback string, partial bool) {
+	if !shouldDefaultCrmField(record, field, partial) {
+		return
+	}
+	if util.ToStringTrimmed(record[field]) == "" {
+		record[field] = fallback
+	}
+}
+
 func defaultCrmInt(record map[string]any, field string, fallback int, partial bool) {
 	if !shouldDefaultCrmField(record, field, partial) {
 		return

@@ -1,7 +1,7 @@
 {
   "page": {
     "name": "数据字段编辑",
-    "parent": "crm/data_field/list",
+    "parent": "crm/data_template/list",
     "type": 2,
     "auth": [
       {

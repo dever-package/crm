@@ -252,7 +252,7 @@ func currentWorkEntryInstance(ctx context.Context, customerID uint64, assetID ui
 	if customerID == 0 {
 		return nil
 	}
-	workflow, _ := defaultEntryWorkflowStage(ctx)
+	workflow, _ := defaultEntryWorkflowStage(ctx, crmmodel.WorkflowSubjectCustomerAsset)
 	if workflow == nil {
 		return nil
 	}
@@ -319,6 +319,17 @@ type workDataOwnership struct {
 	CustomerProductID  uint64
 }
 
+func workDataRecordOwnershipFilter(ownership workDataOwnership, templateID uint64) map[string]any {
+	return map[string]any{
+		"customer_id":          ownership.CustomerID,
+		"asset_id":             ownership.AssetID,
+		"workflow_instance_id": ownership.WorkflowInstanceID,
+		"customer_product_id":  ownership.CustomerProductID,
+		"data_template_id":     templateID,
+		"status":               crmmodel.StatusEnabled,
+	}
+}
+
 func saveWorkDataRecord(ctx context.Context, ownership workDataOwnership, templateID uint64, taskID uint64, operationID uint64, record map[string]any) {
 	now := time.Now()
 	data := map[string]any{
@@ -336,14 +347,7 @@ func saveWorkDataRecord(ctx context.Context, ownership workDataOwnership, templa
 		"updated_at":           now,
 	}
 	model := crmmodel.NewDataRecordModel()
-	existing := model.Find(ctx, map[string]any{
-		"customer_id":          ownership.CustomerID,
-		"asset_id":             ownership.AssetID,
-		"workflow_instance_id": ownership.WorkflowInstanceID,
-		"customer_product_id":  ownership.CustomerProductID,
-		"data_template_id":     templateID,
-		"status":               crmmodel.StatusEnabled,
-	})
+	existing := model.Find(ctx, workDataRecordOwnershipFilter(ownership, templateID))
 	if existing != nil {
 		merged := mapFromAny(existing.RecordJSON)
 		for key, value := range record {

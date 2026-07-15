@@ -47,8 +47,8 @@ func (CrmHook) ProviderBeforeSaveProduct(c *server.Context, params []any) any {
 			"id":     serviceWorkflowID,
 			"status": crmmodel.StatusEnabled,
 		})
-		if workflow == nil || workflow.DefaultEntry {
-			panicCrmField("form.service_workflow_id", "签约后流程必须选择已启用的非入口流程。")
+		if workflow == nil || workflow.DefaultEntry || workflow.SubjectType != crmmodel.WorkflowSubjectCustomerAsset {
+			panicCrmField("form.service_workflow_id", "签约后流程必须选择已启用的非入口客户资产流程。")
 		}
 		firstStage := firstEnabledServiceWorkflowStage(ctx, serviceWorkflowID)
 		if firstStage == nil || firstStage.AssignmentMode == crmmodel.StageAssignmentManual {
@@ -114,41 +114,4 @@ func (CrmHook) ProviderBeforeDeleteProductCategory(c *server.Context, params []a
 		panicCrmField("form.id", "产品分类正在使用中，不能删除；可以先停用。")
 	}
 	return id
-}
-
-func (CrmHook) ProviderAfterSaveProduct(c *server.Context, _ []any) any {
-	syncProductOptionSet(contextFromServer(c))
-	return nil
-}
-
-func syncProductOptionSet(ctx context.Context) {
-	optionSetModel := crmmodel.NewOptionSetModel()
-	optionSet := optionSetModel.Find(ctx, map[string]any{"name": crmmodel.ProductOptionSetName})
-	optionSetID := uint64(0)
-	if optionSet != nil {
-		optionSetID = optionSet.ID
-	} else {
-		optionSetID = uint64(optionSetModel.Insert(ctx, map[string]any{
-			"name":   crmmodel.ProductOptionSetName,
-			"status": crmmodel.StatusEnabled,
-			"sort":   130,
-		}))
-	}
-	if optionSetID == 0 {
-		return
-	}
-	itemModel := crmmodel.NewOptionSetItemModel()
-	itemModel.Delete(ctx, map[string]any{"option_set_id": optionSetID})
-	for _, product := range crmmodel.NewProductModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled}) {
-		if product == nil {
-			continue
-		}
-		itemModel.Insert(ctx, map[string]any{
-			"option_set_id": optionSetID,
-			"name":          product.Name,
-			"value":         product.Code,
-			"sort":          product.Sort,
-			"status":        crmmodel.StatusEnabled,
-		})
-	}
 }

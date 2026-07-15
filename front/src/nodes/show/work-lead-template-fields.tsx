@@ -1,8 +1,17 @@
 import { Check } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
-import { displayText, inputClassName, textValue } from "./work-core";
+import { displayText, textValue } from "./work-core";
 
 export type WorkLeadTemplateOption = {
   id?: string | number;
@@ -56,7 +65,9 @@ export function WorkLeadTemplateFields({
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
 }) {
-  const fields = templates.flatMap((template) => template.fields || []);
+  const fields = templates
+    .filter((template) => workLeadInputTemplateVisible(template, values))
+    .flatMap((template) => template.fields || []);
   if (fields.length === 0) return null;
   const setFieldValue = (field: WorkLeadTemplateField, value: unknown) => {
     const key = workLeadTemplateFieldKey(field);
@@ -77,6 +88,23 @@ export function WorkLeadTemplateFields({
   );
 }
 
+function workLeadInputTemplateVisible(
+  template: WorkLeadTemplate,
+  values: Record<string, unknown>,
+): boolean {
+  const fields = template.fields || [];
+  const douyinOnly =
+    fields.length > 0 &&
+    fields.every((field) => textValue(field.field_key).startsWith("douyin_"));
+  if (!douyinOnly) return true;
+
+  return fields.some((field) => {
+    const value = values[workLeadTemplateFieldKey(field)];
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== undefined && value !== null && value !== "";
+  });
+}
+
 function WorkLeadTemplateFieldControl({
   field,
   value,
@@ -94,7 +122,7 @@ function WorkLeadTemplateFieldControl({
     fieldType === "checkbox" ||
     fieldType === "multi_select";
   return (
-    <label className={fullWidth ? "sm:col-span-2" : ""}>
+    <div className={fullWidth ? "sm:col-span-2" : ""}>
       <span className="mb-1.5 block text-sm font-medium">{label}</span>
       {field.group_name ? (
         <span className="mb-1 block text-xs text-muted-foreground">
@@ -102,39 +130,38 @@ function WorkLeadTemplateFieldControl({
         </span>
       ) : null}
       {fieldType === "textarea" ? (
-        <textarea
-          className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+        <Textarea
+          className="min-h-24 resize-y"
           value={workLeadTextValue(value)}
           onChange={(event) => onChange(event.currentTarget.value)}
         />
       ) : fieldType === "select" || fieldType === "radio" ? (
-        <select
-          className={inputClassName}
-          value={textValue(value)}
-          onChange={(event) => onChange(event.currentTarget.value)}
-        >
-          <option value="">请选择{label}</option>
-          {options.map((option) => (
-            <option
-              key={workLeadOptionValue(option)}
-              value={workLeadOptionValue(option)}
-            >
-              {displayText(option.name || option.value)}
-            </option>
-          ))}
-        </select>
+        <Select value={textValue(value)} onValueChange={onChange}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={`请选择${label}`} />
+          </SelectTrigger>
+          <SelectContent position="popper">
+            {options
+              .filter((option) => workLeadOptionValue(option))
+              .map((option) => (
+                <SelectItem
+                  key={workLeadOptionValue(option)}
+                  value={workLeadOptionValue(option)}
+                >
+                  {displayText(option.name || option.value)}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
       ) : fieldType === "checkbox" || fieldType === "multi_select" ? (
         <WorkLeadMultiOptions options={options} value={value} onChange={onChange} />
       ) : fieldType === "boolean" ? (
-        <button
+        <Button
           type="button"
+          variant={value ? "default" : "outline"}
           role="switch"
           aria-checked={Boolean(value)}
-          className={`inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm ${
-            value
-              ? "border-foreground bg-foreground text-background"
-              : "border-input bg-background"
-          }`}
+          className="h-9"
           onClick={() => onChange(!Boolean(value))}
         >
           <span
@@ -145,7 +172,7 @@ function WorkLeadTemplateFieldControl({
             {value ? <Check className="h-3 w-3" /> : null}
           </span>
           {value ? "是" : "否"}
-        </button>
+        </Button>
       ) : (
         <Input
           type={workLeadInputType(fieldType)}
@@ -154,7 +181,7 @@ function WorkLeadTemplateFieldControl({
           onChange={(event) => onChange(event.currentTarget.value)}
         />
       )}
-    </label>
+    </div>
   );
 }
 
@@ -174,10 +201,12 @@ function WorkLeadMultiOptions({
         const optionValue = workLeadOptionValue(option);
         const checked = selected.has(optionValue);
         return (
-          <button
+          <Button
             key={optionValue}
             type="button"
-            className="flex min-w-0 items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-muted/60"
+            variant="ghost"
+            aria-pressed={checked}
+            className="h-auto w-full min-w-0 justify-start gap-2 px-2 py-2 text-left text-sm font-normal"
             onClick={() => {
               const next = new Set(selected);
               if (checked) next.delete(optionValue);
@@ -197,14 +226,16 @@ function WorkLeadMultiOptions({
             <span className="truncate">
               {displayText(option.name || option.value)}
             </span>
-          </button>
+          </Button>
         );
       })}
     </div>
   );
 }
 
-function workLeadTemplateFieldKey(field: WorkLeadTemplateField): string {
+export function workLeadTemplateFieldKey(
+  field: WorkLeadTemplateField,
+): string {
   const id = textValue(field.id);
   return id ? `data:${id}` : "";
 }

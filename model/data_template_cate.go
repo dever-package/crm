@@ -9,7 +9,6 @@ import (
 const (
 	CustomerDataTemplateCateID      uint64 = 1
 	CustomerAssetDataTemplateCateID uint64 = 2
-	BusinessDataTemplateCateID      uint64 = 3
 	LeadDataTemplateCateID          uint64 = 4
 	DefaultDataTemplateCateID              = CustomerDataTemplateCateID
 )
@@ -17,7 +16,6 @@ const (
 const (
 	DataTemplateTargetCustomer      = "customer"
 	DataTemplateTargetCustomerAsset = "customer_asset"
-	DataTemplateTargetWorkflow      = "workflow"
 	DataTemplateTargetLead          = "lead"
 )
 
@@ -37,7 +35,6 @@ var dataTemplateCateSeed = []map[string]any{
 	{"id": LeadDataTemplateCateID, "name": "线索信息", "status": StatusEnabled, "sort": 5},
 	{"id": CustomerDataTemplateCateID, "name": "客户信息", "status": StatusEnabled, "sort": 10},
 	{"id": CustomerAssetDataTemplateCateID, "name": "客户资产", "status": StatusEnabled, "sort": 20},
-	{"id": BusinessDataTemplateCateID, "name": "业务数据", "status": StatusEnabled, "sort": 30},
 }
 
 func DataTemplateRecordTarget(cateID uint64) string {
@@ -46,8 +43,6 @@ func DataTemplateRecordTarget(cateID uint64) string {
 		return DataTemplateTargetLead
 	case CustomerAssetDataTemplateCateID:
 		return DataTemplateTargetCustomerAsset
-	case BusinessDataTemplateCateID:
-		return DataTemplateTargetWorkflow
 	default:
 		return DataTemplateTargetCustomer
 	}

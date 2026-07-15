@@ -120,6 +120,8 @@ export type WorkTask = {
   assigned_at?: string;
   due_at?: string;
   result?: string;
+  context_result?: string;
+  context_result_label?: string;
   can_operate?: boolean;
   can_assign?: boolean;
   can_reassign?: boolean;
@@ -132,6 +134,7 @@ export type WorkTask = {
   workflow_name?: string;
   stage_id?: string | number;
   stage_name?: string;
+  lead_id?: string | number;
   customer_id?: string | number;
   asset_id?: string | number;
   assignee_department_id?: string | number;
@@ -185,6 +188,7 @@ export type WorkCustomer = {
   assets?: WorkAsset[];
   operations?: WorkOperation[];
   data_values?: Record<string, unknown>;
+  data_file_values?: Record<string, unknown>;
   data_value_labels?: Record<string, string>;
   display_fields?: WorkDisplayField[];
   data_completeness?: WorkDataCompletenessTemplate[];
@@ -212,6 +216,8 @@ export type WorkAsset = {
   id?: string | number;
   asset_id?: string | number;
   customer_id?: string | number;
+  workflow_id?: string | number;
+  workflow_instance_id?: string | number;
   asset_no?: string;
   asset_code?: string;
   code?: string;
@@ -233,10 +239,12 @@ export type WorkAsset = {
   row_tasks?: WorkTask[];
   operations?: WorkOperation[];
   data_values?: Record<string, unknown>;
+  data_file_values?: Record<string, unknown>;
   data_value_labels?: Record<string, string>;
   display_fields?: WorkDisplayField[];
   data_completeness?: WorkDataCompletenessTemplate[];
   customer_products?: WorkCustomerProduct[];
+  flow?: WorkFlowDetail;
   [key: string]: unknown;
 };
 
@@ -281,6 +289,7 @@ export type WorkOperation = {
   customer_product_id?: string | number;
   stage_id?: string | number;
   task_type?: string;
+  business_event?: string;
   result_value?: string;
   stage_code?: string;
   stage_name?: string;
@@ -344,9 +353,17 @@ export type WorkFlowAssignee = {
   last_assigned_at?: string;
 };
 
+export type WorkFlowAssigneeResponse = {
+  list?: WorkFlowAssignee[];
+  department_name?: string;
+  assignment_mode?: string;
+  terminal?: boolean;
+};
+
 export type WorkFlowDetail = {
   id?: string | number;
   workflow_instance_id?: string | number;
+  lead_id?: string | number;
   customer_id?: string | number;
   asset_id?: string | number;
   customer_product_id?: string | number;
@@ -374,8 +391,11 @@ export type WorkFlowDetail = {
   ready_to_complete?: boolean;
   can_terminate?: boolean;
   can_change_owner?: boolean;
+  can_restart?: boolean;
   tasks?: WorkTask[];
   next_terminal?: boolean;
+  next_workflow_id?: string | number;
+  next_workflow_name?: string;
   next_stage_id?: string | number;
   next_stage_name?: string;
   next_department_id?: string | number;
@@ -388,6 +408,8 @@ export type WorkOperationSummaryItem = {
   key?: string;
   label?: string;
   value?: unknown;
+  previous_value?: unknown;
+  change_type?: "added" | "updated" | "cleared" | string;
   value_type?: string;
   files?: UploadFileItem[];
   group_id?: string | number;
@@ -440,23 +462,6 @@ export type WorkItem = {
 export type WorkCustomerMode = "all" | "pending" | "done";
 export type WorkCustomerScope = "mine" | "all";
 
-export type WorkSearchFilters = {
-  keyword: string;
-  customerNo: string;
-  customerName: string;
-  phone: string;
-  wechat: string;
-  assetNo: string;
-  status: string;
-};
-
-export type WorkStageOption = {
-  id: string;
-  value: string;
-  code?: string;
-  workflowName?: string;
-};
-
 export type WorkDetailField = {
   key: string;
   label: string;
@@ -503,12 +508,6 @@ export type WorkTaskFormGroup = {
   fields: WorkTaskFormField[];
 };
 
-export type WorkTaskFormSection = {
-  id: string;
-  label: string;
-  fields: WorkTaskFormField[];
-};
-
 export type WorkCommonOption = {
   id: string;
   value: string;
@@ -518,6 +517,7 @@ export type WorkCommonOption = {
 export type WorkTaskFormNode = {
   id: string;
   type: string;
+  className?: string;
   name?: string;
   placeholder?: string;
   value?: string;
@@ -576,6 +576,7 @@ export type WorkPageStoreState = {
 };
 
 export const workRefreshEvent = "crm-work-refresh";
+export const workListSearchEvent = "crm-work-list-search";
 export const workTaskFormSectionID = "work-task-form-section";
 export const workTaskFormDataPath = "data.workTaskForm";
 export const workTaskFieldMapPath = "data.actionTarget.workTaskFieldMap";
@@ -583,8 +584,11 @@ export const workTaskFormFieldsPath = "data.actionTarget.workTaskFormFields";
 export const workTaskValidationErrorsPath =
   "data.actionTarget.workTaskValidationErrors";
 export const workTaskLayoutPath = "data.actionTarget.workTaskLayout";
-export const workTaskActiveGroupPath =
-  "data.actionTarget.workTaskActiveGroup";
+export const workTaskActiveGroupPath = "data.actionTarget.workTaskActiveGroup";
+export const workTaskUploadPendingPath =
+  "data.actionTarget.workTaskUploadPending";
+export const workTaskUploadFilesPath =
+  "data.actionTarget.workTaskUploadFiles";
 let workApiFreshSeq = 0;
 
 const buttonBase =
@@ -594,52 +598,19 @@ export const outlineButton = `${buttonBase} border border-border bg-background h
 export const inputClassName =
   "h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20";
 
-export const workSearchFields: Array<{
-  key: keyof WorkSearchFilters;
-  placeholder: string;
-  className: string;
-}> = [
-  {
-    key: "customerNo",
-    placeholder: "客户编号",
-    className: "h-10 w-[160px] max-w-full",
-  },
-  {
-    key: "customerName",
-    placeholder: "姓名",
-    className: "h-10 w-[140px] max-w-full",
-  },
-  {
-    key: "phone",
-    placeholder: "手机号",
-    className: "h-10 w-[150px] max-w-full",
-  },
-  {
-    key: "wechat",
-    placeholder: "微信号",
-    className: "h-10 w-[150px] max-w-full",
-  },
-  {
-    key: "assetNo",
-    placeholder: "资产编号",
-    className: "h-10 w-[170px] max-w-full",
-  },
-  {
-    key: "status",
-    placeholder: "状态",
-    className: "h-10 w-[140px] max-w-full",
-  },
-];
-
-export function emptyWorkSearchFilters(): WorkSearchFilters {
+export function readWorkListSearch(event: Event): {
+  keyword: string;
+  workflowID: string;
+  mode: string;
+  scope: string;
+} {
+  const detail =
+    (event as CustomEvent<Record<string, unknown>>).detail || {};
   return {
-    keyword: "",
-    customerNo: "",
-    customerName: "",
-    phone: "",
-    wechat: "",
-    assetNo: "",
-    status: "",
+    keyword: textValue(detail.keyword),
+    workflowID: textValue(detail.workflow_id),
+    mode: textValue(detail.mode),
+    scope: textValue(detail.scope),
   };
 }
 
@@ -697,9 +668,7 @@ export function workTaskFormKey(key: string): string {
   return normalized || "field";
 }
 
-export function workIsRecord(
-  value: unknown,
-): value is Record<string, unknown> {
+export function workIsRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 

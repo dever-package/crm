@@ -9,7 +9,13 @@
     "type": "container",
     "children": {
       "page-header": {
-        "type": "header"
+        "type": "header",
+        "children": {
+          "header-actions": {
+            "type": "row",
+            "className": "ms-auto shrink-0 flex-nowrap items-center gap-2"
+          }
+        }
       },
       "page-main": {
         "type": "main",
@@ -32,6 +38,25 @@
       {
         "type": "show-title",
         "value": "page"
+      }
+    ],
+    "header-actions": [
+      {
+        "type": "show-button",
+        "name": "抖音同步",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "refresh-cw"
+        },
+        "className": "shrink-0",
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.douyinSync",
+            "value": true
+          }
+        }
       }
     ],
     "toolbar-row": [
@@ -167,6 +192,24 @@
       {
         "type": "show-page"
       }
+    ],
+    "page-main": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.douyinSync",
+          "pageRoute": "/crm/douyin_sync/set",
+          "title": "抖音线索同步",
+          "description": "配置抖音来客增量同步；渠道扩展字段保存在“线索信息 / 抖音来客信息”数据模板中。",
+          "assistant": false,
+          "size": "sm",
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "bodyClassName": "px-6 py-2"
+        }
+      }
     ]
   },
   "data": {
@@ -195,6 +238,10 @@
       ]
     }
   },
-  "state": {},
+  "state": {
+    "dialog": {
+      "douyinSync": false
+    }
+  },
   "action": {}
 }

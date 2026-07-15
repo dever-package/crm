@@ -1,0 +1,121 @@
+{
+  "page": {
+    "name": "抖音线索同步",
+    "parent": "crm/lead/list",
+    "type": 2,
+    "auth": [
+      {
+        "key": "crm/douyin_sync/set",
+        "name": "抖音线索同步"
+      }
+    ]
+  },
+  "layout": {
+    "type": "container",
+    "children": {
+      "page-main": {
+        "type": "main",
+        "className": "p-0",
+        "children": {
+          "form-shell": {
+            "type": "container",
+            "className": "w-full space-y-4"
+          }
+        }
+      }
+    }
+  },
+  "nodes": {
+    "form-shell": [
+      {
+        "type": "form-switch",
+        "name": "启用自动同步",
+        "value": "form.enabled",
+        "mode": "form",
+        "info": "启用后每 5 分钟增量获取一次抖音来客线索；首次启用不会自动补拉历史数据。",
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "Client Key",
+        "value": "form.client_key",
+        "mode": "form",
+        "placeholder": "抖音开放平台应用 Client Key",
+        "meta": {
+          "formLayout": "horizontal",
+          "controlClassName": "max-w-[420px]"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "Client Secret",
+        "value": "form.client_secret",
+        "mode": "form",
+        "placeholder": "留空则保留已保存的密钥",
+        "info": "保存后不回显密钥。",
+        "meta": {
+          "formLayout": "horizontal",
+          "inputType": "password",
+          "controlClassName": "max-w-[420px]"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "来客账户 ID",
+        "value": "form.account_id",
+        "mode": "form",
+        "placeholder": "接口参数 account_id",
+        "meta": {
+          "formLayout": "horizontal",
+          "controlClassName": "max-w-[420px]"
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "根账户 ID",
+        "value": "form.root_life_account_id",
+        "mode": "form",
+        "placeholder": "可选，Rpc-Transit-Life-Account",
+        "meta": {
+          "formLayout": "horizontal",
+          "controlClassName": "max-w-[420px]"
+        }
+      }
+    ]
+  },
+  "data": {
+    "form": {
+      "_fields": [
+        "enabled",
+        "client_key",
+        "client_secret",
+        "account_id",
+        "root_life_account_id"
+      ],
+      "service": "crm.setting.CrmHook.BuildDouyinConfigForm",
+      "id": 1,
+      "enabled": false,
+      "client_key": "",
+      "client_secret": "",
+      "account_id": "",
+      "root_life_account_id": ""
+    }
+  },
+  "state": {},
+  "action": {
+    "submit": {
+      "type": "save",
+      "upsert": true,
+      "params": "form",
+      "before": {
+        "service": "crm.setting.CrmHook.BeforeSaveDouyinConfig"
+      },
+      "after": {
+        "service": "crm.setting.CrmHook.AfterSaveDouyinConfig"
+      },
+      "model": "crm.NewDouyinConfigModel"
+    }
+  }
+}

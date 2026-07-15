@@ -193,9 +193,7 @@ func StartConfirmedProductWorkflows(ctx context.Context, entry *crmmodel.Workflo
 		}
 		instance, err := startWorkflowInstance(
 			ctx,
-			customerProduct.CustomerID,
-			customerProduct.AssetID,
-			customerProduct.ID,
+			assetWorkflowSubject(customerProduct.CustomerID, customerProduct.AssetID, customerProduct.ID),
 			product.ServiceWorkflowID,
 			0,
 		)

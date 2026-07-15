@@ -128,7 +128,8 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 	if err != nil {
 		return nil, err
 	}
-	if err := saveWorkFormInput(ctx, todo.CustomerID, todo.AssetID, formInput); err != nil {
+	operationSnapshot, hasFormChanges := buildWorkFormOperationSnapshot(ctx, todo, formInput)
+	if err := saveWorkFormInput(ctx, todo.LeadID, todo.CustomerID, todo.AssetID, formInput); err != nil {
 		return nil, err
 	}
 	resultValue := "submitted"
@@ -139,7 +140,11 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 			resultText = "已保存进度"
 		}
 	}
-	operationID := recordWorkTaskOperation(ctx, staff, todo, task, resultValue, resultText, values, !progressOnly)
+	operationContent := resultText
+	if !hasFormChanges && operationContent == "" {
+		operationContent = "本次未修改资料"
+	}
+	operationID := recordWorkTaskOperation(ctx, staff, todo, task, resultValue, operationContent, operationSnapshot, !progressOnly)
 	if operationID == 0 {
 		return nil, fmt.Errorf("任务操作记录创建失败")
 	}
@@ -361,8 +366,14 @@ func applyTaskRuleOutputs(ctx context.Context, todo *crmmodel.WorkTodo, task *cr
 			"id":     field.DataTemplateID,
 			"status": crmmodel.StatusEnabled,
 		})
-		if template == nil || template.CateID == crmmodel.LeadDataTemplateCateID {
+		if template == nil {
 			return fmt.Errorf("规则输出字段没有可写的数据模板：%s", fieldKey)
+		}
+		if todo.LeadID > 0 && template.CateID != crmmodel.LeadDataTemplateCateID {
+			return fmt.Errorf("线索流程规则只能输出线索信息字段：%s", fieldKey)
+		}
+		if todo.LeadID == 0 && template.CateID == crmmodel.LeadDataTemplateCateID {
+			return fmt.Errorf("客户资产流程规则不能输出线索信息字段：%s", fieldKey)
 		}
 		formField := &crmmodel.FormField{
 			DataTemplateCateID: template.CateID,
@@ -375,6 +386,9 @@ func applyTaskRuleOutputs(ctx context.Context, todo *crmmodel.WorkTodo, task *cr
 		}
 		records[template.ID][fmt.Sprintf("%d", field.ID)] = value
 	}
+	if err := saveWorkFormInput(ctx, todo.LeadID, todo.CustomerID, todo.AssetID, formInput); err != nil {
+		return err
+	}
 	if err := saveWorkFormDataRecords(ctx, workDataOwnership{
 		CustomerID:         todo.CustomerID,
 		AssetID:            todo.AssetID,
@@ -383,7 +397,7 @@ func applyTaskRuleOutputs(ctx context.Context, todo *crmmodel.WorkTodo, task *cr
 	}, task.ID, operationID, formInput); err != nil {
 		return err
 	}
-	if result.ProductCodes != nil {
+	if result.ProductCodes != nil && todo.CustomerID > 0 && todo.AssetID > 0 {
 		if err := SyncCandidateCustomerProducts(ctx, todo.WorkflowInstanceID, result.ProductCodes); err != nil {
 			return err
 		}
@@ -405,13 +419,26 @@ func taskRuleResultText(result TaskRuleResult) string {
 }
 
 func workRuleInput(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.Task) map[string]any {
-	customer := crmmodel.NewCustomerModel().FindMap(ctx, map[string]any{"id": todo.CustomerID})
-	customer["fields"] = workCustomerFieldValues(ctx, todo.CustomerID)
-	asset := crmmodel.NewCustomerAssetModel().FindMap(ctx, map[string]any{
-		"id":          todo.AssetID,
-		"customer_id": todo.CustomerID,
-	})
-	asset["fields"] = workAssetFieldValues(ctx, todo.CustomerID, todo.AssetID)
+	lead := map[string]any{}
+	leadModel := crmmodel.NewLeadModel()
+	if source := leadModel.Find(ctx, map[string]any{"id": todo.LeadID}); source != nil {
+		lead = mapFromAny(leadModel.FindMap(ctx, map[string]any{"id": source.ID}))
+		lead["fields"] = workLeadRuleFieldValues(ctx, source)
+		lead["data_values"] = workLeadDataValues(source)
+	}
+	customer := map[string]any{}
+	asset := map[string]any{}
+	if todo.CustomerID > 0 {
+		customer = mapFromAny(crmmodel.NewCustomerModel().FindMap(ctx, map[string]any{"id": todo.CustomerID}))
+		customer["fields"] = workCustomerFieldValues(ctx, todo.CustomerID)
+	}
+	if todo.CustomerID > 0 && todo.AssetID > 0 {
+		asset = mapFromAny(crmmodel.NewCustomerAssetModel().FindMap(ctx, map[string]any{
+			"id":          todo.AssetID,
+			"customer_id": todo.CustomerID,
+		}))
+		asset["fields"] = workAssetFieldValues(ctx, todo.CustomerID, todo.AssetID)
+	}
 	workflowName := ""
 	if workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": todo.WorkflowID}); workflow != nil {
 		workflowName = workflow.Name
@@ -426,6 +453,7 @@ func workRuleInput(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.
 			"name":      task.Name,
 			"task_type": task.TaskType,
 		},
+		"lead":     lead,
 		"customer": customer,
 		"assets":   workRuleAssets(ctx, todo.CustomerID),
 		"current": map[string]any{
@@ -441,10 +469,28 @@ func workRuleInput(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.
 	}
 }
 
+func workLeadRuleFieldValues(ctx context.Context, lead *crmmodel.Lead) map[string]any {
+	values := map[string]any{}
+	if lead == nil {
+		return values
+	}
+	for _, template := range workLeadTemplateRows(ctx) {
+		fields := workDataTemplateFieldsByID(ctx, inputUint64(template["id"]))
+		for rawKey, value := range workLeadDataValues(lead) {
+			field := fields[inputUint64(strings.TrimPrefix(rawKey, "data:"))]
+			if field != nil && strings.TrimSpace(field.FieldKey) != "" {
+				values[field.FieldKey] = value
+			}
+		}
+	}
+	return values
+}
+
 func workTodoExecutionResult(todo *crmmodel.WorkTodo, operationID uint64, resultValue string, progress bool) map[string]any {
 	return map[string]any{
 		"todo_id":              todo.ID,
 		"task_id":              todo.TaskID,
+		"lead_id":              todo.LeadID,
 		"customer_id":          todo.CustomerID,
 		"asset_id":             todo.AssetID,
 		"workflow_instance_id": todo.WorkflowInstanceID,

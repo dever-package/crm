@@ -1,9 +1,9 @@
 {
   "page": {
-    "name": "客户列表",
+    "name": "业务流程",
     "icon": "briefcase-business",
     "parent": "crm-work-customer-center",
-    "type": 1,
+    "type": 2,
     "sort": 2
   },
   "layout": {
@@ -38,10 +38,13 @@
           "formSection": "work-task-form-section",
           "title": "处理任务",
           "titlePath": "data.actionTarget.workTaskName",
+          "descriptionPath": "data.actionTarget.workTaskDescription",
           "assistant": false,
           "size": "xl",
           "width": "64rem",
           "footer": {
+            "close": true,
+            "closeText": "取消",
             "confirm": true,
             "confirmText": "保存"
           },

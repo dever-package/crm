@@ -16,7 +16,6 @@ func syncWorkFinanceLedgers(ctx context.Context, staff *WorkStaffSession, comple
 	changedAt := workOperationCreatedAt(ctx, completion.operationID)
 	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.customerDataRecords, 0, changedAt)
 	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.assetDataRecords, completion.ownership.AssetID, changedAt)
-	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.businessDataRecords, completion.ownership.AssetID, changedAt)
 }
 
 func syncWorkFinanceLedgerRecords(ctx context.Context, staff *WorkStaffSession, completion workOperationCompletion, records map[uint64]map[string]any, assetID uint64, changedAt time.Time) {

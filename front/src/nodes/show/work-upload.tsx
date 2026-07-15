@@ -3,6 +3,7 @@ import type { ChangeEvent } from "react";
 import { Download, FileText, Loader2, Trash2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,9 @@ import {
   textValue,
   workImageExtensions,
   workStoreValue,
+  workTaskFormDataPath,
+  workTaskUploadFilesPath,
+  workTaskUploadPendingPath,
   workUploadGridColumns,
   type WorkNodeProps,
   type WorkTaskUploadMeta,
@@ -48,28 +52,58 @@ export function ShowCrmWorkTaskUpload({
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadProgress, setUploadProgress] =
     useState<WorkTaskUploadProgress | null>(null);
-  const [localFiles, setLocalFiles] = useState<UploadFileItem[]>([]);
+  const [localFiles, setLocalFiles] = useState<UploadFileItem[] | null>(null);
   const [previewFile, setPreviewFile] = useState<UploadFileItem | null>(null);
+  const taskFormKey = inferWorkTaskFormKey(item?.value);
+  const uploadStateKey = taskFormKey || textValue(item?.id) || "upload";
+  const taskFilesPath = taskFormKey
+    ? `${workTaskUploadFilesPath}.${taskFormKey}`
+    : "";
   const relationPath = inferWorkRelationPath(item?.value);
   const relationValue =
     store && relationPath
       ? workStoreValue<unknown>(store, relationPath, undefined)
       : undefined;
+  const taskFilesValue =
+    store && taskFilesPath
+      ? workStoreValue<unknown>(store, taskFilesPath, undefined)
+      : undefined;
   const meta = resolveWorkTaskUploadMeta(item?.meta);
+  const initialFiles = normalizeUploadItems(item?.meta?.["initialFiles"]);
   const readonly = Boolean(item?.meta?.["readonly"]);
-  const files = normalizeWorkTaskUploadItems(relationValue, value, localFiles);
+  const files = normalizeWorkTaskUploadItems(
+    taskFilesValue,
+    relationValue,
+    value,
+    localFiles,
+    initialFiles,
+  );
   const remainingCount = Math.max(meta.maxCount - files.length, 0);
   const disabled = readonly || uploading || remainingCount <= 0;
 
   const syncFiles = useCallback(
     (nextFiles: UploadFileItem[]) => {
+      const fileIDs = nextFiles.map((file) => file.id);
       setLocalFiles(nextFiles);
-      setValue?.(nextFiles.map((file) => file.id));
+      if (store && taskFormKey) {
+        const formValues = workStoreValue<Record<string, unknown>>(
+          store,
+          workTaskFormDataPath,
+          {},
+        );
+        setWorkStoreValue(store, workTaskFormDataPath, {
+          ...formValues,
+          [taskFormKey]: fileIDs,
+        });
+        setWorkStoreValue(store, taskFilesPath, nextFiles);
+      } else {
+        setValue?.(fileIDs);
+      }
       if (store && relationPath) {
         setWorkStoreValue(store, relationPath, nextFiles);
       }
     },
-    [relationPath, setValue, store],
+    [relationPath, setValue, store, taskFilesPath, taskFormKey],
   );
 
   const handleChooseFiles = useCallback(
@@ -88,6 +122,7 @@ export function ShowCrmWorkTaskUpload({
       }
 
       setUploading(true);
+      setWorkTaskUploadPending(store, uploadStateKey, true);
       setUploadMessage("");
       setUploadProgress({
         fileName: nextSelected[0]?.name || "",
@@ -129,17 +164,24 @@ export function ShowCrmWorkTaskUpload({
             },
           });
           const uploadedFile = normalizeUploadItems(uploaded)[0] || uploaded;
-          nextFiles = [...nextFiles, uploadedFile];
+          if (
+            !nextFiles.some(
+              (current) => String(current.id) === String(uploadedFile.id),
+            )
+          ) {
+            nextFiles = [...nextFiles, uploadedFile];
+          }
         }
         syncFiles(nextFiles);
       } catch (uploadError) {
         setUploadMessage(errorMessage(uploadError) || "上传失败");
       } finally {
         setUploading(false);
+        setWorkTaskUploadPending(store, uploadStateKey, false);
         setUploadProgress(null);
       }
     },
-    [files, meta, syncFiles, uploading],
+    [files, meta, store, syncFiles, uploadStateKey, uploading],
   );
 
   const removeFile = useCallback(
@@ -151,7 +193,7 @@ export function ShowCrmWorkTaskUpload({
 
   return (
     <div className="w-full space-y-3">
-      <input
+      <Input
         ref={inputRef}
         type="file"
         className="hidden"
@@ -228,14 +270,15 @@ export function ShowCrmWorkTaskUpload({
               style={{ gridTemplateColumns: workUploadGridColumns }}
             >
               <div className="flex min-w-0 items-center overflow-hidden px-4 py-3">
-                <button
+                <Button
                   type="button"
-                  className="block w-full min-w-0 overflow-hidden truncate whitespace-nowrap text-left text-sm font-medium text-foreground underline-offset-4 hover:text-primary hover:underline"
+                  variant="ghost"
+                  className="h-auto w-full min-w-0 justify-start overflow-hidden truncate whitespace-nowrap px-0 py-0 text-left text-sm font-medium text-foreground underline-offset-4 hover:bg-transparent hover:text-primary hover:underline"
                   title={file.name}
                   onClick={() => setPreviewFile(file)}
                 >
                   {file.name}
-                </button>
+                </Button>
               </div>
               <div className="flex items-center whitespace-nowrap px-4 py-3 text-sm">
                 {formatUploadSize(Number(file.size || 0))}
@@ -245,24 +288,28 @@ export function ShowCrmWorkTaskUpload({
                   className="flex items-center gap-1"
                   style={{ flexWrap: "nowrap" }}
                 >
-                  <button
+                  <Button
                     type="button"
-                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-muted"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
                     aria-label="下载附件"
                     onClick={() => void downloadUploadFile(file)}
                   >
                     <Download className="h-4 w-4" />
-                  </button>
+                  </Button>
                   {!readonly ? (
-                    <button
+                    <Button
                       type="button"
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-muted hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
                       aria-label="删除附件"
                       disabled={uploading}
                       onClick={() => removeFile(file.id)}
                     >
                       <Trash2 className="h-4 w-4" />
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
               </div>
@@ -283,6 +330,23 @@ export function ShowCrmWorkTaskUpload({
   );
 }
 
+function setWorkTaskUploadPending(
+  store: WorkNodeProps["store"],
+  key: string,
+  pending: boolean,
+) {
+  if (!store || !key) return;
+  const current = workStoreValue<Record<string, boolean>>(
+    store,
+    workTaskUploadPendingPath,
+    {},
+  );
+  setWorkStoreValue(store, workTaskUploadPendingPath, {
+    ...current,
+    [key]: pending,
+  });
+}
+
 function resolveWorkTaskUploadMeta(
   meta?: Record<string, unknown>,
 ): WorkTaskUploadMeta {
@@ -296,14 +360,22 @@ function resolveWorkTaskUploadMeta(
 }
 
 function normalizeWorkTaskUploadItems(
+  taskFilesValue: unknown,
   relationValue: unknown,
   value: unknown,
-  localFiles: UploadFileItem[],
+  localFiles: UploadFileItem[] | null,
+  initialFiles: UploadFileItem[],
 ): UploadFileItem[] {
-  if (localFiles.length > 0) return localFiles;
+  if (localFiles !== null) return localFiles;
+
+  if (taskFilesValue !== undefined) {
+    return normalizeUploadItems(taskFilesValue);
+  }
 
   const relationItems = normalizeUploadItems(relationValue);
   if (relationItems.length > 0) return relationItems;
+
+  if (initialFiles.length > 0) return initialFiles;
 
   const valueItems = normalizeUploadItems(value);
   if (valueItems.length > 0) return valueItems;
@@ -473,4 +545,10 @@ function inferWorkRelationPath(valuePath?: string): string {
   if (path.endsWith("_ids")) return `${path.slice(0, -4)}s`;
   if (path.endsWith("_id")) return path.slice(0, -3);
   return "";
+}
+
+function inferWorkTaskFormKey(valuePath?: string): string {
+  const path = textValue(valuePath);
+  const prefix = "workTaskForm.";
+  return path.startsWith(prefix) ? path.slice(prefix.length) : "";
 }

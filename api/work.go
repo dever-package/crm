@@ -38,6 +38,18 @@ func (Work) GetMe(c *server.Context) error {
 	return crmJSON(c, data, err)
 }
 
+func (Work) GetNavigation(c *server.Context) error {
+	data, err := workService.Navigation(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetGlobalSearch(c *server.Context) error {
+	data, err := workService.GlobalSearch(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"keyword": c.Input("keyword"),
+	})
+	return crmJSON(c, data, err)
+}
+
 func (Work) GetCustomers(c *server.Context) error {
 	data, err := workService.Customers(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
 		"keyword":       c.Input("keyword"),
@@ -55,6 +67,8 @@ func (Work) GetCustomers(c *server.Context) error {
 		"task_filter":   c.Input("task_filter"),
 		"task":          c.Input("task"),
 		"scope":         c.Input("scope"),
+		"workflow_id":   c.Input("workflow_id"),
+		"workflowId":    c.Input("workflowId"),
 		"page":          c.Input("page"),
 		"page_size":     c.Input("page_size"),
 		"pageSize":      c.Input("pageSize"),
@@ -65,11 +79,14 @@ func (Work) GetCustomers(c *server.Context) error {
 
 func (Work) GetLeads(c *server.Context) error {
 	data, err := workService.LeadPool(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
-		"keyword":   c.Input("keyword"),
-		"status":    c.Input("status"),
-		"page":      c.Input("page"),
-		"page_size": c.Input("page_size"),
-		"pageSize":  c.Input("pageSize"),
+		"keyword":     c.Input("keyword"),
+		"status":      c.Input("status"),
+		"scope":       c.Input("scope"),
+		"workflow_id": c.Input("workflow_id"),
+		"workflowId":  c.Input("workflowId"),
+		"page":        c.Input("page"),
+		"page_size":   c.Input("page_size"),
+		"pageSize":    c.Input("pageSize"),
 	})
 	return crmJSON(c, data, err)
 }
@@ -109,9 +126,11 @@ func (Work) GetSummary(c *server.Context) error {
 
 func (Work) GetOperations(c *server.Context) error {
 	data, err := workService.Operations(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
-		"customer_id": c.Input("customer_id"),
-		"asset_id":    c.Input("asset_id"),
-		"mine":        c.Input("mine"),
+		"customer_id":          c.Input("customer_id"),
+		"asset_id":             c.Input("asset_id"),
+		"workflow_instance_id": c.Input("workflow_instance_id"),
+		"workflowInstanceId":   c.Input("workflowInstanceId"),
+		"mine":                 c.Input("mine"),
 	})
 	return crmJSON(c, data, err)
 }
@@ -173,6 +192,15 @@ func (Work) PostTerminateFlow(c *server.Context) error {
 		return c.Error(err)
 	}
 	data, err := workService.TerminateFlow(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostRestartFlow(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.RestartFlow(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
 	return crmJSON(c, data, err)
 }
 

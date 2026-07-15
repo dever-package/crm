@@ -21,51 +21,62 @@ func CompleteWorkflowStage(ctx context.Context, staff *WorkStaffSession, instanc
 		if !canCompleteWorkflowStage(staff, instance) {
 			return fmt.Errorf("只有当前负责人或流程调度员可以完成阶段")
 		}
-		if pendingRequiredTodoCount(txCtx, instance) > 0 {
-			return fmt.Errorf("必做任务尚未全部完成")
-		}
-
-		workflow, stage, err := nextWorkflowStage(txCtx, instance)
-		if err != nil {
-			return err
-		}
-		cancelPendingOptionalTodos(txCtx, instance)
-		if workflow == nil || stage == nil {
-			if err := completeWorkflowInstance(txCtx, staff, instance); err != nil {
-				return err
-			}
-			completed = instance
-			return nil
-		}
-
-		fromWorkflowID := instance.WorkflowID
-		fromStageID := instance.StageID
-		owner, err := enterWorkflowStage(txCtx, instance, workflow, stage, nextOwnerStaffID)
-		if err != nil {
-			return err
-		}
-		if recordWorkStageChange(txCtx, staff, instance, workStageChange{
-			FromWorkflowID: fromWorkflowID,
-			FromStageID:    fromStageID,
-			ToWorkflowID:   workflow.ID,
-			ToStageID:      stage.ID,
-			ResultValue:    "entered",
-			Title:          "进入阶段：" + stage.Name,
-			Content:        "负责人：" + owner.Name,
-			Snapshot: map[string]any{
-				"owner_department_id": owner.DepartmentID,
-				"owner_staff_id":      owner.ID,
-			},
-		}) == 0 {
-			return fmt.Errorf("阶段流转记录创建失败")
-		}
-		if err := createStageTodos(txCtx, instance, stage); err != nil {
-			return err
-		}
-		completed = instance
-		return nil
+		completed, err = completeWorkflowStage(txCtx, staff, instance, nextOwnerStaffID)
+		return err
 	})
 	return completed, err
+}
+
+func completeWorkflowStage(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	instance *crmmodel.WorkflowInstance,
+	nextOwnerStaffID uint64,
+) (*crmmodel.WorkflowInstance, error) {
+	if instance == nil || instance.Status != crmmodel.ProgressStatusActive {
+		return nil, fmt.Errorf("流程实例已结束")
+	}
+	if pendingRequiredTodoCount(ctx, instance) > 0 {
+		return nil, fmt.Errorf("必做任务尚未全部完成")
+	}
+
+	workflow, stage, err := nextWorkflowStage(ctx, instance)
+	if err != nil {
+		return nil, err
+	}
+	cancelPendingOptionalTodos(ctx, instance)
+	if workflow == nil || stage == nil {
+		if err := completeWorkflowInstance(ctx, staff, instance); err != nil {
+			return nil, err
+		}
+		return instance, nil
+	}
+
+	fromWorkflowID := instance.WorkflowID
+	fromStageID := instance.StageID
+	owner, err := enterWorkflowStage(ctx, instance, workflow, stage, nextOwnerStaffID)
+	if err != nil {
+		return nil, err
+	}
+	if recordWorkStageChange(ctx, staff, instance, workStageChange{
+		FromWorkflowID: fromWorkflowID,
+		FromStageID:    fromStageID,
+		ToWorkflowID:   workflow.ID,
+		ToStageID:      stage.ID,
+		ResultValue:    "entered",
+		Title:          "进入阶段：" + stage.Name,
+		Content:        "负责人：" + owner.Name,
+		Snapshot: map[string]any{
+			"owner_department_id": owner.DepartmentID,
+			"owner_staff_id":      owner.ID,
+		},
+	}) == 0 {
+		return nil, fmt.Errorf("阶段流转记录创建失败")
+	}
+	if err := createStageTodos(ctx, instance, stage); err != nil {
+		return nil, err
+	}
+	return instance, nil
 }
 
 func TerminateWorkflowInstance(ctx context.Context, staff *WorkStaffSession, instanceID uint64, reason string) (*crmmodel.WorkflowInstance, error) {
@@ -82,47 +93,61 @@ func TerminateWorkflowInstance(ctx context.Context, staff *WorkStaffSession, ins
 		if staff == nil || staff.ID == 0 || instance.OwnerStaffID != staff.ID {
 			return fmt.Errorf("只有当前负责人可以终止流程")
 		}
-		now := time.Now()
-		crmmodel.NewWorkTodoModel().Update(txCtx, map[string]any{
-			"workflow_instance_id": instance.ID,
-			"status":               crmmodel.WorkTodoStatusPending,
-		}, map[string]any{
-			"status":     crmmodel.WorkTodoStatusCanceled,
-			"result":     "流程已终止：" + reason,
-			"updated_at": now,
-		})
-		if crmmodel.NewWorkflowInstanceModel().Update(txCtx, map[string]any{
-			"id":     instance.ID,
-			"status": crmmodel.ProgressStatusActive,
-		}, map[string]any{
-			"status":            crmmodel.ProgressStatusTerminated,
-			"terminated_at":     now,
-			"terminated_reason": reason,
-			"updated_at":        now,
-		}) == 0 {
-			return fmt.Errorf("流程已变化，请刷新后重试")
-		}
-		instance.Status = crmmodel.ProgressStatusTerminated
-		instance.TerminatedAt = &now
-		instance.TerminatedReason = reason
-		instance.UpdatedAt = now
-		if err := LoseCustomerProductForInstance(txCtx, instance); err != nil {
+		if err := terminateActiveWorkflowInstance(txCtx, staff, instance, reason); err != nil {
 			return err
-		}
-		if recordWorkStageChange(txCtx, staff, instance, workStageChange{
-			FromWorkflowID: instance.WorkflowID,
-			FromStageID:    instance.StageID,
-			ResultValue:    "terminated",
-			Title:          "流程已终止",
-			Content:        reason,
-			Snapshot:       map[string]any{"reason": reason},
-		}) == 0 {
-			return fmt.Errorf("流程终止记录创建失败")
 		}
 		terminated = instance
 		return nil
 	})
 	return terminated, err
+}
+
+func terminateActiveWorkflowInstance(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance, reason string) error {
+	if instance == nil || instance.Status != crmmodel.ProgressStatusActive {
+		return fmt.Errorf("流程实例已结束")
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return fmt.Errorf("请填写终止原因")
+	}
+	now := time.Now()
+	crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
+		"workflow_instance_id": instance.ID,
+		"status":               crmmodel.WorkTodoStatusPending,
+	}, map[string]any{
+		"status":     crmmodel.WorkTodoStatusCanceled,
+		"result":     "流程已终止：" + reason,
+		"updated_at": now,
+	})
+	if crmmodel.NewWorkflowInstanceModel().Update(ctx, map[string]any{
+		"id":     instance.ID,
+		"status": crmmodel.ProgressStatusActive,
+	}, map[string]any{
+		"status":            crmmodel.ProgressStatusTerminated,
+		"terminated_at":     now,
+		"terminated_reason": reason,
+		"updated_at":        now,
+	}) == 0 {
+		return fmt.Errorf("流程已变化，请刷新后重试")
+	}
+	instance.Status = crmmodel.ProgressStatusTerminated
+	instance.TerminatedAt = &now
+	instance.TerminatedReason = reason
+	instance.UpdatedAt = now
+	if err := LoseCustomerProductForInstance(ctx, instance); err != nil {
+		return err
+	}
+	if recordWorkStageChange(ctx, staff, instance, workStageChange{
+		FromWorkflowID: instance.WorkflowID,
+		FromStageID:    instance.StageID,
+		ResultValue:    "terminated",
+		Title:          "流程已终止",
+		Content:        reason,
+		Snapshot:       map[string]any{"reason": reason},
+	}) == 0 {
+		return fmt.Errorf("流程终止记录创建失败")
+	}
+	return nil
 }
 
 func workflowInstanceByID(ctx context.Context, instanceID uint64) (*crmmodel.WorkflowInstance, error) {
@@ -200,6 +225,31 @@ func nextWorkflowStage(ctx context.Context, instance *crmmodel.WorkflowInstance)
 	return workflow, stage, nil
 }
 
+type workflowAssignmentTarget struct {
+	Workflow    *crmmodel.Workflow
+	Stage       *crmmodel.Stage
+	CrossObject bool
+}
+
+func nextWorkflowAssignmentTarget(ctx context.Context, instance *crmmodel.WorkflowInstance) (*workflowAssignmentTarget, error) {
+	workflow, stage, err := nextWorkflowStage(ctx, instance)
+	if err != nil {
+		return nil, err
+	}
+	if stage != nil || instance.LeadID == 0 {
+		return &workflowAssignmentTarget{Workflow: workflow, Stage: stage}, nil
+	}
+	nextWorkflow, nextStage := defaultEntryWorkflowStage(ctx, crmmodel.WorkflowSubjectCustomerAsset)
+	if nextWorkflow == nil || nextStage == nil {
+		return nil, ErrNoAvailableWorkflow
+	}
+	return &workflowAssignmentTarget{
+		Workflow:    nextWorkflow,
+		Stage:       nextStage,
+		CrossObject: true,
+	}, nil
+}
+
 func completeWorkflowInstance(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) error {
 	now := time.Now()
 	if crmmodel.NewWorkflowInstanceModel().Update(ctx, map[string]any{
@@ -224,6 +274,9 @@ func completeWorkflowInstance(ctx context.Context, staff *WorkStaffSession, inst
 		Title:          "流程已完成",
 	}) == 0 {
 		return fmt.Errorf("流程完成记录创建失败")
+	}
+	if instance.LeadID > 0 {
+		return nil
 	}
 	if instance.CustomerProductID == 0 {
 		return StartConfirmedProductWorkflows(ctx, instance)

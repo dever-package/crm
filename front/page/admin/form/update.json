@@ -57,7 +57,7 @@
         "name": "表单字段",
         "value": "form.fields",
         "mode": "form",
-        "info": "组合任务需要填写的客户信息、客户资产或业务数据字段，字段按排序从小到大展示。线索录入字段请在数据模板的线索信息中配置。",
+        "info": "组合流程任务需要填写的线索信息、客户信息或客户资产字段，字段按排序从小到大展示。",
         "meta": {
           "pageRoute": "/crm/form_field/update",
           "addText": "添加表单字段",
@@ -69,10 +69,7 @@
   },
   "data": {
     "form": {
-      "_fields": [
-        "name",
-        "fields"
-      ],
+      "_fields": ["name", "fields"],
       "service": "crm.setting.CrmHook.BuildFormForm",
       "id": "",
       "name": "",

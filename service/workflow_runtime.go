@@ -13,6 +13,50 @@ import (
 
 var ErrNoAvailableWorkflow = errors.New("未配置可用的默认入口流程")
 
+type workflowSubject struct {
+	LeadID            uint64
+	CustomerID        uint64
+	AssetID           uint64
+	CustomerProductID uint64
+}
+
+func leadWorkflowSubject(leadID uint64) workflowSubject {
+	return workflowSubject{LeadID: leadID}
+}
+
+func assetWorkflowSubject(customerID, assetID, customerProductID uint64) workflowSubject {
+	return workflowSubject{
+		CustomerID:        customerID,
+		AssetID:           assetID,
+		CustomerProductID: customerProductID,
+	}
+}
+
+func StartLeadWorkflow(ctx context.Context, leadID uint64, ownerStaffID ...uint64) error {
+	return orm.Transaction(ctx, func(txCtx context.Context) error {
+		return startLeadWorkflow(txCtx, leadID, ownerStaffID...)
+	})
+}
+
+func startLeadWorkflow(ctx context.Context, leadID uint64, ownerStaffID ...uint64) error {
+	if leadID == 0 || crmmodel.NewLeadModel().Find(ctx, map[string]any{"id": leadID}) == nil {
+		return fmt.Errorf("线索不存在")
+	}
+	workflow, _ := defaultEntryWorkflowStage(ctx, crmmodel.WorkflowSubjectLead)
+	if workflow == nil {
+		return ErrNoAvailableWorkflow
+	}
+	if crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{
+		"lead_id":     leadID,
+		"workflow_id": workflow.ID,
+		"status":      crmmodel.ProgressStatusActive,
+	}) != nil {
+		return nil
+	}
+	_, err := startWorkflowInstance(ctx, leadWorkflowSubject(leadID), workflow.ID, firstRequestedOwnerID(ownerStaffID))
+	return err
+}
+
 func StartAssetWorkflow(ctx context.Context, customerID, assetID uint64, ownerStaffID ...uint64) error {
 	return orm.Transaction(ctx, func(txCtx context.Context) error {
 		return startAssetWorkflow(txCtx, customerID, assetID, ownerStaffID...)
@@ -29,7 +73,7 @@ func startAssetWorkflow(ctx context.Context, customerID, assetID uint64, ownerSt
 	}) == nil {
 		return fmt.Errorf("客户资产不存在")
 	}
-	workflow, _ := defaultEntryWorkflowStage(ctx)
+	workflow, _ := defaultEntryWorkflowStage(ctx, crmmodel.WorkflowSubjectCustomerAsset)
 	if workflow == nil {
 		return ErrNoAvailableWorkflow
 	}
@@ -41,20 +85,36 @@ func startAssetWorkflow(ctx context.Context, customerID, assetID uint64, ownerSt
 	}) != nil {
 		return nil
 	}
-	_, err := startWorkflowInstance(ctx, customerID, assetID, 0, workflow.ID, firstRequestedOwnerID(ownerStaffID))
+	_, err := startWorkflowInstance(ctx, assetWorkflowSubject(customerID, assetID, 0), workflow.ID, firstRequestedOwnerID(ownerStaffID))
 	return err
 }
 
 func startWorkflowInstance(
 	ctx context.Context,
-	customerID uint64,
-	assetID uint64,
-	customerProductID uint64,
+	subject workflowSubject,
 	workflowID uint64,
 	requestedOwnerID uint64,
 ) (*crmmodel.WorkflowInstance, error) {
-	if customerID == 0 || assetID == 0 || workflowID == 0 {
-		return nil, fmt.Errorf("客户、资产和流程不能为空")
+	return createWorkflowInstance(ctx, subject, workflowID, requestedOwnerID, false)
+}
+
+func restartWorkflowInstance(
+	ctx context.Context,
+	subject workflowSubject,
+	workflowID uint64,
+) (*crmmodel.WorkflowInstance, error) {
+	return createWorkflowInstance(ctx, subject, workflowID, 0, true)
+}
+
+func createWorkflowInstance(
+	ctx context.Context,
+	subject workflowSubject,
+	workflowID uint64,
+	requestedOwnerID uint64,
+	activeDuplicateOnly bool,
+) (*crmmodel.WorkflowInstance, error) {
+	if workflowID == 0 {
+		return nil, fmt.Errorf("流程不能为空")
 	}
 	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{
 		"id":     workflowID,
@@ -63,17 +123,19 @@ func startWorkflowInstance(
 	if workflow == nil {
 		return nil, fmt.Errorf("流程不存在或已停用")
 	}
+	if err := validateWorkflowSubject(ctx, workflow, subject); err != nil {
+		return nil, err
+	}
 	stage := firstEnabledStage(ctx, workflow.ID)
 	if stage == nil {
 		return nil, fmt.Errorf("流程没有已启用阶段")
 	}
 	instanceModel := crmmodel.NewWorkflowInstanceModel()
-	if existing := instanceModel.Find(ctx, map[string]any{
-		"customer_id":         customerID,
-		"asset_id":            assetID,
-		"customer_product_id": customerProductID,
-		"workflow_id":         workflow.ID,
-	}); existing != nil {
+	duplicateFilters := workflowSubjectInstanceFilters(subject, workflow.ID)
+	if activeDuplicateOnly {
+		duplicateFilters["status"] = crmmodel.ProgressStatusActive
+	}
+	if existing := instanceModel.Find(ctx, duplicateFilters); existing != nil {
 		return existing, nil
 	}
 	owner, err := resolveStageOwner(ctx, stage, requestedOwnerID)
@@ -83,9 +145,10 @@ func startWorkflowInstance(
 
 	now := time.Now()
 	instanceID := uint64(instanceModel.Insert(ctx, map[string]any{
-		"customer_id":         customerID,
-		"asset_id":            assetID,
-		"customer_product_id": customerProductID,
+		"lead_id":             subject.LeadID,
+		"customer_id":         subject.CustomerID,
+		"asset_id":            subject.AssetID,
+		"customer_product_id": subject.CustomerProductID,
 		"workflow_id":         workflow.ID,
 		"stage_id":            stage.ID,
 		"owner_department_id": owner.DepartmentID,
@@ -108,6 +171,7 @@ func startWorkflowInstance(
 		ResultValue:  "entered",
 		Title:        "流程已启动",
 		Snapshot: map[string]any{
+			"lead_id":             subject.LeadID,
 			"owner_department_id": owner.DepartmentID,
 			"owner_staff_id":      owner.ID,
 		},
@@ -120,8 +184,50 @@ func startWorkflowInstance(
 	return instance, nil
 }
 
-func defaultEntryWorkflowStage(ctx context.Context) (*crmmodel.Workflow, *crmmodel.Stage) {
+func validateWorkflowSubject(ctx context.Context, workflow *crmmodel.Workflow, subject workflowSubject) error {
+	if workflow == nil {
+		return fmt.Errorf("流程不存在")
+	}
+	switch workflow.SubjectType {
+	case crmmodel.WorkflowSubjectLead:
+		if subject.LeadID == 0 || subject.CustomerID > 0 || subject.AssetID > 0 {
+			return fmt.Errorf("该流程只能处理线索")
+		}
+		if crmmodel.NewLeadModel().Find(ctx, map[string]any{"id": subject.LeadID}) == nil {
+			return fmt.Errorf("线索不存在")
+		}
+	case crmmodel.WorkflowSubjectCustomerAsset:
+		if subject.LeadID > 0 || subject.CustomerID == 0 || subject.AssetID == 0 {
+			return fmt.Errorf("该流程只能处理客户资产")
+		}
+		if crmmodel.NewCustomerAssetModel().Find(ctx, map[string]any{
+			"id":          subject.AssetID,
+			"customer_id": subject.CustomerID,
+		}) == nil {
+			return fmt.Errorf("客户资产不存在")
+		}
+	default:
+		return fmt.Errorf("流程对象配置无效")
+	}
+	return nil
+}
+
+func workflowSubjectInstanceFilters(subject workflowSubject, workflowID uint64) map[string]any {
+	filters := map[string]any{"workflow_id": workflowID}
+	if subject.LeadID > 0 {
+		filters["lead_id"] = subject.LeadID
+		filters["status"] = crmmodel.ProgressStatusActive
+		return filters
+	}
+	filters["customer_id"] = subject.CustomerID
+	filters["asset_id"] = subject.AssetID
+	filters["customer_product_id"] = subject.CustomerProductID
+	return filters
+}
+
+func defaultEntryWorkflowStage(ctx context.Context, subjectType string) (*crmmodel.Workflow, *crmmodel.Stage) {
 	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{
+		"subject_type":  subjectType,
 		"default_entry": true,
 		"status":        crmmodel.StatusEnabled,
 	}, map[string]any{"order": "sort asc,id asc"})
@@ -148,7 +254,7 @@ func enterWorkflowStage(
 	if instance == nil || workflow == nil || stage == nil {
 		return nil, fmt.Errorf("流程阶段不能为空")
 	}
-	owner, err := resolveStageOwner(ctx, stage, requestedOwnerID)
+	owner, err := resolveStageTransitionOwner(ctx, instance, stage, requestedOwnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +284,13 @@ func enterWorkflowStage(
 	instance.OwnerStaffID = owner.ID
 	instance.StartedAt = now
 	instance.UpdatedAt = now
+	if instance.LeadID > 0 {
+		crmmodel.NewLeadModel().Update(ctx, map[string]any{"id": instance.LeadID}, map[string]any{
+			"owner_department_id": owner.DepartmentID,
+			"owner_staff_id":      owner.ID,
+			"updated_at":          now,
+		})
+	}
 	return owner, nil
 }
 
@@ -212,6 +325,7 @@ func createStageTodos(ctx context.Context, instance *crmmodel.WorkflowInstance, 
 			dueAt = &deadline
 		}
 		todoID := uint64(crmmodel.NewWorkTodoModel().Insert(ctx, map[string]any{
+			"lead_id":                instance.LeadID,
 			"customer_id":            instance.CustomerID,
 			"asset_id":               instance.AssetID,
 			"workflow_instance_id":   instance.ID,

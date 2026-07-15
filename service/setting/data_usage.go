@@ -262,8 +262,6 @@ func normalizeDataUsageType(value any) string {
 		return crmmodel.DataUsageTypeFinance
 	case crmmodel.DataUsageTypeDisplay:
 		return crmmodel.DataUsageTypeDisplay
-	case crmmodel.DataUsageTypeReport:
-		return crmmodel.DataUsageTypeReport
 	default:
 		return crmmodel.DataUsageTypeStat
 	}

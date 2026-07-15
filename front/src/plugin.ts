@@ -44,11 +44,6 @@ export default defineFrontPlugin({
         default: mod.ShowCrmWorkTaskGroupTabs,
       })),
     ),
-    "show-crm-work-task-field-section": lazyNode(() =>
-      loadWorkTaskForm().then((mod) => ({
-        default: mod.ShowCrmWorkTaskFieldSection,
-      })),
-    ),
     "show-crm-work-task-upload": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
         default: mod.ShowCrmWorkTaskUpload,
@@ -62,6 +57,16 @@ export default defineFrontPlugin({
     "show-crm-work-lead-pool": lazyNode(() =>
       loadWorkLead().then((mod) => ({
         default: mod.ShowCrmWorkLeadPool,
+      })),
+    ),
+    "show-crm-work-lead-editor-form": lazyNode(() =>
+      loadWorkLead().then((mod) => ({
+        default: mod.ShowCrmWorkLeadEditorForm,
+      })),
+    ),
+    "show-crm-work-lead-detail": lazyNode(() =>
+      loadWorkLead().then((mod) => ({
+        default: mod.ShowCrmWorkLeadDetail,
       })),
     ),
     "show-crm-work-sidebar": lazyNode(() =>

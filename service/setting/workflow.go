@@ -28,6 +28,11 @@ var stageAssignmentModes = map[string]bool{
 	crmmodel.StageAssignmentManual: true,
 }
 
+var workflowSubjectTypes = map[string]bool{
+	crmmodel.WorkflowSubjectLead:          true,
+	crmmodel.WorkflowSubjectCustomerAsset: true,
+}
+
 func (CrmHook) ProviderBeforeSaveWorkflow(c *server.Context, params []any) any {
 	record := cloneCrmRecord(params)
 	if len(record) == 0 {
@@ -35,12 +40,15 @@ func (CrmHook) ProviderBeforeSaveWorkflow(c *server.Context, params []any) any {
 	}
 	partial := isPartialOrInlineCrmRecord(record, "status", "sort")
 	trimCrmStringField(record, "name", partial)
+	trimCrmStringField(record, "subject_type", partial)
 	validateConfigName(record, partial, "流程名称不能为空。")
 	ctx := contextFromServer(c)
+	defaultCrmString(record, "subject_type", crmmodel.WorkflowSubjectCustomerAsset, partial)
 	defaultCrmInt(record, "sort", 100, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusDisabled, partial)
 	defaultCrmBool(record, "default_entry", false, partial)
 	effective := effectiveWorkflowConfig(ctx, record, partial)
+	normalizeWorkflowSubjectType(ctx, record, effective, partial)
 	if recordEnablesConfig(record, partial) {
 		validateWorkflowCanEnable(ctx, util.ToUint64(record["id"]))
 	}
@@ -77,8 +85,8 @@ func (CrmHook) ProviderBeforeSaveStage(c *server.Context, params []any) any {
 	if !stageAssignmentModes[assignmentMode] {
 		panicCrmField("form.assignment_mode", "阶段分配方式无效。")
 	}
-	if assignmentMode == crmmodel.StageAssignmentManual && serviceWorkflowStageWouldStartFirst(ctx, effective) {
-		panicCrmField("form.assignment_mode", "产品签约后流程首阶段必须自动分配；后续阶段可以使用手动分配。")
+	if assignmentMode == crmmodel.StageAssignmentManual && workflowStageRequiresAutomaticEntry(ctx, effective) {
+		panicCrmField("form.assignment_mode", "入口流程和产品后续流程的首阶段必须自动分配；后续阶段可以使用手动分配。")
 	}
 	departmentID := util.ToUint64(effective["owner_department_id"])
 	if departmentID == 0 || crmmodel.NewDepartmentModel().Find(ctx, map[string]any{
@@ -125,6 +133,7 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 		panicCrmField("form.task_type", "任务类型无效。")
 	}
 	taskEnabled := int16(util.ToIntDefault(effective["status"], int(crmmodel.StatusEnabled))) == crmmodel.StatusEnabled
+	validateTaskWorkflowSubject(ctx, stage.WorkflowID, taskType, util.ToUint64(effective["form_id"]))
 	normalizeSimpleTaskTarget(ctx, record, effective, partial, taskType, taskEnabled)
 	normalizeSimpleTaskAssignee(ctx, record, effective, partial, taskEnabled, stage)
 
@@ -136,6 +145,34 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	defaultCrmInt(record, "sort", 100, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	return record
+}
+
+func validateTaskWorkflowSubject(ctx context.Context, workflowID uint64, taskType string, formID uint64) {
+	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": workflowID})
+	if workflow == nil {
+		panicCrmField("form.stage_id", "所属流程不存在。")
+	}
+	if workflow.SubjectType == crmmodel.WorkflowSubjectLead && taskType == crmmodel.TaskTypeProduct {
+		panicCrmField("form.task_type", "线索流程不能配置确认产品任务；请在线索转客户后的客户资产流程中确认产品。")
+	}
+	if taskType != crmmodel.TaskTypeForm || formID == 0 {
+		return
+	}
+	fields := crmmodel.NewFormFieldModel().Select(ctx, map[string]any{
+		"form_id": formID,
+		"status":  crmmodel.StatusEnabled,
+	})
+	for _, field := range fields {
+		if field == nil {
+			continue
+		}
+		if workflow.SubjectType == crmmodel.WorkflowSubjectLead && field.DataTemplateCateID != crmmodel.LeadDataTemplateCateID {
+			panicCrmField("form.form_id", "线索流程的资料模板只能包含线索信息字段。")
+		}
+		if workflow.SubjectType == crmmodel.WorkflowSubjectCustomerAsset && field.DataTemplateCateID == crmmodel.LeadDataTemplateCateID {
+			panicCrmField("form.form_id", "客户资产流程的资料模板不能包含线索信息字段。")
+		}
+	}
 }
 
 func validateConfigName(record map[string]any, partial bool, message string) {
@@ -151,10 +188,12 @@ func recordEnablesConfig(record map[string]any, partial bool) bool {
 
 func effectiveWorkflowConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
 	effective := map[string]any{
+		"subject_type":  crmmodel.WorkflowSubjectCustomerAsset,
 		"default_entry": false,
 	}
 	if partial {
 		if workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); workflow != nil {
+			effective["subject_type"] = workflow.SubjectType
 			effective["default_entry"] = workflow.DefaultEntry
 		}
 	}
@@ -164,9 +203,33 @@ func effectiveWorkflowConfig(ctx context.Context, record map[string]any, partial
 	return effective
 }
 
+func normalizeWorkflowSubjectType(ctx context.Context, record map[string]any, effective map[string]any, partial bool) {
+	subjectType := util.ToStringTrimmed(effective["subject_type"])
+	if !workflowSubjectTypes[subjectType] {
+		panicCrmField("form.subject_type", "请选择有效的流程对象。")
+	}
+	workflowID := util.ToUint64(record["id"])
+	if workflowID > 0 {
+		current := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": workflowID})
+		if current != nil && current.SubjectType != subjectType {
+			if current.DefaultEntry || crmmodel.NewStageModel().Count(ctx, map[string]any{"workflow_id": workflowID}) > 0 ||
+				crmmodel.NewWorkflowInstanceModel().Count(ctx, map[string]any{"workflow_id": workflowID}) > 0 ||
+				crmmodel.NewProductModel().Count(ctx, map[string]any{"service_workflow_id": workflowID}) > 0 {
+				panicCrmField("form.subject_type", "默认入口、已有阶段、运行记录或产品关联的流程不能更换流程对象；请新建流程。")
+			}
+		}
+	}
+	if shouldNormalizeCrmField(record, "subject_type", partial) {
+		record["subject_type"] = subjectType
+	}
+}
+
 func normalizeWorkflowDefaultEntry(ctx context.Context, record map[string]any, effective map[string]any, partial bool) {
 	workflowID := util.ToUint64(record["id"])
-	filters := map[string]any{"default_entry": true}
+	filters := map[string]any{
+		"subject_type":  util.ToStringTrimmed(effective["subject_type"]),
+		"default_entry": true,
+	}
 	if workflowID > 0 {
 		filters["id"] = map[string]any{"!=": workflowID}
 	}
@@ -180,6 +243,11 @@ func normalizeWorkflowDefaultEntry(ctx context.Context, record map[string]any, e
 	if shouldNormalizeCrmField(record, "default_entry", partial) || forced {
 		record["default_entry"] = isDefault
 		effective["default_entry"] = isDefault
+	}
+	if isDefault && workflowID > 0 {
+		if firstStage := firstEnabledStageForWorkflowSetting(ctx, workflowID); firstStage != nil && firstStage.AssignmentMode == crmmodel.StageAssignmentManual {
+			panicCrmField("form.default_entry", "入口流程首阶段必须使用自动分配。")
+		}
 	}
 	if isDefault && otherDefaultCount > 0 {
 		crmmodel.NewWorkflowModel().Update(ctx, filters, map[string]any{"default_entry": false})
@@ -233,12 +301,13 @@ func effectiveStageConfig(ctx context.Context, record map[string]any, partial bo
 	return effective
 }
 
-func serviceWorkflowStageWouldStartFirst(ctx context.Context, effective map[string]any) bool {
+func workflowStageRequiresAutomaticEntry(ctx context.Context, effective map[string]any) bool {
 	workflowID := util.ToUint64(effective["workflow_id"])
 	if workflowID == 0 || int16(util.ToIntDefault(effective["status"], int(crmmodel.StatusDisabled))) != crmmodel.StatusEnabled {
 		return false
 	}
-	if crmmodel.NewProductModel().Count(ctx, map[string]any{"service_workflow_id": workflowID}) == 0 {
+	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": workflowID})
+	if workflow == nil || !workflow.DefaultEntry && crmmodel.NewProductModel().Count(ctx, map[string]any{"service_workflow_id": workflowID}) == 0 {
 		return false
 	}
 	stageID := util.ToUint64(effective["id"])
@@ -255,6 +324,13 @@ func serviceWorkflowStageWouldStartFirst(ctx context.Context, effective map[stri
 		return candidateSort < firstStage.Sort
 	}
 	return stageID > 0 && stageID < firstStage.ID
+}
+
+func firstEnabledStageForWorkflowSetting(ctx context.Context, workflowID uint64) *crmmodel.Stage {
+	return crmmodel.NewStageModel().Find(ctx, map[string]any{
+		"workflow_id": workflowID,
+		"status":      crmmodel.StatusEnabled,
+	}, map[string]any{"order": "sort asc,id asc"})
 }
 
 func effectiveTaskConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
@@ -359,9 +435,10 @@ func (CrmHook) ProviderBeforeDeleteWorkflow(c *server.Context, params []any) any
 	}
 	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": id})
 	if workflow != nil && workflow.DefaultEntry && crmmodel.NewWorkflowModel().Count(ctx, map[string]any{
-		"id": map[string]any{"!=": id},
+		"id":           map[string]any{"!=": id},
+		"subject_type": workflow.SubjectType,
 	}) > 0 {
-		panicCrmField("form.id", "请先将另一个流程设为默认入口。")
+		panicCrmField("form.id", "请先将同一流程对象的另一个流程设为默认入口。")
 	}
 	if crmmodel.NewWorkflowInstanceModel().Count(ctx, map[string]any{"workflow_id": id, "status": crmmodel.ProgressStatusActive}) > 0 ||
 		crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{"workflow_id": id, "status": crmmodel.WorkTodoStatusPending}) > 0 {

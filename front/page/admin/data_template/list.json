@@ -130,10 +130,6 @@
             {
               "label": "客户资产",
               "value": 2
-            },
-            {
-              "label": "业务数据",
-              "value": 3
             }
           ]
         }
@@ -302,19 +298,15 @@
   },
   "data": {
     "search": {
-      "cate_id": 1
+      "cate_id": 4
     },
     "table": {
       "pageSize": 20,
       "defaultFilters": {
-        "cate_id": 1
+        "cate_id": 4
       },
-      "searchFields": [
-        "name"
-      ],
-      "filterFields": [
-        "cate_id"
-      ]
+      "searchFields": ["name"],
+      "filterFields": ["cate_id"]
     },
     "actionTarget": {
       "editDataTemplateId": ""

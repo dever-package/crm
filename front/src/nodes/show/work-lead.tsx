@@ -1,41 +1,70 @@
-import { useCallback, useEffect, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
-  Ban,
-  CheckCircle2,
+  ClipboardList,
+  Eye,
   Loader2,
   Plus,
   RefreshCw,
-  RotateCcw,
-  Search,
-  UserRoundPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { AssistantContextFormFillButton } from "@/components/assistant/form-actions";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import type {
+  AssistantFieldContext,
+  AssistantPageContext,
+} from "@/lib/assistant/context";
 
 import {
   displayText,
   errorMessage,
   formatWorkDate,
-  inputClassName,
+  readWorkListSearch,
+  setWorkModalOpen,
+  setWorkStoreValue,
   textValue,
   workApi,
+  workListSearchEvent,
   workRefreshEvent,
+  type WorkCustomer,
+  type WorkDetailField,
+  type WorkDetailSection,
+  type WorkFlowDetail,
+  type WorkNodeProps,
+  type WorkOperation,
+  type WorkTask,
 } from "./work-core";
 import {
+  openWorkLeadTask,
+  WorkCustomerOperationTimeline,
+} from "./work-auth";
+import { WorkListState } from "./work-list-state";
+import {
+  WorkCustomerDetailStyles,
+  WorkDetailSectionsData,
+  WorkDetailTabs,
+  workDetailValueEmpty,
+  type WorkDetailTab,
+} from "./work-customer-detail";
+import { useWorkFeedbackModalHeaderTarget } from "./work-feedback-modal";
+import { useWorkTaskStoreValue } from "./work-task-form-fields";
+import {
   initialWorkLeadTemplateValues,
+  workLeadTemplateFieldKey,
   WorkLeadTemplateFields,
   type WorkLeadTemplate,
+  type WorkLeadTemplateField,
 } from "./work-lead-template-fields";
 
 type WorkLeadOption = {
@@ -65,11 +94,21 @@ type WorkLead = {
   customer_code?: string;
   customer_code_display?: string;
   customer_name?: string;
+  workflow_id?: string | number;
+  workflow_instance_id?: string | number;
+  workflow_name?: string;
+  workflow_status?: string;
+  stage_name?: string;
+  owner_staff_name?: string;
   created_at?: string;
+  data_values?: Record<string, unknown>;
+  flow?: WorkFlowDetail;
 };
 
 type WorkLeadPoolResponse = {
   enabled?: boolean;
+  can_create?: boolean;
+  pending_count?: string | number;
   list?: WorkLead[];
   total?: string | number;
   sources?: WorkLeadOption[];
@@ -91,6 +130,56 @@ type LeadDraft = {
   dataValues: Record<string, unknown>;
 };
 
+type LeadDraftTextKey = Exclude<keyof LeadDraft, "dataValues">;
+
+const workLeadAssistantCoreFields: ReadonlyArray<{
+  key: LeadDraftTextKey;
+  name: string;
+  type: string;
+  placeholder?: string;
+  required?: boolean;
+}> = [
+  {
+    key: "name",
+    name: "姓名",
+    type: "form-input",
+    placeholder: "请输入姓名",
+    required: true,
+  },
+  {
+    key: "phone",
+    name: "手机号",
+    type: "form-input",
+    placeholder: "请输入手机号",
+  },
+  {
+    key: "wechat",
+    name: "微信号",
+    type: "form-input",
+    placeholder: "请输入微信号",
+  },
+  {
+    key: "city",
+    name: "城市",
+    type: "form-input",
+    placeholder: "请输入城市",
+  },
+  { key: "sourceID", name: "来源", type: "form-select" },
+  { key: "channelID", name: "渠道", type: "form-select" },
+  {
+    key: "externalID",
+    name: "外部线索ID",
+    type: "form-input",
+    placeholder: "请输入外部线索ID",
+  },
+  {
+    key: "initialNeed",
+    name: "初始诉求",
+    type: "form-textarea",
+    placeholder: "请输入初始诉求",
+  },
+];
+
 const emptyLeadDraft: LeadDraft = {
   name: "",
   phone: "",
@@ -103,24 +192,46 @@ const emptyLeadDraft: LeadDraft = {
   dataValues: {},
 };
 
-export function ShowCrmWorkLeadPool() {
+type WorkLeadEditorTarget = {
+  lead?: WorkLead | null;
+  sources?: WorkLeadOption[];
+  channels?: WorkLeadOption[];
+  templates?: WorkLeadTemplate[];
+  workflowID?: string;
+};
+
+const emptyWorkLeadEditorTarget: WorkLeadEditorTarget = {};
+const workLeadEditorTargetPath = "data.actionTarget.workLeadEditor";
+const workLeadEditorModalKey = "dialog.workLeadEditor";
+
+type WorkLeadDetailTarget = {
+  lead?: WorkLead | null;
+  options?: WorkLeadPoolResponse;
+};
+
+type WorkLeadOperationsResponse = {
+  list?: WorkOperation[];
+};
+
+const emptyWorkLeadDetailTarget: WorkLeadDetailTarget = {};
+const workLeadDetailTargetPath = "data.actionTarget.workLeadDetail";
+const workLeadDetailDrawerKey = "drawer.workLeadDetail";
+
+export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
+  const routeQuery = new URLSearchParams(window.location.search);
+  const workflowID = routeQuery.get("workflow_id") || "";
+  const routeKeyword = routeQuery.get("keyword") || "";
   const [leads, setLeads] = useState<WorkLead[]>([]);
   const [options, setOptions] = useState<WorkLeadPoolResponse>({});
-  const [keyword, setKeyword] = useState("");
-  const [activeKeyword, setActiveKeyword] = useState("");
-  const [status, setStatus] = useState("");
+  const [activeKeyword, setActiveKeyword] = useState(routeKeyword);
   const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [convertLead, setConvertLead] = useState<WorkLead | null>(null);
-  const [invalidLead, setInvalidLead] = useState<WorkLead | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
     try {
       const query = new URLSearchParams();
+      if (workflowID) query.set("workflow_id", workflowID);
       if (activeKeyword) query.set("keyword", activeKeyword);
-      if (status) query.set("status", status);
       const payload = await workApi<WorkLeadPoolResponse>(
         `/crm/work/leads${query.size ? `?${query.toString()}` : ""}`,
       );
@@ -131,47 +242,37 @@ export function ShowCrmWorkLeadPool() {
     } finally {
       setLoading(false);
     }
-  }, [activeKeyword, status]);
+  }, [activeKeyword, workflowID]);
 
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
 
   useEffect(() => {
-    const refresh = () => void loadLeads();
+    const search = (event: Event) => {
+      const detail = readWorkListSearch(event);
+      if (detail.workflowID && detail.workflowID !== workflowID) return;
+      setActiveKeyword(detail.keyword);
+    };
+    window.addEventListener(workListSearchEvent, search);
+    return () => window.removeEventListener(workListSearchEvent, search);
+  }, [workflowID]);
+
+  useEffect(() => {
+    const refresh = () => {
+      void loadLeads();
+    };
     window.addEventListener(workRefreshEvent, refresh);
     return () => window.removeEventListener(workRefreshEvent, refresh);
   }, [loadLeads]);
 
-  const actOnLead = async (lead: WorkLead, action: string, extra: Record<string, unknown> = {}) => {
-    const leadID = textValue(lead.id);
-    if (!leadID) return;
-    setSubmitting(true);
-    try {
-      const result = await workApi<{
-        converted?: boolean;
-        duplicate?: boolean;
-        message?: string;
-      }>("/crm/work/lead_action", {
-        method: "POST",
-        body: JSON.stringify({ lead_id: leadID, action, ...extra }),
-      });
-      if (result.duplicate) {
-        toast.error(result.message || "检测到重复客户或线索");
-      } else {
-        toast.success(leadActionSuccessText(action));
-      }
-      setConvertLead(null);
-      setInvalidLead(null);
-      await loadLeads();
-      if (result.converted) {
-        window.dispatchEvent(new CustomEvent(workRefreshEvent));
-      }
-    } catch (error) {
-      toast.error(errorMessage(error));
-    } finally {
-      setSubmitting(false);
-    }
+  const openLeadTask = (lead: WorkLead, task: WorkTask) => {
+    void openWorkLeadTask(
+      task,
+      workLeadTaskEntity(lead),
+      store,
+      lead.flow,
+    );
   };
 
   if (!loading && options.enabled === false) {
@@ -186,57 +287,37 @@ export function ShowCrmWorkLeadPool() {
     <div className="crm-work-lead-pool space-y-4">
       <WorkLeadPoolStyles />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted-foreground">待处理 {leadCountByStatus(leads, "pending")} 条，共 {Number(options.total) || leads.length} 条</p>
+        <p className="text-muted-foreground">
+          待办 {Number(options.pending_count) || 0} 项，共{" "}
+          {Number(options.total) || leads.length} 条线索
+        </p>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="ghost" size="icon" title="刷新" onClick={() => void loadLeads()} disabled={loading}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            title="刷新"
+            onClick={() => void loadLeads()}
+            disabled={loading}
+          >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
-          <Button type="button" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" />
-            录入线索
-          </Button>
+          {options.can_create ? (
+            <Button
+              type="button"
+              onClick={() =>
+                openWorkLeadEditor(store, options, workflowID, null)
+              }
+            >
+              <Plus className="h-4 w-4" />
+              录入线索
+            </Button>
+          ) : null}
         </div>
       </div>
 
       <section className="overflow-hidden bg-background">
-        <form
-          className="crm-work-lead-search-grid crm-work-lead-toolbar grid gap-2 px-3 py-2.5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setActiveKeyword(keyword.trim());
-          }}
-        >
-          <Input
-            className="w-full"
-            placeholder="姓名、手机、微信或线索编号"
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-          />
-          <select className={inputClassName} value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="">全部状态</option>
-            {(options.statuses || []).map((option) => (
-              <option key={textValue(option.id)} value={textValue(option.id)}>{displayText(option.name)}</option>
-            ))}
-          </select>
-          <Button type="submit" size="sm">
-            <Search className="h-4 w-4" />
-            搜索
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setKeyword("");
-              setActiveKeyword("");
-              setStatus("");
-            }}
-          >
-            重置
-          </Button>
-        </form>
-
-        <div className="mt-3 hidden overflow-x-auto md:block">
+        <div className="hidden overflow-x-auto md:block">
           <table className="crm-work-lead-table w-full min-w-[1060px] table-fixed border-collapse">
             <colgroup>
               <col style={{ width: "15%" }} />
@@ -259,250 +340,996 @@ export function ShowCrmWorkLeadPool() {
               </tr>
             </thead>
             <tbody>
-              {leads.map((lead) => <WorkLeadTableRow key={textValue(lead.id)} lead={lead} submitting={submitting} onAction={actOnLead} onConvert={setConvertLead} onInvalid={setInvalidLead} />)}
+              {leads.map((lead) => (
+                <WorkLeadTableRow
+                  key={textValue(lead.id)}
+                  lead={lead}
+                  onDetail={(currentLead) =>
+                    openWorkLeadDetail(
+                      store,
+                      options,
+                      currentLead,
+                    )
+                  }
+                  onTask={openLeadTask}
+                />
+              ))}
             </tbody>
           </table>
         </div>
 
-        <div className="mt-3 md:hidden">
-          {leads.map((lead) => <WorkLeadMobileRow key={textValue(lead.id)} lead={lead} submitting={submitting} onAction={actOnLead} onConvert={setConvertLead} onInvalid={setInvalidLead} />)}
+        <div className="md:hidden">
+          {leads.map((lead) => (
+            <WorkLeadMobileRow
+              key={textValue(lead.id)}
+              lead={lead}
+              onDetail={(currentLead) =>
+                openWorkLeadDetail(store, options, currentLead)
+              }
+              onTask={openLeadTask}
+            />
+          ))}
         </div>
 
         {!loading && leads.length === 0 ? (
-          <div className="px-4 py-14 text-center text-muted-foreground">暂无线索</div>
+          <WorkListState
+            title="暂无线索"
+            description="当前没有可查看的线索记录"
+          />
         ) : null}
         {loading && leads.length === 0 ? (
-          <div className="flex items-center justify-center px-4 py-14 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          <WorkListState
+            loading
+            title="正在加载线索"
+            description="正在同步最新的线索数据"
+          />
         ) : null}
       </section>
 
-      <ConvertLeadDialog
-        lead={convertLead}
-        submitting={submitting}
-        onClose={() => setConvertLead(null)}
-        onConfirm={() => {
-          if (convertLead) void actOnLead(convertLead, "convert");
-        }}
-      />
-      <CreateLeadDialog
-        open={createOpen}
-        sources={options.sources || []}
-        channels={options.channels || []}
-        templates={options.templates || []}
-        submitting={submitting}
-        onOpenChange={setCreateOpen}
-        onCreated={async () => {
-          setCreateOpen(false);
-          await loadLeads();
-        }}
-        setSubmitting={setSubmitting}
-      />
-      <InvalidateLeadDialog
-        lead={invalidLead}
-        reasons={options.invalid_reasons || []}
-        submitting={submitting}
-        onClose={() => setInvalidLead(null)}
-        onSubmit={(reasonID, note) => void actOnLead(invalidLead || {}, "invalid", { invalid_reason_id: reasonID, note })}
-      />
     </div>
   );
 }
 
-function WorkLeadTableRow({ lead, submitting, onAction, onConvert, onInvalid }: WorkLeadRowProps) {
+function WorkLeadTableRow({
+  lead,
+  onDetail,
+  onTask,
+}: WorkLeadRowProps) {
   return (
     <tr className="crm-work-lead-row align-top">
-      <td className="px-3 py-3"><LeadIdentity lead={lead} /></td>
-      <td className="px-3 py-3"><LeadContact lead={lead} /></td>
-      <td className="px-3 py-3"><div>{displayText(lead.source_name)}</div><div className="mt-1 text-xs text-muted-foreground">{displayText(lead.channel_name)}</div></td>
-      <td className="max-w-[260px] px-3 py-3"><div className="line-clamp-2 break-words">{displayText(lead.initial_need)}</div><div className="mt-1 text-xs text-muted-foreground">{displayText(lead.city)}</div></td>
-      <td className="px-3 py-3"><LeadStatus lead={lead} /></td>
-      <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">{formatWorkDate(lead.created_at)}</td>
-      <td className="px-3 py-3"><LeadActions lead={lead} submitting={submitting} onAction={onAction} onConvert={onConvert} onInvalid={onInvalid} /></td>
+      <td className="px-3 py-3">
+        <LeadIdentity lead={lead} />
+      </td>
+      <td className="px-3 py-3">
+        <LeadContact lead={lead} />
+      </td>
+      <td className="px-3 py-3">
+        <div>{displayText(lead.source_name)}</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {displayText(lead.channel_name)}
+        </div>
+      </td>
+      <td className="max-w-[260px] px-3 py-3">
+        <div className="line-clamp-2 break-words">
+          {displayText(lead.initial_need)}
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {displayText(lead.city)}
+        </div>
+      </td>
+      <td className="px-3 py-3">
+        <LeadStatus lead={lead} />
+      </td>
+      <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">
+        {formatWorkDate(lead.created_at)}
+      </td>
+      <td className="px-3 py-3">
+        <LeadActions
+          lead={lead}
+          onDetail={onDetail}
+          onTask={onTask}
+        />
+      </td>
     </tr>
   );
 }
 
-function WorkLeadMobileRow({ lead, submitting, onAction, onConvert, onInvalid }: WorkLeadRowProps) {
+function WorkLeadMobileRow({
+  lead,
+  onDetail,
+  onTask,
+}: WorkLeadRowProps) {
   return (
     <article className="crm-work-lead-mobile-row space-y-3 px-3 py-4">
-      <div className="flex min-w-0 items-start justify-between gap-3"><LeadIdentity lead={lead} /><LeadStatus lead={lead} /></div>
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <LeadIdentity lead={lead} />
+        <LeadStatus lead={lead} />
+      </div>
       <LeadContact lead={lead} />
-      <div className="text-muted-foreground">{displayText(lead.source_name)} · {displayText(lead.channel_name)} · {displayText(lead.city)}</div>
+      <div className="text-muted-foreground">
+        {displayText(lead.source_name)} · {displayText(lead.channel_name)} ·{" "}
+        {displayText(lead.city)}
+      </div>
       <p className="break-words">{displayText(lead.initial_need)}</p>
-      <LeadActions lead={lead} submitting={submitting} onAction={onAction} onConvert={onConvert} onInvalid={onInvalid} />
+      <LeadActions
+        lead={lead}
+        onDetail={onDetail}
+        onTask={onTask}
+      />
     </article>
   );
 }
 
 type WorkLeadRowProps = {
   lead: WorkLead;
-  submitting: boolean;
-  onAction: (lead: WorkLead, action: string, extra?: Record<string, unknown>) => Promise<void>;
-  onConvert: (lead: WorkLead) => void;
-  onInvalid: (lead: WorkLead) => void;
+  onDetail: (lead: WorkLead) => void;
+  onTask: (lead: WorkLead, task: WorkTask) => void;
 };
 
 function LeadIdentity({ lead }: { lead: WorkLead }) {
-  return <div className="min-w-0"><div className="break-words font-medium">{displayText(lead.name)}</div><div className="mt-1 text-xs text-muted-foreground">{displayText(lead.code)}</div></div>;
+  return (
+    <div className="min-w-0">
+      <div className="break-words font-medium">{displayText(lead.name)}</div>
+      <div className="mt-1 text-xs text-muted-foreground">
+        {displayText(lead.code)}
+      </div>
+    </div>
+  );
 }
 
 function LeadContact({ lead }: { lead: WorkLead }) {
-  return <div><div>{displayText(lead.phone)}</div><div className="mt-1 text-xs text-muted-foreground">微信 {displayText(lead.wechat)}</div></div>;
+  return (
+    <div>
+      <div>{displayText(lead.phone)}</div>
+      <div className="mt-1 text-xs text-muted-foreground">
+        微信 {displayText(lead.wechat)}
+      </div>
+    </div>
+  );
+}
+
+function workLeadTaskEntity(lead: WorkLead): WorkCustomer {
+  return {
+    code: lead.code,
+    name: lead.name,
+    phone: lead.phone,
+    wechat: lead.wechat,
+    source_id: lead.source_id,
+    channel_id: lead.channel_id,
+    external_id: lead.external_id,
+    city: lead.city,
+    initial_need: lead.initial_need,
+    data_values: lead.data_values,
+  };
 }
 
 function LeadStatus({ lead }: { lead: WorkLead }) {
-  const status = textValue(lead.status);
+  const status = workLeadEffectiveStatus(lead);
   return (
     <div className="max-w-[240px]">
-      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${leadStatusClass(status)}`}>{displayText(lead.status_name)}</span>
-      {lead.duplicate_reason ? <p className="mt-1 break-words text-xs text-amber-700">{lead.duplicate_reason}</p> : null}
-      {lead.invalid_reason_name ? <p className="mt-1 break-words text-xs text-muted-foreground">{lead.invalid_reason_name}{lead.invalid_note ? `：${lead.invalid_note}` : ""}</p> : null}
-      {status === "converted" ? <p className="mt-1 break-words text-xs text-muted-foreground">{displayText(lead.customer_code_display || lead.customer_code || lead.customer_name)}</p> : null}
+      <span
+        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${leadStatusClass(status)}`}
+      >
+        {workLeadEffectiveStatusName(lead)}
+      </span>
+      {lead.stage_name ? (
+        <p className="mt-1 break-words text-xs text-muted-foreground">
+          {lead.stage_name}
+          {lead.owner_staff_name ? ` · ${lead.owner_staff_name}` : ""}
+        </p>
+      ) : null}
+      {lead.duplicate_reason ? (
+        <p className="mt-1 break-words text-xs text-amber-700">
+          {lead.duplicate_reason}
+        </p>
+      ) : null}
+      {lead.invalid_reason_name ? (
+        <p className="mt-1 break-words text-xs text-muted-foreground">
+          {lead.invalid_reason_name}
+          {lead.invalid_note ? `：${lead.invalid_note}` : ""}
+        </p>
+      ) : null}
+      {status === "converted" ? (
+        <p className="mt-1 break-words text-xs text-muted-foreground">
+          {displayText(
+            lead.customer_code_display ||
+              lead.customer_code ||
+              lead.customer_name,
+          )}
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function LeadActions({ lead, submitting, onAction, onConvert, onInvalid }: WorkLeadRowProps) {
-  const status = textValue(lead.status);
+function LeadActions({
+  lead,
+  onDetail,
+  onTask,
+}: WorkLeadRowProps) {
+  const status = workLeadEffectiveStatus(lead);
+  const flow = lead.flow;
+  const tasks = workLeadOperableTasks(flow);
   return (
     <div className="flex flex-wrap justify-end gap-2">
       {status === "pending" ? (
-        <>
-          <Button type="button" size="sm" disabled={submitting} onClick={() => onConvert(lead)}><UserRoundPlus className="h-4 w-4" />转客户</Button>
-          <Button type="button" variant="ghost" size="sm" disabled={submitting} onClick={() => onInvalid(lead)}><Ban className="h-4 w-4" />判无效</Button>
-        </>
+        tasks.map((task) => (
+          <Button
+            key={textValue(task.todo_id || task.id)}
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onTask(lead, task)}
+          >
+            <ClipboardList className="h-4 w-4" />
+            {displayText(task.task_name || task.name, "处理任务")}
+          </Button>
+        ))
       ) : null}
-      {status === "invalid" ? (
-        <Button type="button" variant="ghost" size="sm" disabled={submitting} onClick={() => void onAction(lead, "reopen")}><RotateCcw className="h-4 w-4" />重新处理</Button>
-      ) : null}
-      {status === "converted" ? <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" />已转化</span> : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => onDetail(lead)}
+      >
+        <Eye className="h-4 w-4" />
+        详情
+      </Button>
     </div>
   );
 }
 
-function ConvertLeadDialog({ lead, submitting, onClose, onConfirm }: {
-  lead: WorkLead | null;
-  submitting: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Dialog open={Boolean(lead)} onOpenChange={(open) => !open && !submitting && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>转为客户</DialogTitle>
-          <DialogDescription>
-            确认将“{displayText(lead?.name)}”转为客户并创建资产？转化后可在客户列表继续处理。
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button type="button" variant="outline" disabled={submitting} onClick={onClose}>取消</Button>
-          <Button type="button" disabled={submitting} onClick={onConfirm}>
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundPlus className="h-4 w-4" />}
-            确认转客户
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+function workLeadOperableTasks(flow?: WorkFlowDetail): WorkTask[] {
+  return (flow?.tasks || []).filter(
+    (task) => task.can_operate && textValue(task.task_type) !== "rule",
   );
 }
 
-function CreateLeadDialog({ open, sources, channels, templates, submitting, onOpenChange, onCreated, setSubmitting }: {
-  open: boolean;
-  sources: WorkLeadOption[];
-  channels: WorkLeadOption[];
-  templates: WorkLeadTemplate[];
-  submitting: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCreated: () => Promise<void>;
-  setSubmitting: (value: boolean) => void;
-}) {
-  const [draft, setDraft] = useState<LeadDraft>(emptyLeadDraft);
+function workLeadHasCustomer(lead?: WorkLead | null): boolean {
+  const customerID = Number(lead?.customer_id);
+  return (
+    (Number.isFinite(customerID) && customerID > 0) ||
+    Boolean(
+      textValue(
+        lead?.customer_code_display ||
+          lead?.customer_code ||
+          lead?.customer_name,
+      ),
+    )
+  );
+}
+
+function workLeadEffectiveStatus(lead?: WorkLead | null): string {
+  return workLeadHasCustomer(lead) ? "converted" : textValue(lead?.status);
+}
+
+function workLeadEffectiveStatusName(lead?: WorkLead | null): string {
+  return workLeadHasCustomer(lead)
+    ? "已转化"
+    : displayText(lead?.status_name);
+}
+
+function openWorkLeadDetail(
+  store: WorkNodeProps["store"],
+  options: WorkLeadPoolResponse,
+  lead: WorkLead,
+) {
+  const target: WorkLeadDetailTarget = { lead, options };
+  setWorkStoreValue(store, workLeadDetailTargetPath, target);
+  setWorkStoreValue(
+    store,
+    "data.actionTarget.workLeadDetailTitle",
+    `${displayText(lead.name)} · ${workLeadEffectiveStatusName(lead)}`,
+  );
+  setWorkStoreValue(
+    store,
+    "data.actionTarget.workLeadDetailDescription",
+    `${displayText(lead.code)} · ${displayText(lead.phone)}`,
+  );
+  setWorkModalOpen(store, workLeadDetailDrawerKey, true);
+}
+
+export function ShowCrmWorkLeadDetail({ store }: WorkNodeProps) {
+  const target = useWorkTaskStoreValue<WorkLeadDetailTarget>(
+    store,
+    workLeadDetailTargetPath,
+    emptyWorkLeadDetailTarget,
+  );
+  const lead = target.lead || null;
+  const options = target.options || {};
+  const flow = lead?.flow;
+  const workflowInstanceID = textValue(
+    flow?.workflow_instance_id || flow?.id || lead?.workflow_instance_id,
+  );
+  const [activeTab, setActiveTab] = useState<WorkDetailTab>("records");
+  const [operations, setOperations] = useState<WorkOperation[]>([]);
+  const [operationsLoading, setOperationsLoading] = useState(false);
+  const [operationScope, setOperationScope] = useState<"all" | "mine">(
+    "all",
+  );
+  const sections = useMemo(
+    () => (lead ? workLeadDetailSections(lead, options.templates || []) : []),
+    [lead, options.templates],
+  );
+  useEffect(() => {
+    setActiveTab("records");
+    setOperationScope("all");
+  }, [lead?.id]);
 
   useEffect(() => {
-    if (!open) return;
-    setDraft({
-      ...emptyLeadDraft,
-      sourceID: textValue(sources[0]?.id),
-      channelID: textValue(channels[0]?.id),
-      dataValues: initialWorkLeadTemplateValues(templates),
+    let cancelled = false;
+    setOperations([]);
+    if (!workflowInstanceID) {
+      setOperationsLoading(false);
+      return;
+    }
+    setOperationsLoading(true);
+    const query = new URLSearchParams({
+      workflow_instance_id: workflowInstanceID,
     });
-  }, [channels, open, sources, templates]);
+    void workApi<WorkLeadOperationsResponse>(
+      `/crm/work/operations?${query.toString()}`,
+    )
+      .then((payload) => {
+        if (!cancelled) setOperations(payload.list || []);
+      })
+      .catch((error) => {
+        if (!cancelled) toast.error(errorMessage(error));
+      })
+      .finally(() => {
+        if (!cancelled) setOperationsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workflowInstanceID]);
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  useEffect(() => {
+    const closeOnRefresh = () => {
+      setWorkModalOpen(store, workLeadDetailDrawerKey, false);
+    };
+    window.addEventListener(workRefreshEvent, closeOnRefresh);
+    return () => window.removeEventListener(workRefreshEvent, closeOnRefresh);
+  }, [store]);
+
+  if (!lead) {
+    return <div className="py-10 text-center text-sm text-muted-foreground">暂无线索详情</div>;
+  }
+
+  return (
+    <div className="grid gap-5">
+      <WorkCustomerDetailStyles />
+      <WorkDetailTabs activeTab={activeTab} onChange={setActiveTab} />
+
+      <div>
+        {activeTab === "records" ? (
+          <WorkCustomerOperationTimeline
+            operations={operations}
+            loading={operationsLoading}
+            scope={operationScope}
+            onScopeChange={setOperationScope}
+            store={store}
+            loadingText="正在加载记录"
+            emptyText="暂无记录"
+          />
+        ) : (
+          <WorkDetailSectionsData sections={sections} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function workLeadDetailSections(
+  lead: WorkLead,
+  templates: WorkLeadTemplate[],
+): WorkDetailSection[] {
+  const baseFields: WorkDetailField[] = [
+    workLeadDetailField("name", "姓名", lead.name),
+    workLeadDetailField("phone", "手机号", lead.phone),
+    workLeadDetailField("wechat", "微信号", lead.wechat),
+    workLeadDetailField("city", "城市", lead.city),
+    workLeadDetailField("source", "来源", lead.source_name),
+    workLeadDetailField("channel", "渠道", lead.channel_name),
+    workLeadDetailField("external", "外部线索ID", lead.external_id),
+    workLeadDetailField("created", "录入时间", formatWorkDate(lead.created_at)),
+    workLeadDetailField("need", "初始诉求", lead.initial_need),
+  ];
+  if (lead.invalid_reason_name) {
+    baseFields.push(
+      workLeadDetailField("invalid", "无效原因", lead.invalid_reason_name),
+    );
+  }
+  if (lead.invalid_note) {
+    baseFields.push(
+      workLeadDetailField("invalid-note", "无效说明", lead.invalid_note),
+    );
+  }
+  if (lead.duplicate_reason) {
+    baseFields.push(
+      workLeadDetailField("duplicate", "重复说明", lead.duplicate_reason),
+    );
+  }
+  const customerCode =
+    lead.customer_code_display || lead.customer_code || lead.customer_name;
+  if (customerCode) {
+    baseFields.push(
+      workLeadDetailField("customer", "客户编号", customerCode),
+    );
+  }
+  const sections = [
+    workLeadDetailSection("lead:base", "线索基础信息", baseFields),
+  ];
+  const values = lead.data_values || {};
+
+  templates.forEach((template, templateIndex) => {
+    const fields = (template.fields || []).flatMap((field) => {
+      const key = workLeadTemplateFieldKey(field);
+      if (!key) return [];
+      const value = values[key];
+      const fileValue = workLeadDetailFieldIsFile(field) ? value : undefined;
+      return [
+        workLeadDetailField(
+          key,
+          displayText(field.name, "扩展字段"),
+          workLeadDetailTemplateValue(field, value),
+          field.group_name,
+          fileValue,
+        ),
+      ];
+    });
+    if (fields.length === 0) return;
+    sections.push(
+      workLeadDetailSection(
+        `lead:template:${textValue(template.id) || templateIndex}`,
+        displayText(template.name, "线索扩展信息"),
+        fields,
+        template.id,
+      ),
+    );
+  });
+
+  return sections;
+}
+
+function workLeadDetailSection(
+  id: string,
+  name: string,
+  fields: WorkDetailField[],
+  templateId?: string | number,
+): WorkDetailSection {
+  const filled = fields.filter((field) => !field.empty).length;
+  const total = fields.length;
+  return {
+    id,
+    name,
+    targetType: "lead",
+    templateId,
+    filled,
+    total,
+    percent: total ? Math.round((filled / total) * 100) : 0,
+    fields,
+  };
+}
+
+function workLeadDetailField(
+  key: string,
+  label: string,
+  value: unknown,
+  group?: string,
+  files?: unknown,
+): WorkDetailField {
+  const fileItems = Array.isArray(files) ? files : files ? [files] : [];
+  const isFile = fileItems.length > 0;
+  const empty = isFile
+    ? fileItems.length === 0
+    : workDetailValueEmpty(value);
+  return {
+    key,
+    label,
+    value,
+    group,
+    valueType: isFile ? "files" : "text",
+    files: fileItems,
+    empty,
+  };
+}
+
+function workLeadDetailFieldIsFile(field: WorkLeadTemplateField): boolean {
+  return ["file", "files", "upload"].includes(textValue(field.field_type));
+}
+
+function workLeadDetailTemplateValue(
+  field: WorkLeadTemplateField,
+  value: unknown,
+): unknown {
+  if (typeof value === "boolean") return value ? "是" : "否";
+  const selected = Array.isArray(value)
+    ? value.map(textValue)
+    : [textValue(value)];
+  if (selected.length === 0 || selected.every((item) => !item)) return value;
+  return selected
+    .map((item) => {
+      const option = (field.options || []).find(
+        (current) => textValue(current.value || current.id) === item,
+      );
+      return displayText(option?.name || option?.value, item);
+    })
+    .join("、");
+}
+
+function openWorkLeadEditor(
+  store: WorkNodeProps["store"],
+  options: WorkLeadPoolResponse,
+  workflowID: string,
+  lead: WorkLead | null,
+) {
+  const editing = Boolean(lead?.id);
+  const target: WorkLeadEditorTarget = {
+    lead,
+    sources: options.sources || [],
+    channels: options.channels || [],
+    templates: options.templates || [],
+    workflowID,
+  };
+  setWorkStoreValue(store, workLeadEditorTargetPath, target);
+  setWorkStoreValue(
+    store,
+    "data.actionTarget.workLeadEditorTitle",
+    editing ? "编辑线索" : "录入线索",
+  );
+  setWorkStoreValue(
+    store,
+    "data.actionTarget.workLeadEditorDescription",
+    editing
+      ? "修改线索资料，保存时会重新检查联系方式是否重复。"
+      : "录入基本联系方式和初始诉求，系统会自动检查重复。",
+  );
+  setWorkModalOpen(store, workLeadEditorModalKey, true);
+}
+
+export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
+  const target = useWorkTaskStoreValue<WorkLeadEditorTarget>(
+    store,
+    workLeadEditorTargetPath,
+    emptyWorkLeadEditorTarget,
+  );
+  const lead = target.lead || null;
+  const sources = target.sources || [];
+  const channels = target.channels || [];
+  const templates = target.templates || [];
+  const editing = Boolean(lead?.id);
+  const [draft, setDraft] = useState<LeadDraft>(() =>
+    buildWorkLeadDraft(target),
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const aiHeaderTarget = useWorkFeedbackModalHeaderTarget(contentRef);
+  const assistantContext = useMemo(
+    () =>
+      buildWorkLeadAssistantContext({
+        editing,
+        draft,
+        sources,
+        channels,
+        templates,
+      }),
+    [channels, draft, editing, sources, templates],
+  );
+
+  const applyAssistantValues = useCallback(
+    (values: Record<string, unknown>) => {
+      setDraft((current) =>
+        applyWorkLeadAssistantValues(current, templates, values),
+      );
+    },
+    [templates],
+  );
+
+  useEffect(() => {
+    setDraft(buildWorkLeadDraft(target));
+  }, [target]);
+
+  const submit = useCallback(async () => {
+    if (
+      submitting ||
+      !draft.name.trim() ||
+      (!draft.phone.trim() && !draft.wechat.trim())
+    ) {
+      return;
+    }
     setSubmitting(true);
     try {
-      const payload = await workApi<{ lead?: WorkLead }>("/crm/work/create_lead", {
-        method: "POST",
-        body: JSON.stringify({
-          name: draft.name,
-          phone: draft.phone,
-          wechat: draft.wechat,
-          source_id: draft.sourceID,
-          channel_id: draft.channelID,
-          external_id: draft.externalID,
-          city: draft.city,
-          initial_need: draft.initialNeed,
-          data_values: draft.dataValues,
-        }),
-      });
-      toast.success(textValue(payload.lead?.status) === "duplicate" ? "线索已录入，并标记为重复" : "线索已录入");
-      await onCreated();
+      const payload = await workApi<{ lead?: WorkLead }>(
+        editing ? "/crm/work/lead_action" : "/crm/work/create_lead",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            lead_id: editing ? lead?.id : undefined,
+            action: editing ? "update" : undefined,
+            name: draft.name,
+            phone: draft.phone,
+            wechat: draft.wechat,
+            source_id: draft.sourceID,
+            channel_id: draft.channelID,
+            external_id: draft.externalID,
+            city: draft.city,
+            initial_need: draft.initialNeed,
+            data_values: draft.dataValues,
+            workflow_id: target.workflowID,
+          }),
+        },
+      );
+      toast.success(
+        editing
+          ? "线索已更新"
+          : textValue(payload.lead?.status) === "duplicate"
+            ? "线索已录入，并标记为重复"
+            : "线索已录入",
+      );
+      setWorkModalOpen(store, workLeadEditorModalKey, false);
+      window.dispatchEvent(new CustomEvent(workRefreshEvent));
     } catch (error) {
-      toast.error(errorMessage(error, "线索录入失败"));
+      toast.error(
+        errorMessage(error, editing ? "线索更新失败" : "线索录入失败"),
+      );
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [draft, editing, lead?.id, store, submitting, target.workflowID]);
+
+  useEffect(() => {
+    const form = contentRef.current?.closest("form");
+    if (!form) return undefined;
+    const handleSubmit = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void submit();
+    };
+    form.addEventListener("submit", handleSubmit);
+    return () => form.removeEventListener("submit", handleSubmit);
+  }, [submit]);
+
+  useEffect(() => {
+    const form = contentRef.current?.closest("form");
+    const submitButton = form?.querySelector<HTMLButtonElement>(
+      'button[type="submit"]',
+    );
+    if (!submitButton) return undefined;
+    const previousDisabled = submitButton.disabled;
+    submitButton.disabled =
+      submitting ||
+      !draft.name.trim() ||
+      (!draft.phone.trim() && !draft.wechat.trim());
+    return () => {
+      submitButton.disabled = previousDisabled;
+    };
+  }, [draft.name, draft.phone, draft.wechat, submitting]);
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !submitting && onOpenChange(nextOpen)}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader><DialogTitle>录入线索</DialogTitle><DialogDescription>录入基本联系方式和初始诉求，系统会自动检查重复。</DialogDescription></DialogHeader>
-        <form className="grid gap-4 sm:grid-cols-2" onSubmit={(event) => void submit(event)}>
-          <LeadField label="姓名" required><Input placeholder="请输入姓名" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></LeadField>
-          <LeadField label="手机号"><Input placeholder="请输入手机号" value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></LeadField>
-          <LeadField label="微信号"><Input placeholder="请输入微信号" value={draft.wechat} onChange={(event) => setDraft({ ...draft, wechat: event.target.value })} /></LeadField>
-          <LeadField label="城市"><Input placeholder="请输入城市" value={draft.city} onChange={(event) => setDraft({ ...draft, city: event.target.value })} /></LeadField>
-          <LeadField label="来源"><select className={inputClassName} value={draft.sourceID} onChange={(event) => setDraft({ ...draft, sourceID: event.target.value })}>{sources.map((option) => <option key={textValue(option.id)} value={textValue(option.id)}>{displayText(option.name)}</option>)}</select></LeadField>
-          <LeadField label="渠道"><select className={inputClassName} value={draft.channelID} onChange={(event) => setDraft({ ...draft, channelID: event.target.value })}>{channels.map((option) => <option key={textValue(option.id)} value={textValue(option.id)}>{displayText(option.name)}</option>)}</select></LeadField>
-          <LeadField label="外部线索ID"><Input placeholder="请输入外部线索ID" value={draft.externalID} onChange={(event) => setDraft({ ...draft, externalID: event.target.value })} /></LeadField>
-          <LeadField label="初始诉求" className="crm-work-lead-form-wide"><textarea className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20" placeholder="请输入初始诉求" value={draft.initialNeed} onChange={(event) => setDraft({ ...draft, initialNeed: event.target.value })} /></LeadField>
-          <WorkLeadTemplateFields
-            templates={templates}
-            values={draft.dataValues}
-            onChange={(dataValues) => setDraft({ ...draft, dataValues })}
+    <>
+      {aiHeaderTarget
+        ? createPortal(
+            <AssistantContextFormFillButton
+              context={assistantContext}
+              variant="ghost"
+              size="icon"
+              className="crm-work-ai-icon -mt-2 size-8 shrink-0 self-start p-0 text-muted-foreground"
+              disabled={submitting}
+              overwrite
+              onApplyValues={applyAssistantValues}
+            />,
+            aiHeaderTarget,
+          )
+        : null}
+      <div ref={contentRef} className="grid gap-4 sm:grid-cols-2">
+        <LeadField label="姓名" required>
+          <Input
+            placeholder="请输入姓名"
+            value={draft.name}
+            onChange={(event) =>
+              setDraft({ ...draft, name: event.target.value })
+            }
           />
-          <div className="crm-work-lead-form-actions"><Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>取消</Button><Button type="submit" disabled={submitting || !draft.name.trim() || (!draft.phone.trim() && !draft.wechat.trim())}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}确认录入</Button></div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </LeadField>
+        <LeadField label="手机号">
+          <Input
+            placeholder="请输入手机号"
+            value={draft.phone}
+            onChange={(event) =>
+              setDraft({ ...draft, phone: event.target.value })
+            }
+          />
+        </LeadField>
+        <LeadField label="微信号">
+          <Input
+            placeholder="请输入微信号"
+            value={draft.wechat}
+            onChange={(event) =>
+              setDraft({ ...draft, wechat: event.target.value })
+            }
+          />
+        </LeadField>
+        <LeadField label="城市">
+          <Input
+            placeholder="请输入城市"
+            value={draft.city}
+            onChange={(event) =>
+              setDraft({ ...draft, city: event.target.value })
+            }
+          />
+        </LeadField>
+        <LeadField label="来源">
+          <Select
+            value={draft.sourceID}
+            onValueChange={(sourceID) => setDraft({ ...draft, sourceID })}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="请选择来源" />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              {sources
+                .filter((option) => textValue(option.id))
+                .map((option) => (
+                  <SelectItem
+                    key={textValue(option.id)}
+                    value={textValue(option.id)}
+                  >
+                    {displayText(option.name)}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </LeadField>
+        <LeadField label="渠道">
+          <Select
+            value={draft.channelID}
+            onValueChange={(channelID) => setDraft({ ...draft, channelID })}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="请选择渠道" />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              {channels
+                .filter((option) => textValue(option.id))
+                .map((option) => (
+                  <SelectItem
+                    key={textValue(option.id)}
+                    value={textValue(option.id)}
+                  >
+                    {displayText(option.name)}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </LeadField>
+        <LeadField label="外部线索ID">
+          <Input
+            placeholder="请输入外部线索ID"
+            value={draft.externalID}
+            onChange={(event) =>
+              setDraft({ ...draft, externalID: event.target.value })
+            }
+          />
+        </LeadField>
+        <LeadField label="初始诉求" className="crm-work-lead-form-wide">
+          <Textarea
+            className="min-h-24 resize-y"
+            placeholder="请输入初始诉求"
+            value={draft.initialNeed}
+            onChange={(event) =>
+              setDraft({ ...draft, initialNeed: event.target.value })
+            }
+          />
+        </LeadField>
+        <WorkLeadTemplateFields
+          templates={templates}
+          values={draft.dataValues}
+          onChange={(dataValues) => setDraft({ ...draft, dataValues })}
+        />
+      </div>
+    </>
   );
 }
 
-function InvalidateLeadDialog({ lead, reasons, submitting, onClose, onSubmit }: {
-  lead: WorkLead | null;
-  reasons: WorkLeadOption[];
-  submitting: boolean;
-  onClose: () => void;
-  onSubmit: (reasonID: string, note: string) => void;
-}) {
-  const [reasonID, setReasonID] = useState("");
-  const [note, setNote] = useState("");
-  useEffect(() => { if (lead) { setReasonID(textValue(reasons[0]?.id)); setNote(""); } }, [lead, reasons]);
-  return (
-    <Dialog open={Boolean(lead)} onOpenChange={(open) => !open && !submitting && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>判为无效线索</DialogTitle><DialogDescription>{displayText(lead?.name)} · {displayText(lead?.phone)}</DialogDescription></DialogHeader>
-        <div className="space-y-5">
-          <LeadField label="无效原因" required><select className={inputClassName} value={reasonID} onChange={(event) => setReasonID(event.target.value)}>{reasons.map((option) => <option key={textValue(option.id)} value={textValue(option.id)}>{displayText(option.name)}</option>)}</select></LeadField>
-          <LeadField label="补充说明"><textarea className="min-h-20 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20" value={note} onChange={(event) => setNote(event.target.value)} /></LeadField>
-          <DialogFooter className="pt-1"><Button type="button" variant="outline" disabled={submitting} onClick={onClose}>取消</Button><Button type="button" variant="destructive" disabled={submitting || !reasonID} onClick={() => onSubmit(reasonID, note)}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}确认无效</Button></DialogFooter>
-        </div>
-      </DialogContent>
-    </Dialog>
+function buildWorkLeadAssistantContext({
+  editing,
+  draft,
+  sources,
+  channels,
+  templates,
+}: {
+  editing: boolean;
+  draft: LeadDraft;
+  sources: WorkLeadOption[];
+  channels: WorkLeadOption[];
+  templates: WorkLeadTemplate[];
+}): AssistantPageContext {
+  const fields: AssistantFieldContext[] = workLeadAssistantCoreFields.map(
+    (field) => ({
+      path: `form.${field.key}`,
+      name: field.name,
+      type: field.type,
+      required: field.required,
+      placeholder: field.placeholder,
+      options: workLeadAssistantOptions(field.key, sources, channels),
+    }),
   );
+  const values: Record<string, unknown> = {};
+  workLeadAssistantCoreFields.forEach((field) => {
+    setWorkLeadAssistantCurrentValue(
+      values,
+      `form.${field.key}`,
+      draft[field.key],
+    );
+  });
+
+  templates.forEach((template) => {
+    (template.fields || []).forEach((field) => {
+      const key = workLeadTemplateFieldKey(field);
+      if (!key) return;
+      const path = `form.dataValues.${key}`;
+      fields.push({
+        path,
+        name: field.group_name
+          ? `${field.group_name} - ${displayText(field.name, "扩展字段")}`
+          : displayText(field.name, "扩展字段"),
+        type: workLeadAssistantTemplateFieldType(field),
+        options: workLeadAssistantTemplateOptions(field),
+      });
+      setWorkLeadAssistantCurrentValue(values, path, draft.dataValues[key]);
+    });
+  });
+
+  return {
+    scope: "modal",
+    route: window.location.pathname,
+    page: {
+      name: editing ? "编辑线索" : "录入线索",
+      title: editing ? "编辑线索" : "录入线索",
+    },
+    form: { fields, values },
+  };
+}
+
+function applyWorkLeadAssistantValues(
+  current: LeadDraft,
+  templates: WorkLeadTemplate[],
+  values: Record<string, unknown>,
+): LeadDraft {
+  const next: LeadDraft = {
+    ...current,
+    dataValues: { ...current.dataValues },
+  };
+  const coreFields = new Map<string, LeadDraftTextKey>(
+    workLeadAssistantCoreFields.map((field) => [
+      `form.${field.key}`,
+      field.key,
+    ] as [string, LeadDraftTextKey]),
+  );
+  const templateFields = new Map<string, WorkLeadTemplateField>();
+  templates.forEach((template) => {
+    (template.fields || []).forEach((field) => {
+      const key = workLeadTemplateFieldKey(field);
+      if (key) templateFields.set(key, field);
+    });
+  });
+
+  Object.entries(values).forEach(([rawPath, value]) => {
+    const path = normalizeWorkLeadAssistantPath(rawPath);
+    const coreKey = coreFields.get(path);
+    if (coreKey) {
+      next[coreKey] = textValue(value);
+      return;
+    }
+    const dataPrefix = "form.dataValues.";
+    if (!path.startsWith(dataPrefix)) return;
+    const fieldKey = path.slice(dataPrefix.length);
+    const field = templateFields.get(fieldKey);
+    if (!field) return;
+    next.dataValues[fieldKey] = normalizeWorkLeadAssistantTemplateValue(
+      field,
+      value,
+    );
+  });
+
+  return next;
+}
+
+function workLeadAssistantOptions(
+  key: LeadDraftTextKey,
+  sources: WorkLeadOption[],
+  channels: WorkLeadOption[],
+) {
+  const options =
+    key === "sourceID" ? sources : key === "channelID" ? channels : [];
+  if (options.length === 0) return undefined;
+  return options.map((option) => ({
+    id: textValue(option.id),
+    value: displayText(option.name),
+  }));
+}
+
+function workLeadAssistantTemplateOptions(field: WorkLeadTemplateField) {
+  const options = field.options || [];
+  if (options.length === 0) return undefined;
+  return options.map((option) => ({
+    id: textValue(option.value || option.id),
+    value: displayText(option.name || option.value),
+  }));
+}
+
+function workLeadAssistantTemplateFieldType(
+  field: WorkLeadTemplateField,
+): string {
+  const fieldType = textValue(field.field_type);
+  if (fieldType === "textarea") return "form-textarea";
+  if (fieldType === "select" || fieldType === "radio") return "form-select";
+  if (fieldType === "checkbox" || fieldType === "multi_select") {
+    return "form-checkbox";
+  }
+  if (fieldType === "boolean") return "form-switch";
+  if (fieldType === "number" || fieldType === "money") return "form-number";
+  if (fieldType === "date" || fieldType === "datetime") return "form-date";
+  return "form-input";
+}
+
+function normalizeWorkLeadAssistantTemplateValue(
+  field: WorkLeadTemplateField,
+  value: unknown,
+): unknown {
+  const fieldType = textValue(field.field_type);
+  if (fieldType === "boolean") {
+    if (typeof value === "boolean") return value;
+    return ["1", "true", "yes", "是"].includes(textValue(value).toLowerCase());
+  }
+  if (fieldType === "checkbox" || fieldType === "multi_select") {
+    if (Array.isArray(value)) return value.map(textValue).filter(Boolean);
+    return textValue(value)
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  return value;
+}
+
+function setWorkLeadAssistantCurrentValue(
+  values: Record<string, unknown>,
+  path: string,
+  value: unknown,
+) {
+  if (value === undefined || value === null || value === "") return;
+  if (Array.isArray(value) && value.length === 0) return;
+  values[path] = value;
+}
+
+function normalizeWorkLeadAssistantPath(path: string): string {
+  return String(path || "")
+    .trim()
+    .replace(/^data\.form\./, "form.")
+    .replace(/^data\./, "");
+}
+
+function buildWorkLeadDraft(target: WorkLeadEditorTarget): LeadDraft {
+  const lead = target.lead;
+  const sources = target.sources || [];
+  const channels = target.channels || [];
+  const templates = target.templates || [];
+  return {
+    ...emptyLeadDraft,
+    name: textValue(lead?.name),
+    phone: textValue(lead?.phone),
+    wechat: textValue(lead?.wechat),
+    sourceID: textValue(lead?.source_id || sources[0]?.id),
+    channelID: textValue(lead?.channel_id || channels[0]?.id),
+    externalID: textValue(lead?.external_id),
+    city: textValue(lead?.city),
+    initialNeed: textValue(lead?.initial_need),
+    dataValues: {
+      ...initialWorkLeadTemplateValues(templates),
+      ...(lead?.data_values || {}),
+    },
+  };
 }
 
 function WorkLeadPoolStyles() {
@@ -521,19 +1348,8 @@ function WorkLeadPoolStyles() {
         font-size: 12.8px;
       }
 
-      .crm-work-lead-search-grid {
-        grid-template-columns: minmax(260px, 300px) 180px auto auto;
-        align-items: center;
-        justify-content: start;
-      }
-
-      .crm-work-lead-toolbar,
       .crm-work-lead-table-head {
         background: var(--crm-body-bg, #f4f6f5);
-      }
-
-      .crm-work-lead-toolbar {
-        border-radius: 6px;
       }
 
       .crm-work-lead-table-head {
@@ -561,29 +1377,49 @@ function WorkLeadPoolStyles() {
         border-bottom: 0;
       }
 
-      .crm-work-lead-form-wide,
-      .crm-work-lead-form-actions {
+      .crm-work-lead-form-wide {
         grid-column: 1 / -1;
       }
 
-      .crm-work-lead-form-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
+      .crm-work-ai-icon {
+        width: 2rem !important;
+        height: 2rem !important;
+        padding: 0 !important;
+        gap: 0 !important;
+        overflow: hidden;
+        font-size: 0 !important;
       }
 
-      @media (max-width: 639px) {
-        .crm-work-lead-search-grid {
-          grid-template-columns: minmax(0, 1fr);
-          justify-content: stretch;
-        }
+      .crm-work-ai-icon svg {
+        width: 1rem;
+        height: 1rem;
+        flex: 0 0 auto;
       }
+
     `}</style>
   );
 }
 
-function LeadField({ label, required = false, className = "", children }: { label: string; required?: boolean; className?: string; children: ReactNode }) {
-  return <label className={`block min-w-0 ${className}`.trim()}><span className="mb-1.5 block text-sm font-medium">{label}{required ? <span className="ml-1 text-destructive">*</span> : null}</span>{children}</label>;
+function LeadField({
+  label,
+  required = false,
+  className = "",
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`block min-w-0 ${className}`.trim()}>
+      <span className="mb-1.5 block text-sm font-medium">
+        {label}
+        {required ? <span className="ml-1 text-destructive">*</span> : null}
+      </span>
+      {children}
+    </div>
+  );
 }
 
 function leadStatusClass(status: string): string {
@@ -591,15 +1427,4 @@ function leadStatusClass(status: string): string {
   if (status === "duplicate") return "bg-amber-50 text-amber-700";
   if (status === "invalid") return "bg-muted text-muted-foreground";
   return "bg-blue-50 text-blue-700";
-}
-
-function leadCountByStatus(leads: WorkLead[], status: string): number {
-  return leads.filter((lead) => textValue(lead.status) === status).length;
-}
-
-function leadActionSuccessText(action: string): string {
-  if (action === "convert") return "线索已转为客户";
-  if (action === "invalid") return "线索已判为无效";
-  if (action === "reopen") return "线索已重新进入处理";
-  return "线索已更新";
 }

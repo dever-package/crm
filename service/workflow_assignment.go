@@ -16,6 +16,13 @@ func resolveStageOwner(ctx context.Context, stage *crmmodel.Stage, requestedStaf
 	if stage == nil || !enabledDepartment(ctx, stage.OwnerDepartmentID) {
 		return nil, fmt.Errorf("阶段负责部门不存在或已停用")
 	}
+	if requestedStaffID > 0 {
+		staff := enabledStaffInDepartment(ctx, requestedStaffID, stage.OwnerDepartmentID)
+		if staff == nil {
+			return nil, fmt.Errorf("所选负责人不属于%s阶段的负责部门或已停用", stage.Name)
+		}
+		return staff, nil
+	}
 	mode := stage.AssignmentMode
 	if mode == "" {
 		mode = crmmodel.StageAssignmentAuto
@@ -24,17 +31,36 @@ func resolveStageOwner(ctx context.Context, stage *crmmodel.Stage, requestedStaf
 	case crmmodel.StageAssignmentAuto:
 		return selectStageOwner(ctx, stage.OwnerDepartmentID)
 	case crmmodel.StageAssignmentManual:
-		if requestedStaffID == 0 {
-			return nil, fmt.Errorf("进入%s阶段前请选择负责人", stage.Name)
-		}
-		staff := enabledStaffInDepartment(ctx, requestedStaffID, stage.OwnerDepartmentID)
-		if staff == nil {
-			return nil, fmt.Errorf("所选负责人不属于%s阶段的负责部门或已停用", stage.Name)
-		}
-		return staff, nil
+		return nil, fmt.Errorf("进入%s阶段前请选择负责人", stage.Name)
 	default:
 		return nil, fmt.Errorf("阶段分配方式无效")
 	}
+}
+
+func resolveStageTransitionOwner(
+	ctx context.Context,
+	instance *crmmodel.WorkflowInstance,
+	stage *crmmodel.Stage,
+	requestedStaffID uint64,
+) (*crmmodel.Staff, error) {
+	if requestedStaffID > 0 {
+		return resolveStageOwner(ctx, stage, requestedStaffID)
+	}
+	if owner := inheritedStageOwner(ctx, instance, stage); owner != nil {
+		return owner, nil
+	}
+	return resolveStageOwner(ctx, stage, 0)
+}
+
+func inheritedStageOwner(
+	ctx context.Context,
+	instance *crmmodel.WorkflowInstance,
+	stage *crmmodel.Stage,
+) *crmmodel.Staff {
+	if instance == nil || stage == nil || instance.OwnerDepartmentID != stage.OwnerDepartmentID {
+		return nil
+	}
+	return enabledStaffInDepartment(ctx, instance.OwnerStaffID, stage.OwnerDepartmentID)
 }
 
 func selectStageOwner(ctx context.Context, departmentID uint64) (*crmmodel.Staff, error) {
@@ -220,48 +246,60 @@ func canAssignPendingTodo(staff *WorkStaffSession, instance *crmmodel.WorkflowIn
 func ChangeWorkflowInstanceOwner(ctx context.Context, staff *WorkStaffSession, instanceID, ownerStaffID uint64) (*crmmodel.WorkflowInstance, error) {
 	var changed *crmmodel.WorkflowInstance
 	err := orm.Transaction(ctx, func(txCtx context.Context) error {
-		if staff == nil || staff.ID == 0 || !staff.CanDispatch {
-			return fmt.Errorf("只有流程调度员可以更换阶段负责人")
-		}
 		instance, err := activeWorkflowInstance(txCtx, instanceID)
 		if err != nil {
 			return err
 		}
-		target := enabledStaffInDepartment(txCtx, ownerStaffID, instance.OwnerDepartmentID)
-		if target == nil {
-			return fmt.Errorf("所选人员不属于当前阶段负责部门或已停用")
-		}
-		previousStaffID := instance.OwnerStaffID
-		if previousStaffID == target.ID {
-			changed = instance
-			return nil
-		}
-		now := time.Now()
-		if crmmodel.NewWorkflowInstanceModel().Update(txCtx, map[string]any{
-			"id":             instance.ID,
-			"status":         crmmodel.ProgressStatusActive,
-			"owner_staff_id": previousStaffID,
-		}, map[string]any{
-			"owner_staff_id": target.ID,
-			"updated_at":     now,
-		}) == 0 {
-			return fmt.Errorf("流程已变化，请刷新后重试")
-		}
-		if err := reassignStageOwnerTodos(txCtx, instance, target.ID, now); err != nil {
-			return err
-		}
-		instance.OwnerStaffID = target.ID
-		instance.UpdatedAt = now
-		if recordWorkManagementOperation(txCtx, staff, instance, "owner_changed", "更换阶段负责人", target.Name, map[string]any{
-			"from_staff_id": previousStaffID,
-			"to_staff_id":   target.ID,
-		}) == 0 {
-			return fmt.Errorf("负责人变更记录创建失败")
-		}
-		changed = instance
-		return nil
+		changed, err = changeWorkflowInstanceOwner(txCtx, staff, instance, ownerStaffID)
+		return err
 	})
 	return changed, err
+}
+
+func changeWorkflowInstanceOwner(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance, ownerStaffID uint64) (*crmmodel.WorkflowInstance, error) {
+	if !canChangeWorkflowOwner(staff, instance) {
+		return nil, fmt.Errorf("只有当前负责部门负责人或流程调度员可以更换负责人")
+	}
+	target := enabledStaffInDepartment(ctx, ownerStaffID, instance.OwnerDepartmentID)
+	if target == nil {
+		return nil, fmt.Errorf("所选人员不属于当前阶段负责部门或已停用")
+	}
+	previousStaffID := instance.OwnerStaffID
+	if previousStaffID == target.ID {
+		return instance, nil
+	}
+	now := time.Now()
+	if crmmodel.NewWorkflowInstanceModel().Update(ctx, map[string]any{
+		"id":             instance.ID,
+		"status":         crmmodel.ProgressStatusActive,
+		"owner_staff_id": previousStaffID,
+	}, map[string]any{
+		"owner_staff_id": target.ID,
+		"updated_at":     now,
+	}) == 0 {
+		return nil, fmt.Errorf("流程已变化，请刷新后重试")
+	}
+	if err := reassignStageOwnerTodos(ctx, instance, target.ID, now); err != nil {
+		return nil, err
+	}
+	instance.OwnerStaffID = target.ID
+	instance.UpdatedAt = now
+	if instance.LeadID > 0 {
+		if crmmodel.NewLeadModel().Update(ctx, map[string]any{"id": instance.LeadID}, map[string]any{
+			"owner_department_id": instance.OwnerDepartmentID,
+			"owner_staff_id":      target.ID,
+			"updated_at":          now,
+		}) == 0 {
+			return nil, fmt.Errorf("线索负责人更新失败")
+		}
+	}
+	if recordWorkManagementOperation(ctx, staff, instance, "owner_changed", "更换阶段负责人", target.Name, map[string]any{
+		"from_staff_id": previousStaffID,
+		"to_staff_id":   target.ID,
+	}) == 0 {
+		return nil, fmt.Errorf("负责人变更记录创建失败")
+	}
+	return instance, nil
 }
 
 func reassignStageOwnerTodos(ctx context.Context, instance *crmmodel.WorkflowInstance, ownerStaffID uint64, changedAt time.Time) error {

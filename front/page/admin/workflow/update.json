@@ -52,6 +52,21 @@
         }
       },
       {
+        "type": "form-radio",
+        "name": "流程对象",
+        "value": "form.subject_type",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "请选择流程对象。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
         "type": "form-switch",
         "name": "默认入口",
         "value": "form.default_entry",
@@ -88,13 +103,9 @@
   },
   "data": {
     "form": {
-      "_fields": [
-        "name",
-        "default_entry",
-        "sort",
-        "status"
-      ],
+      "_fields": ["name", "subject_type", "default_entry", "sort", "status"],
       "name": "",
+      "subject_type": "customer_asset",
       "default_entry": false,
       "sort": 100,
       "status": 2

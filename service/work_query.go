@@ -90,6 +90,7 @@ func workTodoTaskMap(ctx context.Context, staff *WorkStaffSession, todo *crmmode
 	task["task_id"] = todo.TaskID
 	task["task_name"] = inputText(task["name"])
 	task["todo_id"] = todo.ID
+	task["lead_id"] = todo.LeadID
 	task["workflow_instance_id"] = todo.WorkflowInstanceID
 	task["customer_product_id"] = todo.CustomerProductID
 	task["workflow_id"] = todo.WorkflowID
