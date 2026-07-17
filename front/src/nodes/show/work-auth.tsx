@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
   ClipboardList,
@@ -13,7 +14,6 @@ import {
   RefreshCw,
   Sparkles,
   TrendingUp,
-  UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -321,6 +321,8 @@ function workCustomerQuery(
   workFilters: {
     workflowID: string;
     quickFilter: WorkQuickFilter;
+    stageFilter: string;
+    taskFilter: string;
     scope: WorkCustomerScope;
   },
 ): string {
@@ -336,6 +338,12 @@ function workCustomerQuery(
   }
   if (workFilters.quickFilter && workFilters.quickFilter !== "all") {
     params.set("quick_filter", workFilters.quickFilter);
+  }
+  if (workFilters.stageFilter) {
+    params.set("stage_filter", workFilters.stageFilter);
+  }
+  if (workFilters.taskFilter) {
+    params.set("task_filter", workFilters.taskFilter);
   }
   const query = params.toString();
   return query ? `?${query}` : "";
@@ -387,7 +395,12 @@ async function openRowTask(
   let detail: WorkDetailTargetResponse | null = null;
   if (customerID) {
     try {
-      detail = await refreshWorkDetailTarget(store, customerID, assetID);
+      detail = await refreshWorkDetailTarget(
+        store,
+        customerID,
+        assetID,
+        positiveTextID(task.workflow_instance_id || asset?.flow?.id),
+      );
       taskCustomer = detail?.customer || customer;
       taskAsset = assetID ? detail?.asset || asset : undefined;
       fullTask =
@@ -415,8 +428,7 @@ async function openRowTask(
     "data.actionTarget.workTaskDescription",
     workTaskDialogDescription(taskCustomer, taskAsset),
   );
-  await prepareWorkTaskForm(store, fullTask, taskCustomer, taskAsset);
-  setWorkModalOpen(store, "dialog.workTask", true);
+  await openPreparedWorkTaskModal(store, fullTask, taskCustomer, taskAsset);
 }
 
 export async function openWorkLeadTask(
@@ -439,7 +451,16 @@ export async function openWorkLeadTask(
     "data.actionTarget.workTaskDescription",
     workTaskDialogDescription(leadValues),
   );
-  await prepareWorkTaskForm(store, task, leadValues);
+  await openPreparedWorkTaskModal(store, task, leadValues);
+}
+
+async function openPreparedWorkTaskModal(
+  store: StoreLike | undefined,
+  task: WorkTask,
+  customer?: WorkCustomer | null,
+  asset?: WorkAsset,
+) {
+  await prepareWorkTaskForm(store, task, customer, asset);
   setWorkModalOpen(store, "dialog.workTask", true);
 }
 
@@ -474,9 +495,10 @@ function findWorkDetailTask(
   asset?: WorkAsset,
 ): WorkTask | null {
   const tasks = asset
-    ? workAssetRowTasks(asset)
+    ? [...(asset.flow?.tasks || []), ...workAssetRowTasks(asset)]
     : workCustomerRowTasks(customer || null);
-  return tasks.find((candidate) => sameWorkTask(candidate, task)) || null;
+  const detailTask = tasks.find((candidate) => sameWorkTask(candidate, task));
+  return detailTask ? { ...task, ...detailTask } : null;
 }
 
 function withWorkTaskRuleContext(
@@ -1272,10 +1294,14 @@ async function refreshWorkDetailTarget(
   store: StoreLike | undefined,
   customerID: string,
   assetID = "",
+  workflowInstanceID = "",
 ): Promise<WorkDetailTargetResponse | null> {
   if (!customerID) return null;
   const query = new URLSearchParams({ customer_id: customerID });
   if (assetID) query.set("asset_id", assetID);
+  if (workflowInstanceID) {
+    query.set("workflow_instance_id", workflowInstanceID);
+  }
   const payload = await workApi<WorkDetailTargetResponse>(
     `/crm/work/customer_detail?${query.toString()}`,
   );
@@ -1443,7 +1469,29 @@ type WorkTaskListState = {
   loading: boolean;
 };
 
-type WorkQuickFilter = "all" | "hasTasks" | "missingAsset" | "archived";
+type WorkQuickFilter =
+  | "all"
+  | "hasTasks"
+  | "missingAsset"
+  | "archived"
+  | "personalPending"
+  | "overdue"
+  | "completedToday";
+
+function workQuickFilterFromURL(): WorkQuickFilter {
+  const value = workURLFilterValue("quick_filter", "quickFilter");
+  if (
+    value === "hasTasks" ||
+    value === "missingAsset" ||
+    value === "archived" ||
+    value === "personalPending" ||
+    value === "overdue" ||
+    value === "completedToday"
+  ) {
+    return value;
+  }
+  return "all";
+}
 
 type WorkCustomerPageState = {
   page: number;
@@ -2003,9 +2051,9 @@ export function ShowCrmWorkStats() {
       <WorkStatsDashboardStyles />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">今日概览</h2>
+          <h2 className="text-sm font-semibold text-foreground">我的工作概览</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            当前账号的客户、资产、任务与操作汇总
+            只统计当前账号需要处理和今天已经完成的任务
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -2029,7 +2077,7 @@ export function ShowCrmWorkStats() {
       <div className="crm-stats-dashboard-breakdowns grid min-w-0 gap-3">
         <WorkStatsBreakdownCard
           title="阶段分布"
-          description="客户或资产当前所在阶段"
+          description="我有待办的流程当前所在阶段"
           rows={summary.stage_breakdown || []}
           emptyText="暂无阶段数据"
           drilldownType="stage"
@@ -2050,7 +2098,7 @@ function WorkStatsDashboardStyles() {
   return (
     <style>{`
       .crm-stats-dashboard-metrics {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
       .crm-stats-dashboard-analysis {
@@ -2106,7 +2154,11 @@ function WorkStatsMetricGrid({ metrics }: { metrics: WorkSummaryMetric[] }) {
         <WorkStatsMetricCard
           key={textValue(metric.key || metric.name)}
           metric={metric}
-          onOpen={() => openWorkCustomerList(workStatsMetricDrilldown(metric))}
+          onOpen={
+            metric.drilldown_path
+              ? () => openWorkSummaryDrilldown(metric.drilldown_path)
+              : undefined
+          }
         />
       ))}
     </div>
@@ -2118,16 +2170,11 @@ function WorkStatsMetricCard({
   onOpen,
 }: {
   metric: WorkSummaryMetric;
-  onOpen: () => void;
+  onOpen?: () => void;
 }) {
   const Icon = workStatsMetricIcon(metric.key);
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      className="crm-stats-dashboard-metric h-auto w-full flex-col items-stretch gap-0 rounded-none bg-background px-4 py-3 text-left hover:bg-muted/20 focus-visible:z-10 focus-visible:ring-inset"
-      onClick={onOpen}
-    >
+  const content = (
+    <>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-xs font-medium text-muted-foreground">
           {displayText(metric.name)}
@@ -2140,50 +2187,45 @@ function WorkStatsMetricCard({
       <p className="mt-1 truncate text-[11px] leading-4 text-muted-foreground">
         {displayText(metric.description)}
       </p>
+    </>
+  );
+  if (!onOpen) {
+    return (
+      <div className="crm-stats-dashboard-metric w-full bg-background px-4 py-3 text-left">
+        {content}
+      </div>
+    );
+  }
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className="crm-stats-dashboard-metric h-auto w-full flex-col items-stretch gap-0 rounded-none bg-background px-4 py-3 text-left hover:bg-muted/20 focus-visible:z-10 focus-visible:ring-inset"
+      onClick={onOpen}
+    >
+      {content}
     </Button>
   );
 }
 
-function workStatsMetricDrilldown(
-  metric: WorkSummaryMetric,
-): Record<string, string> {
-  switch (textValue(metric.key)) {
-    case "pending_targets":
-    case "pending_tasks":
-      return { mode: "pending" };
-    case "missing_assets":
-      return { mode: "all" };
-    case "recent_operations":
-      return { mode: "done" };
-    default:
-      return { mode: "all" };
-  }
-}
-
-function openWorkCustomerList(filters: Record<string, string>) {
-  const base = `${getWorkEntryPath().replace(/\/$/, "")}/crm/work`;
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => {
-    const text = textValue(value);
-    if (text) params.set(key, text);
-  });
-  const query = params.toString();
-  window.location.assign(query ? `${base}?${query}` : base);
+function openWorkSummaryDrilldown(path?: string) {
+  const target = textValue(path);
+  if (!target) return;
+  const base = getWorkEntryPath().replace(/\/$/, "");
+  window.location.assign(
+    `${base}${target.startsWith("/") ? target : `/${target}`}`,
+  );
 }
 
 function workStatsMetricIcon(key?: string) {
   switch (textValue(key)) {
-    case "customers":
-      return UserRound;
-    case "assets":
-      return Inbox;
     case "pending_targets":
     case "pending_tasks":
       return ClipboardList;
-    case "missing_assets":
-      return Inbox;
-    case "recent_operations":
+    case "completed_today":
       return TrendingUp;
+    case "overdue_tasks":
+      return AlertTriangle;
     default:
       return ClipboardList;
   }
@@ -2191,8 +2233,7 @@ function workStatsMetricIcon(key?: string) {
 
 type WorkStatsTrendSeriesKey =
   | "task_count"
-  | "transition_count"
-  | "operation_count";
+  | "transition_count";
 
 const workStatsTrendSeries: Array<{
   key: WorkStatsTrendSeriesKey;
@@ -2201,7 +2242,6 @@ const workStatsTrendSeries: Array<{
 }> = [
   { key: "task_count", label: "任务完成", color: "#111827" },
   { key: "transition_count", label: "阶段流转", color: "#2563eb" },
-  { key: "operation_count", label: "操作记录", color: "#059669" },
 ];
 
 const workStatsPanelClass =
@@ -2233,7 +2273,7 @@ function WorkStatsTrendCard({ points }: { points: WorkSummaryTrendPoint[] }) {
     >
       <WorkStatsPanelHeader
         title="近 14 天趋势"
-        description="任务完成、阶段流转和操作记录"
+        description="任务完成和阶段流转分别统计，不重复相加"
       />
       <div className="mt-3 min-h-0 flex-1">
         {points.length === 0 ? (
@@ -2365,18 +2405,9 @@ function WorkStatsBreakdownList({
       {rows.map((row, index) => {
         const value = textValue(row.key || row.name);
         const percent = workStatsPercent(row.percent);
-        const params =
-          type === "stage"
-            ? { mode: "all", stage_filter: value }
-            : { mode: "pending", task_filter: value };
-        return (
-          <Button
-            type="button"
-            key={`${type}:${value || index}`}
-            variant="ghost"
-            className="group h-auto w-full flex-col items-stretch gap-0 rounded-md px-2 py-2 text-left font-normal hover:bg-muted/25"
-            onClick={() => openWorkCustomerList(params)}
-          >
+        const drilldownPath = textValue(row.drilldown_path);
+        const content = (
+          <>
             <span className="flex items-center justify-between gap-3">
               <span className="min-w-0 truncate text-xs font-medium text-foreground">
                 {displayText(row.name)}
@@ -2399,6 +2430,27 @@ function WorkStatsBreakdownList({
                 style={{ width: `${percent}%` }}
               />
             </span>
+          </>
+        );
+        if (!drilldownPath) {
+          return (
+            <div
+              key={`${type}:${value || index}`}
+              className="w-full rounded-md px-2 py-2 text-left"
+            >
+              {content}
+            </div>
+          );
+        }
+        return (
+          <Button
+            type="button"
+            key={`${type}:${value || index}`}
+            variant="ghost"
+            className="group h-auto w-full flex-col items-stretch gap-0 rounded-md px-2 py-2 text-left font-normal hover:bg-muted/25"
+            onClick={() => openWorkSummaryDrilldown(drilldownPath)}
+          >
+            {content}
           </Button>
         );
       })}
@@ -2497,6 +2549,7 @@ function workCustomerListTaskView(task: WorkTask): WorkCustomerListTaskView {
     label: workTaskButtonLabel(task),
     result: textValue(task.result),
     kind: workTaskIsRule(task) ? "rule" : "action",
+    canOperate: task.can_operate !== false,
     task,
   };
 }
@@ -2538,12 +2591,14 @@ function workCustomerListRowView(item: WorkItem): WorkCustomerListRowView {
 
 export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
   const workflowID = workURLFilterValue("workflow_id", "workflowId");
+  const stageFilter = workURLFilterValue("stage_filter", "stage");
+  const taskFilter = workURLFilterValue("task_filter", "task");
   const [customers, setCustomers] = useState<WorkCustomer[]>([]);
   const [keyword, setKeyword] = useState(() => workURLFilterValue("keyword"));
   const [mode, setMode] = useState<WorkCustomerMode>(() =>
     workCustomerModeFromNode(item),
   );
-  const [quickFilter, setQuickFilter] = useState<WorkQuickFilter>("all");
+  const [quickFilter, setQuickFilter] = useState<WorkQuickFilter>(workQuickFilterFromURL);
   const [modeCounts, setModeCounts] = useState<WorkCustomerModeCounts>(
     emptyWorkCustomerModeCounts,
   );
@@ -2571,6 +2626,8 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
         {
           workflowID,
           quickFilter,
+          stageFilter,
+          taskFilter,
           scope,
         },
       );
@@ -2622,6 +2679,8 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
       mode,
       quickFilter,
       scope,
+      stageFilter,
+      taskFilter,
       workflowID,
     ],
   );
@@ -2837,55 +2896,6 @@ function WorkCustomerModeTabs({
           {option.label}({modeCounts[option.mode] || 0})
         </Button>
       ))}
-    </div>
-  );
-}
-
-function WorkCustomerPagination({
-  loading,
-  hidden,
-  pageState,
-  onPageChange,
-}: {
-  loading: boolean;
-  hidden: boolean;
-  pageState: WorkCustomerPageState;
-  onPageChange: (page: number) => void;
-}) {
-  if (hidden || pageState.total <= 0) return null;
-  const pageSize = pageState.pageSize || workCustomerPageSize;
-  const totalPages = Math.max(1, Math.ceil(pageState.total / pageSize));
-  const currentPage = Math.min(
-    totalPages,
-    Math.max(1, Number(pageState.page) || 1),
-  );
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
-      <span>
-        第 {currentPage} / {totalPages} 页，每页 {pageSize} 条，共{" "}
-        {pageState.total} 条
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={loading || currentPage <= 1}
-          onClick={() => onPageChange(currentPage - 1)}
-        >
-          上一页
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={loading || currentPage >= totalPages}
-          onClick={() => onPageChange(currentPage + 1)}
-        >
-          下一页
-        </Button>
-      </div>
     </div>
   );
 }
@@ -3263,6 +3273,11 @@ function useWorkDetailData(
 ) {
   const customerID = workCustomerID(initialCustomer);
   const assetID = textValue(initialAsset?.id);
+  const workflowInstanceID = positiveTextID(
+    initialAsset?.flow?.workflow_instance_id ||
+      initialAsset?.flow?.id ||
+      initialAsset?.workflow_instance_id,
+  );
   const initialCustomerRef = useRef(initialCustomer);
   const initialAssetRef = useRef<WorkAsset | null>(initialAsset ?? null);
   const [customer, setCustomer] = useState(initialCustomer);
@@ -3281,7 +3296,12 @@ function useWorkDetailData(
     }
     setLoading(true);
     try {
-      const data = await refreshWorkDetailTarget(store, customerID, assetID);
+      const data = await refreshWorkDetailTarget(
+        store,
+        customerID,
+        assetID,
+        workflowInstanceID,
+      );
       if (data?.customer) setCustomer(data.customer);
       if (assetID) setAsset(data?.asset ?? null);
       const list = Array.isArray(data?.operations)
@@ -3298,7 +3318,7 @@ function useWorkDetailData(
     } finally {
       setLoading(false);
     }
-  }, [assetID, customerID, store]);
+  }, [assetID, customerID, store, workflowInstanceID]);
 
   useEffect(() => {
     initialCustomerRef.current = initialCustomer;
@@ -3781,7 +3801,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
         close();
       } catch (error) {
         const message = errorMessage(error);
-        if (!applyWorkTaskSubmitError(store, message)) {
+        if (nextOwnerStaffID || !applyWorkTaskSubmitError(store, message)) {
           toast.error(message || "保存失败");
         }
         return false;

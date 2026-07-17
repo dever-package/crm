@@ -425,6 +425,7 @@ export type WorkSummaryMetric = {
   name?: string;
   value?: string | number;
   description?: string;
+  drilldown_path?: string;
 };
 
 export type WorkSummaryBreakdown = {
@@ -432,6 +433,7 @@ export type WorkSummaryBreakdown = {
   name?: string;
   count?: string | number;
   percent?: string | number;
+  drilldown_path?: string;
 };
 
 export type WorkSummaryTrendPoint = {
@@ -439,7 +441,6 @@ export type WorkSummaryTrendPoint = {
   label?: string;
   task_count?: string | number;
   transition_count?: string | number;
-  operation_count?: string | number;
 };
 
 export type WorkSummary = {

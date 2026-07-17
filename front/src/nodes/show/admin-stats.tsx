@@ -5,20 +5,32 @@ import {
   AlertTriangle,
   ClipboardList,
   GitBranch,
-  Home,
   ListChecks,
   Loader2,
   RefreshCw,
   ShieldCheck,
   TrendingUp,
-  Users,
 } from "lucide-react";
 import { request } from "@dever/front-plugin";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-import { displayText, errorMessage, formatWorkDate, textValue } from "./work-core";
+import {
+  displayText,
+  errorMessage,
+  formatWorkDate,
+  positiveTextID,
+  textValue,
+} from "./work-core";
 import {
   CrmEChart,
   crmChartAxisColor,
@@ -32,6 +44,7 @@ type AdminMetric = {
   name?: string;
   value?: string | number;
   description?: string;
+  unit?: string;
 };
 
 type AdminTrendPoint = {
@@ -41,7 +54,6 @@ type AdminTrendPoint = {
   asset_count?: string | number;
   task_count?: string | number;
   transition_count?: string | number;
-  operation_count?: string | number;
   income_amount?: string | number;
   expense_amount?: string | number;
   net_amount?: string | number;
@@ -60,7 +72,6 @@ type AdminBreakdownRow = {
 };
 
 type AdminBacklogRow = AdminBreakdownRow & {
-  task_count?: string | number;
   pending_todo_count?: string | number;
   avg_days?: string | number;
   max_days?: string | number;
@@ -72,12 +83,28 @@ type AdminBacklogRow = AdminBreakdownRow & {
 type AdminStaffRow = {
   id?: string | number;
   name?: string;
-  task_count?: string | number;
+  department_name?: string;
+  completed_task_count?: string | number;
   transition_count?: string | number;
-  operation_count?: string | number;
-  todo_done_count?: string | number;
+  pending_task_count?: string | number;
+  on_time_rate?: string | number;
+  on_time_sample_count?: string | number;
+  avg_duration_hours?: string | number;
   last_active_at?: string;
-  total?: string | number;
+};
+
+type AdminFilterOption = {
+  id?: string | number;
+  name?: string;
+  department_id?: string | number;
+};
+
+type AdminStatsFilters = {
+  workflowId: string;
+  departmentId: string;
+  staffId: string;
+  dateFrom: string;
+  dateTo: string;
 };
 
 type AdminProbeDimensionRow = {
@@ -127,6 +154,18 @@ type AdminSummary = {
   staff_ranking?: AdminStaffRow[];
   staff_output?: AdminStaffRow[];
   probe_summary?: AdminProbeSummary;
+  filters?: {
+    workflow_id?: string | number;
+    department_id?: string | number;
+    staff_id?: string | number;
+    date_from?: string;
+    date_to?: string;
+  };
+  filter_options?: {
+    workflows?: AdminFilterOption[];
+    departments?: AdminFilterOption[];
+    staff?: AdminFilterOption[];
+  };
   generated_at?: string;
 };
 
@@ -154,7 +193,6 @@ const growthSeries: ChartSeries[] = [
 const executionSeries: ChartSeries[] = [
   { key: "task_count", label: "任务完成", color: "#111827" },
   { key: "transition_count", label: "阶段流转", color: "#d97706" },
-  { key: "operation_count", label: "操作记录", color: "#dc2626" },
 ];
 
 const financeSeries: ChartSeries[] = [
@@ -181,7 +219,7 @@ const adminStatsModeTitles: Record<
   },
   business: {
     title: "业务数据",
-    description: "查看客户、资产、阶段流转、任务执行、节点积压和十一维资料情况。",
+    description: "按流程查看真实阶段进入、当前待办、节点积压和十一维资料情况。",
   },
   finance: {
     title: "财务统计",
@@ -189,8 +227,15 @@ const adminStatsModeTitles: Record<
   },
   performance: {
     title: "绩效统计",
-    description: "基于任务完成、阶段流转、操作记录和待办完成统计人员产出。",
+    description: "按人工任务完成、按时率、办理时长、当前积压和阶段流转查看人员产出。",
   },
+};
+
+const adminStatsFilterGridClass: Record<AdminStatsMode, string> = {
+  all: "xl:grid-cols-[repeat(5,minmax(0,1fr))_auto]",
+  business: "xl:grid-cols-[repeat(3,minmax(0,1fr))_auto]",
+  finance: "xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]",
+  performance: "xl:grid-cols-[repeat(5,minmax(0,1fr))_auto]",
 };
 
 let adminApiFreshSeq = 0;
@@ -200,11 +245,15 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
   const intro = adminStatsModeTitles[mode];
   const [summary, setSummary] = useState<AdminSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [draftFilters, setDraftFilters] = useState<AdminStatsFilters>(defaultAdminStatsFilters);
+  const [appliedFilters, setAppliedFilters] = useState<AdminStatsFilters>(defaultAdminStatsFilters);
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await crmAdminApi<AdminSummary>("/crm/admin/dashboard/summary");
+      const data = await crmAdminApi<AdminSummary>(
+        adminSummaryPath(mode, appliedFilters),
+      );
       setSummary(data || {});
     } catch (error) {
       toast.error(errorMessage(error, "数据看板加载失败"));
@@ -212,7 +261,7 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [appliedFilters, mode]);
 
   useEffect(() => {
     loadSummary();
@@ -274,12 +323,33 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
         </div>
       </section>
 
+      <AdminStatsFilterBar
+        mode={mode}
+        summary={summary}
+        value={draftFilters}
+        loading={loading}
+        onChange={setDraftFilters}
+        onSubmit={() => {
+          const error = adminStatsFilterError(draftFilters);
+          if (error) {
+            toast.error(error);
+            return;
+          }
+          setAppliedFilters({ ...draftFilters });
+        }}
+        onReset={() => {
+          const next = defaultAdminStatsFilters();
+          setDraftFilters(next);
+          setAppliedFilters(next);
+        }}
+      />
+
       {adminStatsModeIncludes(mode, "business") ? (
         <>
           {mode === "all" ? (
             <AdminSectionTitle
               title="业务数据"
-              description="查看客户、资产、阶段流转、任务执行、节点积压和十一维资料情况。"
+              description="按流程查看真实阶段进入、当前待办、节点积压和十一维资料情况。"
             />
           ) : null}
           <AdminMetricGrid metrics={summary.metrics || []} />
@@ -287,13 +357,13 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
           <div className="grid gap-4 2xl:grid-cols-2">
             <AdminCurveChart
               title="增长曲线"
-              description="近 14 天新增客户与新增资产。"
+              description="筛选日期内 CRM 全局新增客户与新增资产。"
               points={summary.growth_trend || []}
               series={growthSeries}
             />
             <AdminLineChart
               title="执行折线"
-              description="近 14 天任务完成、阶段流转和操作记录。"
+              description="筛选日期内完成的人工任务和阶段流转。"
               points={summary.execution_trend || []}
               series={executionSeries}
             />
@@ -303,7 +373,7 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
             <AdminFunnelChart rows={summary.pipeline_funnel || summary.funnel || []} />
             <AdminBreakdownCard
               title="任务类型分布"
-              description="按当前阶段估算的可执行任务动作。"
+              description="按当前实际待办统计任务类型。"
               rows={summary.task_breakdown || []}
               emptyText="暂无任务分布"
             />
@@ -333,7 +403,7 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
           {mode === "all" ? (
             <AdminSectionTitle
               title="绩效统计"
-              description="基于任务完成、阶段流转、操作记录和待办完成统计人员产出。"
+              description="按人工任务完成、按时率、办理时长、当前积压和阶段流转查看人员产出。"
             />
           ) : null}
           <AdminStaffRanking rows={summary.staff_output || summary.staff_ranking || []} />
@@ -353,6 +423,191 @@ function adminStatsModeFromNode(item?: AdminStatsNodeProps["item"]): AdminStatsM
 
 function adminStatsModeIncludes(mode: AdminStatsMode, section: Exclude<AdminStatsMode, "all">) {
   return mode === "all" || mode === section;
+}
+
+function defaultAdminStatsFilters(): AdminStatsFilters {
+  const today = new Date();
+  const from = new Date(today);
+  from.setDate(today.getDate() - 13);
+  return {
+    workflowId: "",
+    departmentId: "",
+    staffId: "",
+    dateFrom: adminDateValue(from),
+    dateTo: adminDateValue(today),
+  };
+}
+
+function adminDateValue(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function adminStatsFilterError(filters: AdminStatsFilters): string {
+  if (!filters.dateFrom || !filters.dateTo) return "";
+  if (filters.dateFrom > filters.dateTo) {
+    return "开始日期不能晚于结束日期";
+  }
+  const start = Date.parse(`${filters.dateFrom}T00:00:00Z`);
+  const end = Date.parse(`${filters.dateTo}T00:00:00Z`);
+  const rangeDays = Math.floor((end - start) / 86_400_000) + 1;
+  return rangeDays > 366 ? "统计日期范围不能超过 366 天" : "";
+}
+
+function adminSummaryPath(mode: AdminStatsMode, filters: AdminStatsFilters): string {
+  const params = new URLSearchParams({ mode });
+  if (filters.workflowId) params.set("workflow_id", filters.workflowId);
+  if (filters.departmentId) params.set("department_id", filters.departmentId);
+  if (filters.staffId) params.set("staff_id", filters.staffId);
+  if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+  if (filters.dateTo) params.set("date_to", filters.dateTo);
+  return `/crm/admin/dashboard/summary?${params.toString()}`;
+}
+
+function AdminStatsFilterBar({
+  mode,
+  summary,
+  value,
+  loading,
+  onChange,
+  onSubmit,
+  onReset,
+}: {
+  mode: AdminStatsMode;
+  summary: AdminSummary;
+  value: AdminStatsFilters;
+  loading: boolean;
+  onChange: (value: AdminStatsFilters) => void;
+  onSubmit: () => void;
+  onReset: () => void;
+}) {
+  const options = summary.filter_options || {};
+  const showWorkflow = mode === "all" || mode === "business" || mode === "performance";
+  const showPeople = mode === "all" || mode === "finance" || mode === "performance";
+  const allowAllWorkflows = mode === "performance";
+  const selectedWorkflow =
+    value.workflowId || positiveTextID(summary.filters?.workflow_id);
+  const staffOptions = (options.staff || []).filter(
+    (option) =>
+      !value.departmentId ||
+      textValue(option.department_id) === value.departmentId,
+  );
+  return (
+    <section className="rounded-md border bg-background p-4 shadow-sm">
+      <div
+        className={`grid gap-3 md:grid-cols-2 ${adminStatsFilterGridClass[mode]}`}
+      >
+        {showWorkflow ? (
+          <AdminFilterField label="流程">
+            <Select
+              value={selectedWorkflow || (allowAllWorkflows ? "__all__" : "")}
+              onValueChange={(rawValue) =>
+                onChange({
+                  ...value,
+                  workflowId: rawValue === "__all__" ? "" : rawValue,
+                })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="请选择流程" />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                {allowAllWorkflows ? (
+                  <SelectItem value="__all__">全部流程</SelectItem>
+                ) : null}
+                {(options.workflows || []).map((option) => (
+                  <SelectItem key={textValue(option.id)} value={textValue(option.id)}>
+                    {displayText(option.name)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </AdminFilterField>
+        ) : null}
+        {showPeople ? (
+          <AdminFilterField label="部门">
+            <Select
+              value={value.departmentId || "__all__"}
+              onValueChange={(rawValue) =>
+                onChange({
+                  ...value,
+                  departmentId: rawValue === "__all__" ? "" : rawValue,
+                  staffId: "",
+                })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="全部部门" />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                <SelectItem value="__all__">全部部门</SelectItem>
+                {(options.departments || []).map((option) => (
+                  <SelectItem key={textValue(option.id)} value={textValue(option.id)}>
+                    {displayText(option.name)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </AdminFilterField>
+        ) : null}
+        {showPeople ? (
+          <AdminFilterField label="人员">
+            <Select
+              value={value.staffId || "__all__"}
+              onValueChange={(rawValue) =>
+                onChange({ ...value, staffId: rawValue === "__all__" ? "" : rawValue })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="全部人员" />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                <SelectItem value="__all__">全部人员</SelectItem>
+                {staffOptions.map((option) => (
+                  <SelectItem key={textValue(option.id)} value={textValue(option.id)}>
+                    {displayText(option.name)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </AdminFilterField>
+        ) : null}
+        <AdminFilterField label="开始日期">
+          <Input
+            type="date"
+            value={value.dateFrom}
+            onChange={(event) => onChange({ ...value, dateFrom: event.target.value })}
+          />
+        </AdminFilterField>
+        <AdminFilterField label="结束日期">
+          <Input
+            type="date"
+            value={value.dateTo}
+            onChange={(event) => onChange({ ...value, dateTo: event.target.value })}
+          />
+        </AdminFilterField>
+        <div className="flex items-end gap-2">
+          <Button type="button" disabled={loading} onClick={onSubmit}>
+            查询
+          </Button>
+          <Button type="button" variant="outline" disabled={loading} onClick={onReset}>
+            重置
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdminFilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid min-w-0 gap-1.5 text-sm font-medium">
+      <span>{label}</span>
+      {children}
+    </div>
+  );
 }
 
 function AdminSectionTitle({
@@ -431,7 +686,7 @@ function AdminMetricCard({ metric }: { metric: AdminMetric }) {
             {displayText(metric.name)}
           </div>
           <div className="mt-2 text-3xl font-semibold leading-9">
-            {formatNumber(metric.value)}
+            {formatNumber(metric.value)}{textValue(metric.unit)}
           </div>
         </div>
         <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted/25 text-muted-foreground">
@@ -447,18 +702,15 @@ function AdminMetricCard({ metric }: { metric: AdminMetric }) {
 
 function adminMetricIcon(key?: string) {
   switch (textValue(key)) {
-    case "customers":
-      return Users;
-    case "assets":
-    case "missing_assets":
-      return Home;
-    case "stage_targets":
-    case "transitions_14d":
+    case "active_instances":
       return GitBranch;
     case "pending_todos":
-    case "tasks_14d":
       return ClipboardList;
-    case "operations_14d":
+    case "overdue_todos":
+      return AlertTriangle;
+    case "completed_period":
+      return ShieldCheck;
+    case "avg_stage_days":
       return Activity;
     default:
       return TrendingUp;
@@ -475,7 +727,7 @@ function AdminFinanceDashboard({ summary }: { summary?: AdminFinanceSummary }) {
       <div className="grid gap-4 2xl:grid-cols-[1.1fr_0.9fr]">
         <AdminLineChart
           title="财务趋势"
-          description="近 14 天收入、支出和净额变化。"
+          description="按流水录入日期统计收入、支出和净额。"
           points={trend}
           series={financeSeries}
           valueSuffix="元"
@@ -498,7 +750,7 @@ function AdminFinanceTypeBreakdown({ rows }: { rows: AdminFinanceTypeRow[] }) {
         </div>
         <TrendingUp className="h-5 w-5 shrink-0 text-muted-foreground/70" />
       </div>
-      <div className="mt-5 overflow-hidden rounded-md border">
+      <div className="mt-5 overflow-x-auto rounded-md border">
         {rows.length === 0 ? (
           <AdminEmptyText>暂无财务流水数据</AdminEmptyText>
         ) : (
@@ -519,7 +771,7 @@ function AdminFinanceTypeBreakdown({ rows }: { rows: AdminFinanceTypeRow[] }) {
                   <td className="px-4 py-3">{financeDirectionName(row.direction)}</td>
                   <td className="px-4 py-3">{formatNumber(row.amount)}</td>
                   <td className="px-4 py-3">{formatNumber(row.count)}</td>
-                  <td className="px-4 py-3">{formatPercent(row.percent)}</td>
+                  <td className="px-4 py-3">{formatPercent(row.percent)}（同方向）</td>
                 </tr>
               ))}
             </tbody>
@@ -710,7 +962,7 @@ function AdminFunnelChart({ rows }: { rows: AdminBreakdownRow[] }) {
         <div>
           <h3 className="text-base font-semibold leading-6">阶段漏斗</h3>
           <p className="text-sm leading-6 text-muted-foreground">
-            当前客户或资产在各阶段的分布。
+            以筛选日期内进入首阶段的流程为同一批次，统计其后续各阶段到达人数。
           </p>
         </div>
         <GitBranch className="h-5 w-5 shrink-0 text-muted-foreground/70" />
@@ -946,7 +1198,7 @@ function AdminNodeBacklog({ rows }: { rows: AdminBacklogRow[] }) {
               minWidth={560}
               ariaLabel="CRM 节点积压"
             />
-            <div className="overflow-hidden rounded-md border">
+            <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[680px] text-sm">
                 <thead className="bg-muted/50 text-left text-muted-foreground">
                   <tr>
@@ -1072,9 +1324,10 @@ function AdminProbeSummaryCard({ summary }: { summary?: AdminProbeSummary }) {
         </div>
       ) : (
         <div className="mt-5 grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <AdminMiniStat label="涉及资产" value={summary.started_asset_count} />
-            <AdminMiniStat label="字段完整度" value={`${formatPercent(summary.percent)}`} />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <AdminMiniStat label="全部资产" value={summary.asset_count} />
+            <AdminMiniStat label="已开始收集" value={summary.started_asset_count} />
+            <AdminMiniStat label="整体完整度" value={`${formatPercent(summary.percent)}`} />
             <AdminMiniStat label="完整资产" value={summary.complete_asset_count} />
           </div>
           <div className="grid gap-2">
@@ -1164,24 +1417,25 @@ function AdminStaffRanking({ rows }: { rows: AdminStaffRow[] }) {
         <div>
           <h3 className="text-base font-semibold leading-6">人员产出</h3>
           <p className="text-sm leading-6 text-muted-foreground">
-            近 14 天任务、流转、操作和待办完成情况。
+            筛选日期内的人工任务完成、办理效率和当前积压；阶段流转单独展示。
           </p>
         </div>
         <ListChecks className="h-5 w-5 shrink-0 text-muted-foreground/70" />
       </div>
-      <div className="mt-5 overflow-hidden rounded-md border">
+      <div className="mt-5 overflow-x-auto rounded-md border">
         {rows.length === 0 ? (
           <AdminEmptyText>暂无人员产出数据</AdminEmptyText>
         ) : (
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[980px] text-sm">
             <thead className="bg-muted/50 text-left text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-medium">人员</th>
-                <th className="px-4 py-3 font-medium">任务完成</th>
+                <th className="px-4 py-3 font-medium">部门</th>
+                <th className="px-4 py-3 font-medium">完成任务</th>
+                <th className="px-4 py-3 font-medium">按时率</th>
+                <th className="px-4 py-3 font-medium">平均用时</th>
+                <th className="px-4 py-3 font-medium">当前积压</th>
                 <th className="px-4 py-3 font-medium">阶段流转</th>
-                <th className="px-4 py-3 font-medium">操作记录</th>
-                <th className="px-4 py-3 font-medium">待办完成</th>
-                <th className="px-4 py-3 font-medium">合计</th>
                 <th className="px-4 py-3 font-medium">最近产出</th>
               </tr>
             </thead>
@@ -1189,11 +1443,16 @@ function AdminStaffRanking({ rows }: { rows: AdminStaffRow[] }) {
               {rows.map((row) => (
                 <tr key={textValue(row.id || row.name)}>
                   <td className="px-4 py-3 font-medium">{displayText(row.name)}</td>
-                  <td className="px-4 py-3">{formatNumber(row.task_count)}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{displayText(row.department_name)}</td>
+                  <td className="px-4 py-3 font-semibold">{formatNumber(row.completed_task_count)}</td>
+                  <td className="px-4 py-3">
+                    {numberValue(row.on_time_sample_count) > 0
+                      ? formatPercent(row.on_time_rate)
+                      : "暂无期限样本"}
+                  </td>
+                  <td className="px-4 py-3">{formatDurationHours(row.avg_duration_hours)}</td>
+                  <td className="px-4 py-3">{formatNumber(row.pending_task_count)}</td>
                   <td className="px-4 py-3">{formatNumber(row.transition_count)}</td>
-                  <td className="px-4 py-3">{formatNumber(row.operation_count)}</td>
-                  <td className="px-4 py-3">{formatNumber(row.todo_done_count)}</td>
-                  <td className="px-4 py-3 font-semibold">{formatNumber(row.total)}</td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {formatWorkDate(row.last_active_at)}
                   </td>
@@ -1253,4 +1512,11 @@ function formatNumber(value: unknown): string {
 
 function formatPercent(value: unknown): string {
   return `${Math.max(0, Math.min(100, Math.round(numberValue(value))))}%`;
+}
+
+function formatDurationHours(value: unknown): string {
+  const hours = numberValue(value);
+  if (hours <= 0) return "-";
+  if (hours < 24) return `${hours.toFixed(1)} 小时`;
+  return `${(hours / 24).toFixed(1)} 天`;
 }

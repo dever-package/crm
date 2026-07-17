@@ -27,6 +27,7 @@ func workflowCustomerList(
 	scope := normalizeWorkScope(staff, firstText(payload, "scope"))
 	staff = workStaffWithScope(staff, scope)
 	mode := normalizeWorkCustomerMode(firstText(payload, "mode"))
+	quickFilter := firstText(payload, "quick_filter", "quickFilter")
 	instances := crmmodel.NewWorkflowInstanceModel().Select(ctx, map[string]any{
 		"workflow_id": workflow.ID,
 	}, map[string]any{"order": "updated_at desc,id desc"})
@@ -60,6 +61,9 @@ func workflowCustomerList(
 			continue
 		}
 		targets = append(targets, target)
+	}
+	if isWorkPersonalQuickFilter(quickFilter) {
+		targets = workflowCustomerPersonalQuickFilterTargets(ctx, staff, instances, mode, quickFilter)
 	}
 	sort.SliceStable(targets, func(i, j int) bool {
 		leftPending := targets[i].instance.Status == crmmodel.ProgressStatusActive
@@ -102,6 +106,105 @@ func workflowCustomerList(
 			"subject_type": workflow.SubjectType,
 		},
 	}, nil
+}
+
+func workflowCustomerPersonalQuickFilterTargets(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	instances []*crmmodel.WorkflowInstance,
+	mode string,
+	quickFilter string,
+) []workflowCustomerTarget {
+	targets := make([]workflowCustomerTarget, 0)
+	seenAssets := map[string]bool{}
+	for _, instance := range instances {
+		if instance == nil || instance.CustomerID == 0 || instance.AssetID == 0 ||
+			!workflowInstanceMatchesMode(instance, mode) ||
+			!workflowInstanceMatchesPersonalQuickFilter(ctx, staff, instance, quickFilter) {
+			continue
+		}
+		if !canViewWorkflowInstanceInScope(ctx, staff, instance) && quickFilter != "completedToday" {
+			continue
+		}
+		assetKey := fmt.Sprintf("%d:%d", instance.CustomerID, instance.AssetID)
+		if seenAssets[assetKey] {
+			continue
+		}
+		seenAssets[assetKey] = true
+		targets = append(targets, workflowCustomerTarget{instance: instance, updated: instance.UpdatedAt})
+	}
+	return targets
+}
+
+func isWorkPersonalQuickFilter(value string) bool {
+	return value == "personalPending" || value == "overdue" || value == "completedToday"
+}
+
+func workflowInstanceMatchesPersonalQuickFilter(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance, quickFilter string) bool {
+	if !isWorkPersonalQuickFilter(quickFilter) {
+		return true
+	}
+	if staff == nil || staff.ID == 0 || instance == nil {
+		return false
+	}
+	status := crmmodel.WorkTodoStatusPending
+	if quickFilter == "completedToday" {
+		status = crmmodel.WorkTodoStatusDone
+	}
+	now := time.Now()
+	today := workBeginningOfDay(now)
+	tomorrow := today.AddDate(0, 0, 1)
+	for _, todo := range crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
+		"workflow_instance_id": instance.ID,
+		"assignee_staff_id":    staff.ID,
+		"status":               status,
+	}) {
+		if todo == nil {
+			continue
+		}
+		task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": todo.TaskID})
+		if task == nil || task.TaskType == crmmodel.TaskTypeRule {
+			continue
+		}
+		if quickFilter == "personalPending" {
+			return true
+		}
+		if quickFilter == "overdue" && todo.DueAt != nil && todo.DueAt.Before(now) {
+			return true
+		}
+		if quickFilter == "completedToday" && todo.CompletedAt != nil {
+			if !todo.CompletedAt.Before(today) && todo.CompletedAt.Before(tomorrow) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func workflowInstanceMatchesSummaryFilters(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance, stageFilter string, taskFilter string) bool {
+	if staff == nil || staff.ID == 0 || instance == nil {
+		return false
+	}
+	if stageFilter != "" && fmt.Sprintf("%d", instance.StageID) != stageFilter {
+		return false
+	}
+	if taskFilter == "" {
+		return true
+	}
+	for _, todo := range crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
+		"workflow_instance_id": instance.ID,
+		"assignee_staff_id":    staff.ID,
+		"status":               crmmodel.WorkTodoStatusPending,
+	}) {
+		if todo == nil {
+			continue
+		}
+		task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": todo.TaskID})
+		if task != nil && task.TaskType != crmmodel.TaskTypeRule && task.TaskType == taskFilter {
+			return true
+		}
+	}
+	return false
 }
 
 func workflowInstanceMatchesMode(instance *crmmodel.WorkflowInstance, mode string) bool {

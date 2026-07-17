@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -354,10 +355,10 @@ func (WorkService) Summary(ctx context.Context, staff *WorkStaffSession) (map[st
 	recentOperations := workRecentOperationRows(operationRows, 8)
 	enrichWorkOperationRows(ctx, staff, recentOperations)
 	return map[string]any{
-		"metrics":           workSummaryMetricRows(summary, recentOperations),
-		"trend":             workSummaryTrendRows(ctx, staff, 14, operationRows),
-		"stage_breakdown":   workSummaryStageRows(summary.Targets),
-		"task_breakdown":    workSummaryTaskRows(summary.Targets),
+		"metrics":           workSummaryMetricRows(ctx, summary),
+		"trend":             workSummaryTrendRows(ctx, staff, 14),
+		"stage_breakdown":   workSummaryStageRows(ctx, summary.Targets),
+		"task_breakdown":    workSummaryTaskRows(ctx, summary.Targets),
 		"recent_operations": recentOperations,
 		"generated_at":      time.Now(),
 	}, nil
@@ -392,6 +393,7 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 
 	assetID := firstUint64(payload, "asset_id", "assetId")
 	asset := map[string]any(nil)
+	var detailInstance *crmmodel.WorkflowInstance
 	if assetID > 0 {
 		if !canViewWorkAsset(ctx, viewStaff, customerID, assetID) {
 			return nil, fmt.Errorf("无权查看该资产")
@@ -399,6 +401,16 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 		asset = workCustomerRowAsset(customer, assetID)
 		if len(asset) == 0 {
 			return nil, fmt.Errorf("资产不存在或不可见")
+		}
+		if instanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId"); instanceID > 0 {
+			detailInstance = crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{"id": instanceID})
+			if detailInstance == nil || detailInstance.CustomerID != customerID || detailInstance.AssetID != assetID {
+				return nil, fmt.Errorf("流程实例不存在或不属于该资产")
+			}
+			if !canViewWorkflowInstance(ctx, viewStaff, detailInstance) {
+				return nil, fmt.Errorf("无权查看该流程记录")
+			}
+			attachWorkStageFields(ctx, asset, detailInstance)
 		}
 	}
 
@@ -446,12 +458,23 @@ func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, 
 		customerProducts := mapListFromAny(asset["customer_products"])
 		result["customer_products"] = customerProducts
 		workflowInstances := make([]map[string]any, 0, len(customerProducts)+1)
+		if detailInstance != nil {
+			detailFlow := workFlowDetail(ctx, staff, detailInstance.ID)
+			if detailInstance.CustomerProductID > 0 {
+				detailFlow["flow_role"] = "product"
+			} else {
+				detailFlow["flow_role"] = "entry"
+			}
+			result["flow"] = detailFlow
+		}
 		if instance := currentWorkEntryInstance(ctx, customerID, assetID); instance != nil {
 			entryFlow := workFlowDetail(ctx, staff, instance.ID)
 			entryFlow["flow_role"] = "entry"
-			result["flow"] = entryFlow
+			if detailInstance == nil {
+				result["flow"] = entryFlow
+			}
 			workflowInstances = append(workflowInstances, entryFlow)
-		} else {
+		} else if detailInstance == nil {
 			result["flow"] = map[string]any{
 				"customer_id": customerID,
 				"asset_id":    assetID,
@@ -1614,47 +1637,63 @@ func workRowHasPendingTasks(row map[string]any) bool {
 }
 
 type workSummaryTarget struct {
-	StageID   uint64
-	StageName string
-	Tasks     []map[string]any
+	WorkflowID uint64
+	StageID    uint64
+	StageName  string
+	Tasks      []map[string]any
 }
 
 type workSummaryData struct {
-	CustomerCount         int
-	AssetCount            int
-	MissingAssetCustomers int
-	PendingTaskCount      int
-	Targets               []workSummaryTarget
+	PendingTaskCount     int
+	OverdueTaskCount     int
+	CompletedTodayCount  int
+	Targets              []workSummaryTarget
+	PendingWorkflowIDs   map[uint64]struct{}
+	OverdueWorkflowIDs   map[uint64]struct{}
+	CompletedWorkflowIDs map[uint64]struct{}
 }
 
 func workSummarySnapshot(ctx context.Context, staff *WorkStaffSession) workSummaryData {
 	workload := currentWorkPersonalWorkload(ctx, staff)
-	customerIDs := map[uint64]bool{}
-	assetIDs := map[uint64]bool{}
-	summary := workSummaryData{}
+	now := time.Now()
+	summary := workSummaryData{
+		PendingWorkflowIDs:   map[uint64]struct{}{},
+		OverdueWorkflowIDs:   map[uint64]struct{}{},
+		CompletedWorkflowIDs: map[uint64]struct{}{},
+	}
 	for _, instance := range workload.instances {
 		if instance == nil {
 			continue
 		}
-		if instance.CustomerID > 0 {
-			customerIDs[instance.CustomerID] = true
-		}
-		if instance.AssetID > 0 {
-			assetIDs[instance.AssetID] = true
-		}
 		todos := workload.pendingTodosByInstance[instance.ID]
 		summary.PendingTaskCount += len(todos)
+		summary.PendingWorkflowIDs[instance.WorkflowID] = struct{}{}
+		for _, todo := range todos {
+			if todo != nil && todo.DueAt != nil && todo.DueAt.Before(now) {
+				summary.OverdueTaskCount++
+				summary.OverdueWorkflowIDs[instance.WorkflowID] = struct{}{}
+			}
+		}
 		summary.Targets = append(summary.Targets, workSummaryTarget{
-			StageID:   instance.StageID,
-			StageName: workStageName(ctx, instance.StageID),
-			Tasks:     workload.pendingTaskRows(ctx, staff, instance.ID),
+			WorkflowID: instance.WorkflowID,
+			StageID:    instance.StageID,
+			StageName:  workStageName(ctx, instance.StageID),
+			Tasks:      workload.pendingTaskRows(ctx, staff, instance.ID),
 		})
 	}
-	summary.CustomerCount = len(customerIDs)
-	summary.AssetCount = len(assetIDs)
-	for customerID := range customerIDs {
-		if crmmodel.NewCustomerAssetModel().Count(ctx, map[string]any{"customer_id": customerID}) == 0 {
-			summary.MissingAssetCustomers++
+	today := workBeginningOfDay(now)
+	tomorrow := today.AddDate(0, 0, 1)
+	for _, todo := range crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
+		"assignee_staff_id": staff.ID,
+		"status":            crmmodel.WorkTodoStatusDone,
+	}) {
+		if todo == nil || todo.CompletedAt == nil || todo.CompletedAt.Before(today) || !todo.CompletedAt.Before(tomorrow) {
+			continue
+		}
+		task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": todo.TaskID})
+		if task != nil && task.TaskType != crmmodel.TaskTypeRule {
+			summary.CompletedTodayCount++
+			summary.CompletedWorkflowIDs[todo.WorkflowID] = struct{}{}
 		}
 	}
 	return summary
@@ -1676,29 +1715,42 @@ func workSummaryVisibleAssetIDs(ctx context.Context, staff *WorkStaffSession, cu
 	return assetIDs
 }
 
-func workSummaryMetricRows(summary workSummaryData, recentOperations []map[string]any) []map[string]any {
+func workSummaryMetricRows(ctx context.Context, summary workSummaryData) []map[string]any {
 	return []map[string]any{
-		workSummaryMetric("customers", "客户", summary.CustomerCount, "当前负责或协作流程涉及的客户"),
-		workSummaryMetric("assets", "已录资产", summary.AssetCount, "当前负责或协作流程涉及的资产"),
-		workSummaryMetric("pending_targets", "待处理流程", len(summary.Targets), "当前账号负责或参与的活动流程"),
-		workSummaryMetric("pending_tasks", "待办任务", summary.PendingTaskCount, "当前账号被分配的未完成任务"),
-		workSummaryMetric("missing_assets", "未录资产客户", summary.MissingAssetCustomers, "当前负责客户中尚未建立资产"),
-		workSummaryMetric("recent_operations", "最近操作", len(recentOperations), "最近 8 条我的操作记录"),
+		workSummaryMetric(ctx, "pending_tasks", "我的待办", summary.PendingTaskCount, "当前分配给我的未完成任务", summary.PendingWorkflowIDs, workCustomerModePending, "personalPending", nil),
+		workSummaryMetric(ctx, "pending_targets", "处理中流程", len(summary.Targets), "当前包含我的待办任务的流程", summary.PendingWorkflowIDs, workCustomerModePending, "personalPending", nil),
+		workSummaryMetric(ctx, "completed_today", "今日完成", summary.CompletedTodayCount, "今天由我完成的人工任务", summary.CompletedWorkflowIDs, workCustomerModeAll, "completedToday", nil),
+		workSummaryMetric(ctx, "overdue_tasks", "超期待办", summary.OverdueTaskCount, "已超过办理期限的我的待办", summary.OverdueWorkflowIDs, workCustomerModePending, "overdue", nil),
 	}
 }
 
-func workSummaryMetric(key string, name string, value int, description string) map[string]any {
-	return map[string]any{
+func workSummaryMetric(
+	ctx context.Context,
+	key string,
+	name string,
+	value int,
+	description string,
+	workflowIDs map[uint64]struct{},
+	mode string,
+	quickFilter string,
+	filters map[string]string,
+) map[string]any {
+	row := map[string]any{
 		"key":         key,
 		"name":        name,
 		"value":       value,
 		"description": description,
 	}
+	if path := workSummaryDrilldownPath(ctx, workflowIDs, mode, quickFilter, filters); path != "" {
+		row["drilldown_path"] = path
+	}
+	return row
 }
 
-func workSummaryStageRows(targets []workSummaryTarget) []map[string]any {
+func workSummaryStageRows(ctx context.Context, targets []workSummaryTarget) []map[string]any {
 	counts := map[string]int{}
 	names := map[string]string{}
+	workflowIDs := map[string]map[uint64]struct{}{}
 	for _, target := range targets {
 		key := "_empty"
 		name := "未进入阶段"
@@ -1711,13 +1763,15 @@ func workSummaryStageRows(targets []workSummaryTarget) []map[string]any {
 		}
 		counts[key]++
 		names[key] = name
+		workSummaryAddWorkflowID(workflowIDs, key, target.WorkflowID)
 	}
-	return workSummaryBreakdownRows(counts, names, len(targets))
+	return workSummaryBreakdownRows(ctx, counts, names, workflowIDs, len(targets), workCustomerModePending, "personalPending", "stage_filter")
 }
 
-func workSummaryTaskRows(targets []workSummaryTarget) []map[string]any {
+func workSummaryTaskRows(ctx context.Context, targets []workSummaryTarget) []map[string]any {
 	counts := map[string]int{}
 	names := map[string]string{}
+	workflowIDs := map[string]map[uint64]struct{}{}
 	total := 0
 	for _, target := range targets {
 		for _, task := range target.Tasks {
@@ -1727,25 +1781,39 @@ func workSummaryTaskRows(targets []workSummaryTarget) []map[string]any {
 			}
 			counts[key]++
 			names[key] = WorkTaskTypeName(key)
+			workSummaryAddWorkflowID(workflowIDs, key, target.WorkflowID)
 			total++
 		}
 	}
-	return workSummaryBreakdownRows(counts, names, total)
+	return workSummaryBreakdownRows(ctx, counts, names, workflowIDs, total, workCustomerModePending, "personalPending", "task_filter")
 }
 
-func workSummaryBreakdownRows(counts map[string]int, names map[string]string, total int) []map[string]any {
+func workSummaryBreakdownRows(
+	ctx context.Context,
+	counts map[string]int,
+	names map[string]string,
+	workflowIDs map[string]map[uint64]struct{},
+	total int,
+	mode string,
+	quickFilter string,
+	filterName string,
+) []map[string]any {
 	rows := make([]map[string]any, 0, len(counts))
 	for key, count := range counts {
 		percent := 0
 		if total > 0 {
 			percent = int(float64(count) / float64(total) * 100)
 		}
-		rows = append(rows, map[string]any{
+		row := map[string]any{
 			"key":     key,
 			"name":    names[key],
 			"count":   count,
 			"percent": percent,
-		})
+		}
+		if path := workSummaryDrilldownPath(ctx, workflowIDs[key], mode, quickFilter, map[string]string{filterName: key}); path != "" {
+			row["drilldown_path"] = path
+		}
+		rows = append(rows, row)
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		left := inputUint64(rows[i]["count"])
@@ -1756,6 +1824,56 @@ func workSummaryBreakdownRows(counts map[string]int, names map[string]string, to
 		return inputText(rows[i]["name"]) < inputText(rows[j]["name"])
 	})
 	return rows
+}
+
+func workSummaryAddWorkflowID(target map[string]map[uint64]struct{}, key string, workflowID uint64) {
+	if workflowID == 0 {
+		return
+	}
+	if target[key] == nil {
+		target[key] = map[uint64]struct{}{}
+	}
+	target[key][workflowID] = struct{}{}
+}
+
+func workSummaryDrilldownPath(
+	ctx context.Context,
+	workflowIDs map[uint64]struct{},
+	mode string,
+	quickFilter string,
+	filters map[string]string,
+) string {
+	if len(workflowIDs) != 1 {
+		return ""
+	}
+	workflowID := uint64(0)
+	for id := range workflowIDs {
+		workflowID = id
+	}
+	workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{
+		"id":     workflowID,
+		"status": crmmodel.StatusEnabled,
+	})
+	if workflow == nil {
+		return ""
+	}
+	path := workflowNavigationPath(workflow)
+	values := url.Values{}
+	if mode != "" {
+		values.Set("mode", mode)
+	}
+	if quickFilter != "" {
+		values.Set("quick_filter", quickFilter)
+	}
+	for key, value := range filters {
+		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
+			values.Set(key, value)
+		}
+	}
+	if len(values) > 0 {
+		path += "&" + values.Encode()
+	}
+	return path
 }
 
 func WorkTaskTypeName(taskType string) string {
@@ -1773,7 +1891,7 @@ func WorkTaskTypeName(taskType string) string {
 	}
 }
 
-func workSummaryTrendRows(ctx context.Context, staff *WorkStaffSession, days int, operationRows []map[string]any) []map[string]any {
+func workSummaryTrendRows(ctx context.Context, staff *WorkStaffSession, days int) []map[string]any {
 	if staff == nil || staff.ID == 0 {
 		return []map[string]any{}
 	}
@@ -1781,6 +1899,7 @@ func workSummaryTrendRows(ctx context.Context, staff *WorkStaffSession, days int
 		days = 14
 	}
 	today := workBeginningOfDay(time.Now())
+	end := today.AddDate(0, 0, 1)
 	start := today.AddDate(0, 0, -days+1)
 	rows := make([]map[string]any, 0, days)
 	indexes := map[string]int{}
@@ -1793,11 +1912,10 @@ func workSummaryTrendRows(ctx context.Context, staff *WorkStaffSession, days int
 			"label":            day.Format("01-02"),
 			"task_count":       0,
 			"transition_count": 0,
-			"operation_count":  0,
 		})
 	}
 	for _, event := range crmmodel.NewStatEventModel().Select(ctx, map[string]any{"operator_staff_id": staff.ID}) {
-		if event == nil || event.EventAt.Before(start) || event.EventAt.After(today.AddDate(0, 0, 1)) {
+		if event == nil || event.EventAt.Before(start) || !event.EventAt.Before(end) {
 			continue
 		}
 		index, exists := indexes[workBeginningOfDay(event.EventAt).Format("2006-01-02")]
@@ -1806,27 +1924,13 @@ func workSummaryTrendRows(ctx context.Context, staff *WorkStaffSession, days int
 		}
 		switch event.EventType {
 		case crmmodel.StatEventTypeTask:
-			if event.ResultValue == workResultProgress {
+			if event.ResultValue == workResultProgress || event.TaskType == crmmodel.TaskTypeRule {
 				continue
 			}
 			rows[index]["task_count"] = inputInt(rows[index]["task_count"]) + 1
 		case crmmodel.StatEventTypeTransition:
 			rows[index]["transition_count"] = inputInt(rows[index]["transition_count"]) + 1
 		}
-	}
-	for _, operation := range operationRows {
-		createdAt := workTimeValue(operation["created_at"])
-		if createdAt.IsZero() {
-			createdAt = workTimeValue(operation["create_time"])
-		}
-		if createdAt.IsZero() || createdAt.Before(start) || createdAt.After(today.AddDate(0, 0, 1)) {
-			continue
-		}
-		index, exists := indexes[workBeginningOfDay(createdAt).Format("2006-01-02")]
-		if !exists {
-			continue
-		}
-		rows[index]["operation_count"] = inputInt(rows[index]["operation_count"]) + 1
 	}
 	return rows
 }
@@ -2536,6 +2640,9 @@ func workTargetMatchesQuickFilter(target map[string]any, quickFilter string, has
 		return workTargetHasTaskType(target, crmmodel.TaskTypeApproval)
 	case "archived":
 		return strings.Contains(workTargetStageText(target), "归档")
+	case "personalPending", "overdue", "completedToday":
+		// These filters are resolved against todo timestamps before row rendering.
+		return true
 	default:
 		return true
 	}

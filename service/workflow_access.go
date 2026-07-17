@@ -99,6 +99,7 @@ func canViewAssignedWorkflowInstance(ctx context.Context, staff *WorkStaffSessio
 	return crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{
 		"workflow_instance_id": instance.ID,
 		"assignee_staff_id":    staff.ID,
+		"status":               crmmodel.WorkTodoStatusPending,
 	}) > 0
 }
 

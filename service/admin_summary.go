@@ -2,39 +2,60 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	crmmodel "github.com/dever-package/crm/model"
 )
 
 const adminSummaryTrendDays = 14
+const adminSummaryMaxRangeDays = 366
 
 type AdminSummaryService struct{}
 
+type AdminSummaryQuery struct {
+	Mode         string
+	WorkflowID   uint64
+	DepartmentID uint64
+	StaffID      uint64
+	DateFrom     string
+	DateTo       string
+}
+
+type adminSummaryRange struct {
+	Start time.Time
+	End   time.Time
+}
+
 type adminSummaryStageInfo struct {
-	ID   uint64
-	Name string
-	Sort int
+	ID         uint64
+	WorkflowID uint64
+	Name       string
+	Sort       int
 }
 
 type adminSummaryTaskInfo struct {
 	ID      uint64
 	StageID uint64
 	Type    string
-	Name    string
 	FormID  uint64
 }
 
 type adminSummaryStaffStat struct {
-	ID              uint64
-	Name            string
-	TaskCount       int
-	TransitionCount int
-	OperationCount  int
-	TodoDoneCount   int
-	LastActiveAt    time.Time
+	ID                  uint64
+	Name                string
+	DepartmentName      string
+	CompletedTaskCount  int
+	TransitionCount     int
+	PendingTaskCount    int
+	OnTimeEligibleCount int
+	OnTimeCount         int
+	DurationSeconds     float64
+	DurationSampleCount int
+	LastActiveAt        time.Time
 }
 
 type adminSummaryNodeBacklogStat struct {
@@ -54,51 +75,127 @@ func NewAdminSummaryService() AdminSummaryService {
 	return AdminSummaryService{}
 }
 
-func (AdminSummaryService) Summary(ctx context.Context) (map[string]any, error) {
+func (AdminSummaryService) Summary(ctx context.Context, queries ...AdminSummaryQuery) (map[string]any, error) {
+	query := AdminSummaryQuery{}
+	if len(queries) > 0 {
+		query = queries[0]
+	}
+	query.Mode = adminSummaryMode(query.Mode)
+	rangeValue := adminSummaryDateRange(query.DateFrom, query.DateTo)
+	workflows := adminSummaryWorkflowOptions(ctx)
+	if query.WorkflowID == 0 && (query.Mode == "business" || query.Mode == "all") && len(workflows) > 0 {
+		query.WorkflowID = inputUint64(workflows[0]["id"])
+	}
+
+	result := map[string]any{
+		"filters": map[string]any{
+			"mode":          query.Mode,
+			"workflow_id":   query.WorkflowID,
+			"department_id": query.DepartmentID,
+			"staff_id":      query.StaffID,
+			"date_from":     rangeValue.Start.Format("2006-01-02"),
+			"date_to":       rangeValue.End.Add(-time.Nanosecond).Format("2006-01-02"),
+		},
+		"filter_options": map[string]any{
+			"workflows":   workflows,
+			"departments": adminSummaryDepartmentOptions(ctx),
+			"staff":       adminSummaryStaffOptions(ctx),
+		},
+		"generated_at": time.Now(),
+	}
+
+	if query.Mode == "all" || query.Mode == "business" {
+		adminSummaryMerge(result, adminSummaryBusiness(ctx, query, rangeValue))
+	}
+	if query.Mode == "all" || query.Mode == "finance" {
+		result["finance_summary"] = adminSummaryFinance(ctx, query, rangeValue)
+	}
+	if query.Mode == "all" || query.Mode == "performance" {
+		staffRows := adminSummaryPerformance(ctx, query, rangeValue)
+		result["staff_ranking"] = staffRows
+		result["staff_output"] = staffRows
+	}
+	return result, nil
+}
+
+func adminSummaryMode(value string) string {
+	switch strings.TrimSpace(value) {
+	case "business", "finance", "performance":
+		return strings.TrimSpace(value)
+	default:
+		return "all"
+	}
+}
+
+func adminSummaryDateRange(dateFrom string, dateTo string) adminSummaryRange {
+	start := adminSummaryTrendStart(adminSummaryTrendDays)
+	end := workBeginningOfDay(time.Now()).AddDate(0, 0, 1)
+	if parsed, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(dateFrom), time.Local); err == nil {
+		start = parsed
+	}
+	if parsed, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(dateTo), time.Local); err == nil {
+		end = parsed.AddDate(0, 0, 1)
+	}
+	if !start.Before(end) {
+		start = end.AddDate(0, 0, -adminSummaryTrendDays)
+	}
+	if start.Before(end.AddDate(0, 0, -adminSummaryMaxRangeDays)) {
+		start = end.AddDate(0, 0, -adminSummaryMaxRangeDays)
+	}
+	return adminSummaryRange{Start: start, End: end}
+}
+
+func adminSummaryInRange(value time.Time, rangeValue adminSummaryRange) bool {
+	return !value.IsZero() && !value.Before(rangeValue.Start) && value.Before(rangeValue.End)
+}
+
+func adminSummaryMerge(target map[string]any, source map[string]any) {
+	for key, value := range source {
+		target[key] = value
+	}
+}
+
+func adminSummaryBusiness(ctx context.Context, query AdminSummaryQuery, rangeValue adminSummaryRange) map[string]any {
+	instanceFilters := map[string]any{}
+	if query.WorkflowID > 0 {
+		instanceFilters["workflow_id"] = query.WorkflowID
+	}
+	instances := crmmodel.NewWorkflowInstanceModel().Select(ctx, instanceFilters)
+	activeInstances := make([]*crmmodel.WorkflowInstance, 0, len(instances))
+	for _, instance := range instances {
+		if instance != nil && instance.Status == crmmodel.ProgressStatusActive {
+			activeInstances = append(activeInstances, instance)
+		}
+	}
+
+	todoFilters := map[string]any{}
+	if query.WorkflowID > 0 {
+		todoFilters["workflow_id"] = query.WorkflowID
+	}
+	todos := crmmodel.NewWorkTodoModel().Select(ctx, todoFilters)
+	tasks := adminSummaryTaskInfos(ctx)
+	taskByID := adminSummaryTaskByID(tasks)
+	pendingTodos := adminSummaryPendingManualTodos(todos, taskByID)
+	eventFilters := map[string]any{}
+	if query.WorkflowID > 0 {
+		eventFilters["workflow_id"] = query.WorkflowID
+	}
+	events := crmmodel.NewStatEventModel().Select(ctx, eventFilters)
+	stages := adminSummaryStageInfosForWorkflow(ctx, query.WorkflowID)
 	customers := crmmodel.NewCustomerModel().Select(ctx, map[string]any{})
 	assets := crmmodel.NewCustomerAssetModel().Select(ctx, map[string]any{})
-	stageTargets := crmmodel.NewWorkflowInstanceModel().Select(ctx, map[string]any{})
-	stages := adminSummaryStageInfos(ctx)
-	tasks := adminSummaryTaskInfos(ctx)
-	statEvents := crmmodel.NewStatEventModel().Select(ctx, map[string]any{})
-	operations := crmmodel.NewOperationLogModel().Select(ctx, map[string]any{})
-	todos := crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{})
-	financeLedgers := crmmodel.NewFinanceLedgerModel().Select(ctx, map[string]any{})
-	pendingTodoCount := int(crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{
-		"status": crmmodel.WorkTodoStatusPending,
-	}))
+	trendRows := adminSummaryBusinessTrend(customers, assets, todos, events, taskByID, query.WorkflowID, rangeValue)
+	funnelRows := adminSummaryStageFunnel(events, stages, query.WorkflowID, rangeValue)
 
-	start := adminSummaryTrendStart(adminSummaryTrendDays)
-	trendRows := adminSummaryTrendRows(customers, assets, statEvents, operations, adminSummaryTrendDays)
-	funnelRows := adminSummaryStageFunnel(stageTargets, stages)
-	staffRows := adminSummaryStaffOutput(ctx, statEvents, operations, todos, start)
 	return map[string]any{
-		"metrics":         adminSummaryMetrics(customers, assets, stageTargets, statEvents, operations, pendingTodoCount, start),
+		"metrics":         adminSummaryBusinessMetrics(instances, activeInstances, pendingTodos, rangeValue),
 		"growth_trend":    trendRows,
 		"execution_trend": trendRows,
 		"funnel":          funnelRows,
 		"pipeline_funnel": funnelRows,
-		"node_backlog":    adminSummaryNodeBacklog(ctx, stageTargets, stages, tasks, todos),
-		"task_breakdown":  adminSummaryTaskBreakdown(stageTargets, stages, tasks),
-		"finance_summary": adminSummaryFinanceSummary(financeLedgers, start),
-		"staff_ranking":   staffRows,
-		"staff_output":    staffRows,
-		"probe_summary":   adminSummaryProbeSummary(ctx, assets),
-		"generated_at":    time.Now(),
-	}, nil
-}
-
-func adminSummaryMetrics(customers []*crmmodel.Customer, assets []*crmmodel.CustomerAsset, stageTargets []*crmmodel.WorkflowInstance, events []*crmmodel.StatEvent, operations []*crmmodel.OperationLog, pendingTodoCount int, start time.Time) []map[string]any {
-	taskCount, transitionCount := adminSummaryEventCountsSince(events, start)
-	return []map[string]any{
-		adminSummaryMetric("customers", "客户总数", len(customers), "CRM 当前全部客户"),
-		adminSummaryMetric("assets", "资产总数", len(assets), "客户名下已建立资产"),
-		adminSummaryMetric("stage_targets", "阶段对象", len(stageTargets), "正在阶段流转的客户或资产"),
-		adminSummaryMetric("missing_assets", "未录资产", adminSummaryMissingAssetCustomers(customers, assets), "已建客户但尚未录入资产"),
-		adminSummaryMetric("pending_todos", "待办任务", pendingTodoCount, "当前未完成的任务待办"),
-		adminSummaryMetric("tasks_14d", "近14天任务", taskCount, "近14天完成的任务事件"),
-		adminSummaryMetric("transitions_14d", "近14天流转", transitionCount, "近14天阶段流转次数"),
-		adminSummaryMetric("operations_14d", "近14天操作", adminSummaryOperationCountSince(operations, start), "近14天提交的操作记录"),
+		"node_backlog":    adminSummaryNodeBacklog(ctx, activeInstances, stages, pendingTodos),
+		"task_breakdown":  adminSummaryTaskBreakdown(pendingTodos, taskByID),
+		"probe_summary":   adminSummaryProbeSummary(ctx, assets, query.WorkflowID),
 	}
 }
 
@@ -111,72 +208,174 @@ func adminSummaryMetric(key string, name string, value int, description string) 
 	}
 }
 
+func adminSummaryPercentMetric(key string, name string, value int, description string) map[string]any {
+	row := adminSummaryMetric(key, name, value, description)
+	row["unit"] = "%"
+	return row
+}
+
+func adminSummaryUnitMetric(key string, name string, value int, unit string, description string) map[string]any {
+	row := adminSummaryMetric(key, name, value, description)
+	row["unit"] = unit
+	return row
+}
+
+func adminSummaryBusinessMetrics(instances []*crmmodel.WorkflowInstance, activeInstances []*crmmodel.WorkflowInstance, pendingTodos []*crmmodel.WorkTodo, rangeValue adminSummaryRange) []map[string]any {
+	completed := 0
+	terminated := 0
+	for _, instance := range instances {
+		if instance == nil {
+			continue
+		}
+		if instance.CompletedAt != nil && adminSummaryInRange(*instance.CompletedAt, rangeValue) {
+			completed++
+		}
+		if instance.TerminatedAt != nil && adminSummaryInRange(*instance.TerminatedAt, rangeValue) {
+			terminated++
+		}
+	}
+	overdue := 0
+	for _, todo := range pendingTodos {
+		if todo != nil && todo.DueAt != nil && todo.DueAt.Before(time.Now()) {
+			overdue++
+		}
+	}
+	avgDays := 0
+	if len(activeInstances) > 0 {
+		totalDays := 0
+		for _, instance := range activeInstances {
+			totalDays += workStageDwellDays(instance.StartedAt)
+		}
+		avgDays = (totalDays + len(activeInstances)/2) / len(activeInstances)
+	}
+	closed := completed + terminated
+	return []map[string]any{
+		adminSummaryMetric("active_instances", "进行中流程", len(activeInstances), "当前仍在流转的流程实例"),
+		adminSummaryMetric("pending_todos", "待办任务", len(pendingTodos), "当前尚未完成的人工任务"),
+		adminSummaryMetric("overdue_todos", "超期待办", overdue, "已超过办理期限的人工任务"),
+		adminSummaryMetric("completed_period", "期间完成", completed, "筛选日期内完成的流程"),
+		adminSummaryPercentMetric("completion_rate", "完成率", adminSummaryPercent(completed, closed), "期间完成数占已结束流程的比例"),
+		adminSummaryUnitMetric("avg_stage_days", "平均停留", avgDays, "天", "进行中流程当前阶段平均停留天数"),
+	}
+}
+
+func adminSummaryWorkflowOptions(ctx context.Context) []map[string]any {
+	rows := crmmodel.NewWorkflowModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled})
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if row != nil {
+			result = append(result, map[string]any{"id": row.ID, "name": row.Name})
+		}
+	}
+	return result
+}
+
+func adminSummaryDepartmentOptions(ctx context.Context) []map[string]any {
+	rows := crmmodel.NewDepartmentModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled})
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if row != nil {
+			result = append(result, map[string]any{"id": row.ID, "name": row.Name})
+		}
+	}
+	return result
+}
+
+func adminSummaryStaffOptions(ctx context.Context) []map[string]any {
+	rows := crmmodel.NewStaffModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled})
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if row != nil {
+			result = append(result, map[string]any{"id": row.ID, "name": row.Name, "department_id": row.DepartmentID})
+		}
+	}
+	return result
+}
+
+func adminSummaryTaskByID(tasks []adminSummaryTaskInfo) map[uint64]adminSummaryTaskInfo {
+	result := make(map[uint64]adminSummaryTaskInfo, len(tasks))
+	for _, task := range tasks {
+		result[task.ID] = task
+	}
+	return result
+}
+
+func adminSummaryPendingManualTodos(todos []*crmmodel.WorkTodo, tasks map[uint64]adminSummaryTaskInfo) []*crmmodel.WorkTodo {
+	result := make([]*crmmodel.WorkTodo, 0, len(todos))
+	for _, todo := range todos {
+		if todo == nil || todo.Status != crmmodel.WorkTodoStatusPending || !adminSummaryIsManualTask(tasks, todo.TaskID) {
+			continue
+		}
+		result = append(result, todo)
+	}
+	return result
+}
+
+func adminSummaryIsManualTask(tasks map[uint64]adminSummaryTaskInfo, taskID uint64) bool {
+	task, exists := tasks[taskID]
+	return exists && task.Type != crmmodel.TaskTypeRule
+}
+
 func adminSummaryAmountMetric(key string, name string, value float64, description string) map[string]any {
 	return map[string]any{
 		"key":         key,
 		"name":        name,
 		"value":       value,
+		"unit":        "元",
 		"description": description,
 	}
 }
 
-func adminSummaryFinanceSummary(ledgers []*crmmodel.FinanceLedger, start time.Time) map[string]any {
-	totalIncome, totalExpense := adminSummaryFinanceTotals(ledgers, time.Time{})
-	recentIncome, recentExpense := adminSummaryFinanceTotals(ledgers, start)
+func adminSummaryFinance(ctx context.Context, query AdminSummaryQuery, rangeValue adminSummaryRange) map[string]any {
+	filters := map[string]any{}
+	if query.DepartmentID > 0 {
+		filters["department_id"] = query.DepartmentID
+	}
+	if query.StaffID > 0 {
+		filters["staff_id"] = query.StaffID
+	}
+	rows := crmmodel.NewFinanceLedgerModel().Select(ctx, filters)
+	ledgers := make([]*crmmodel.FinanceLedger, 0, len(rows))
+	for _, ledger := range rows {
+		if ledger == nil || !adminSummaryInRange(ledger.CreatedAt, rangeValue) {
+			continue
+		}
+		if query.DepartmentID > 0 && ledger.DepartmentID != query.DepartmentID || query.StaffID > 0 && ledger.StaffID != query.StaffID {
+			continue
+		}
+		ledgers = append(ledgers, ledger)
+	}
+	income, expense := adminSummaryFinanceTotals(ledgers)
 	return map[string]any{
 		"metrics": []map[string]any{
-			adminSummaryAmountMetric("finance_income", "累计收入", totalIncome, "全部财务收入流水金额"),
-			adminSummaryAmountMetric("finance_expense", "累计支出", totalExpense, "全部财务支出流水金额"),
-			adminSummaryAmountMetric("finance_net", "净额", totalIncome-totalExpense, "累计收入减累计支出"),
-			adminSummaryMetric("finance_ledger_count", "流水数量", len(ledgers), "当前已生成的财务流水记录"),
-			adminSummaryAmountMetric("finance_income_14d", "近14天收入", recentIncome, "近14天财务收入流水金额"),
-			adminSummaryAmountMetric("finance_expense_14d", "近14天支出", recentExpense, "近14天财务支出流水金额"),
+			adminSummaryAmountMetric("finance_income", "期间收入", income, "筛选日期内录入的收入流水"),
+			adminSummaryAmountMetric("finance_expense", "期间支出", expense, "筛选日期内录入的支出流水"),
+			adminSummaryAmountMetric("finance_net", "期间净额", income-expense, "筛选日期内收入减支出"),
+			adminSummaryMetric("finance_ledger_count", "流水数量", len(ledgers), "筛选日期内录入的流水记录"),
 		},
-		"trend":          adminSummaryFinanceTrendRows(ledgers, adminSummaryTrendDays),
+		"trend":          adminSummaryFinanceTrendRange(ledgers, rangeValue),
 		"type_breakdown": adminSummaryFinanceTypeRows(ledgers),
 	}
 }
 
-func adminSummaryFinanceTotals(ledgers []*crmmodel.FinanceLedger, start time.Time) (float64, float64) {
-	var income float64
-	var expense float64
-	for _, ledger := range ledgers {
-		if ledger == nil || (!start.IsZero() && ledger.CreatedAt.Before(start)) {
-			continue
-		}
-		switch ledger.Direction {
-		case crmmodel.FinanceDirectionExpense:
-			expense += ledger.Amount
-		default:
-			income += ledger.Amount
-		}
-	}
-	return income, expense
-}
-
-func adminSummaryFinanceTrendRows(ledgers []*crmmodel.FinanceLedger, days int) []map[string]any {
+func adminSummaryFinanceTrendRange(ledgers []*crmmodel.FinanceLedger, rangeValue adminSummaryRange) []map[string]any {
+	days := int(rangeValue.End.Sub(rangeValue.Start).Hours() / 24)
 	if days <= 0 {
-		days = adminSummaryTrendDays
+		return []map[string]any{}
 	}
-	start := adminSummaryTrendStart(days)
-	end := workBeginningOfDay(time.Now()).AddDate(0, 0, 1)
 	rows := make([]map[string]any, 0, days)
 	indexes := map[string]int{}
-	for i := 0; i < days; i++ {
-		day := start.AddDate(0, 0, i)
+	for index := 0; index < days; index++ {
+		day := rangeValue.Start.AddDate(0, 0, index)
 		key := day.Format("2006-01-02")
-		indexes[key] = i
+		indexes[key] = index
 		rows = append(rows, map[string]any{
-			"date":           key,
-			"label":          day.Format("01-02"),
-			"income_amount":  0,
-			"expense_amount": 0,
-			"net_amount":     0,
-			"ledger_count":   0,
+			"date": key, "label": day.Format("01-02"), "income_amount": 0,
+			"expense_amount": 0, "net_amount": 0, "ledger_count": 0,
 		})
 	}
 	for _, ledger := range ledgers {
-		if ledger == nil || ledger.CreatedAt.Before(start) || ledger.CreatedAt.After(end) {
+		if ledger == nil {
 			continue
 		}
 		index, exists := indexes[workBeginningOfDay(ledger.CreatedAt).Format("2006-01-02")]
@@ -197,6 +396,23 @@ func adminSummaryFinanceTrendRows(ledgers []*crmmodel.FinanceLedger, days int) [
 	return rows
 }
 
+func adminSummaryFinanceTotals(ledgers []*crmmodel.FinanceLedger) (float64, float64) {
+	var income float64
+	var expense float64
+	for _, ledger := range ledgers {
+		if ledger == nil {
+			continue
+		}
+		switch ledger.Direction {
+		case crmmodel.FinanceDirectionExpense:
+			expense += ledger.Amount
+		default:
+			income += ledger.Amount
+		}
+	}
+	return income, expense
+}
+
 type adminSummaryFinanceTypeStat struct {
 	Key       string
 	Name      string
@@ -207,7 +423,7 @@ type adminSummaryFinanceTypeStat struct {
 
 func adminSummaryFinanceTypeRows(ledgers []*crmmodel.FinanceLedger) []map[string]any {
 	stats := map[string]*adminSummaryFinanceTypeStat{}
-	var totalAmount float64
+	totalsByDirection := map[string]float64{}
 	for _, ledger := range ledgers {
 		if ledger == nil {
 			continue
@@ -233,7 +449,7 @@ func adminSummaryFinanceTypeRows(ledgers []*crmmodel.FinanceLedger) []map[string
 		}
 		stat.Count++
 		stat.Amount += ledger.Amount
-		totalAmount += ledger.Amount
+		totalsByDirection[ledger.Direction] += ledger.Amount
 	}
 	rows := make([]*adminSummaryFinanceTypeStat, 0, len(stats))
 	for _, stat := range stats {
@@ -248,8 +464,8 @@ func adminSummaryFinanceTypeRows(ledgers []*crmmodel.FinanceLedger) []map[string
 	result := make([]map[string]any, 0, len(rows))
 	for _, stat := range rows {
 		percent := 0
-		if totalAmount > 0 {
-			percent = int(stat.Amount / totalAmount * 100)
+		if total := totalsByDirection[stat.Direction]; total > 0 {
+			percent = int(stat.Amount / total * 100)
 		}
 		result = append(result, map[string]any{
 			"key":       stat.Key,
@@ -263,66 +479,50 @@ func adminSummaryFinanceTypeRows(ledgers []*crmmodel.FinanceLedger) []map[string
 	return result
 }
 
-func adminSummaryTrendRows(customers []*crmmodel.Customer, assets []*crmmodel.CustomerAsset, events []*crmmodel.StatEvent, operations []*crmmodel.OperationLog, days int) []map[string]any {
+func adminSummaryBusinessTrend(customers []*crmmodel.Customer, assets []*crmmodel.CustomerAsset, todos []*crmmodel.WorkTodo, events []*crmmodel.StatEvent, tasks map[uint64]adminSummaryTaskInfo, workflowID uint64, rangeValue adminSummaryRange) []map[string]any {
+	days := int(rangeValue.End.Sub(rangeValue.Start).Hours() / 24)
 	if days <= 0 {
-		days = adminSummaryTrendDays
+		return []map[string]any{}
 	}
-	start := adminSummaryTrendStart(days)
-	end := workBeginningOfDay(time.Now()).AddDate(0, 0, 1)
 	rows := make([]map[string]any, 0, days)
 	indexes := map[string]int{}
-	for i := 0; i < days; i++ {
-		day := start.AddDate(0, 0, i)
+	for index := 0; index < days; index++ {
+		day := rangeValue.Start.AddDate(0, 0, index)
 		key := day.Format("2006-01-02")
-		indexes[key] = i
+		indexes[key] = index
 		rows = append(rows, map[string]any{
-			"date":             key,
-			"label":            day.Format("01-02"),
-			"customer_count":   0,
-			"asset_count":      0,
-			"task_count":       0,
-			"transition_count": 0,
-			"operation_count":  0,
+			"date": key, "label": day.Format("01-02"), "customer_count": 0,
+			"asset_count": 0, "task_count": 0, "transition_count": 0,
 		})
 	}
-
 	for _, customer := range customers {
-		if customer == nil {
-			continue
+		if customer != nil {
+			adminSummaryIncrementTrend(rows, indexes, rangeValue.Start, rangeValue.End, customer.CreatedAt, "customer_count")
 		}
-		adminSummaryIncrementTrend(rows, indexes, start, end, customer.CreatedAt, "customer_count")
 	}
 	for _, asset := range assets {
-		if asset == nil {
+		if asset != nil {
+			adminSummaryIncrementTrend(rows, indexes, rangeValue.Start, rangeValue.End, asset.CreatedAt, "asset_count")
+		}
+	}
+	for _, todo := range todos {
+		if todo == nil || todo.Status != crmmodel.WorkTodoStatusDone || todo.CompletedAt == nil ||
+			workflowID > 0 && todo.WorkflowID != workflowID || !adminSummaryIsManualTask(tasks, todo.TaskID) {
 			continue
 		}
-		adminSummaryIncrementTrend(rows, indexes, start, end, asset.CreatedAt, "asset_count")
+		adminSummaryIncrementTrend(rows, indexes, rangeValue.Start, rangeValue.End, *todo.CompletedAt, "task_count")
 	}
 	for _, event := range events {
-		if event == nil || event.EventAt.Before(start) || event.EventAt.After(end) {
+		if event == nil || event.EventType != crmmodel.StatEventTypeTransition || workflowID > 0 && event.WorkflowID != workflowID {
 			continue
 		}
-		switch event.EventType {
-		case crmmodel.StatEventTypeTask:
-			if event.ResultValue == workResultProgress {
-				continue
-			}
-			adminSummaryIncrementTrend(rows, indexes, start, end, event.EventAt, "task_count")
-		case crmmodel.StatEventTypeTransition:
-			adminSummaryIncrementTrend(rows, indexes, start, end, event.EventAt, "transition_count")
-		}
-	}
-	for _, operation := range operations {
-		if operation == nil {
-			continue
-		}
-		adminSummaryIncrementTrend(rows, indexes, start, end, operation.CreatedAt, "operation_count")
+		adminSummaryIncrementTrend(rows, indexes, rangeValue.Start, rangeValue.End, event.EventAt, "transition_count")
 	}
 	return rows
 }
 
 func adminSummaryIncrementTrend(rows []map[string]any, indexes map[string]int, start time.Time, end time.Time, eventAt time.Time, key string) {
-	if eventAt.Before(start) || eventAt.After(end) {
+	if eventAt.Before(start) || !eventAt.Before(end) {
 		return
 	}
 	index, exists := indexes[workBeginningOfDay(eventAt).Format("2006-01-02")]
@@ -336,37 +536,37 @@ func adminSummaryTrendStart(days int) time.Time {
 	return workBeginningOfDay(time.Now()).AddDate(0, 0, -days+1)
 }
 
-func adminSummaryStageFunnel(targets []*crmmodel.WorkflowInstance, stages []adminSummaryStageInfo) []map[string]any {
-	counts := map[uint64]int{}
-	for _, target := range targets {
-		if target == nil {
-			continue
-		}
-		counts[target.StageID]++
+func adminSummaryStageFunnel(events []*crmmodel.StatEvent, stages []adminSummaryStageInfo, workflowID uint64, rangeValue adminSummaryRange) []map[string]any {
+	if len(stages) == 0 {
+		return []map[string]any{}
 	}
-	stageByID := adminSummaryStageByID(stages)
-	rows := make([]map[string]any, 0, len(counts))
-	total := len(targets)
-	previous := total
-	for _, stage := range stages {
-		count := counts[stage.ID]
-		if count == 0 {
+	cohort := map[uint64]bool{}
+	for _, event := range events {
+		if event != nil && event.EventType == crmmodel.StatEventTypeTransition && event.ToStageID == stages[0].ID &&
+			(workflowID == 0 || event.WorkflowID == workflowID) && adminSummaryInRange(event.EventAt, rangeValue) {
+			cohort[event.WorkflowInstanceID] = true
+		}
+	}
+	enteredByStage := map[uint64]map[uint64]bool{}
+	for _, event := range events {
+		if event == nil || event.EventType != crmmodel.StatEventTypeTransition || event.ToStageID == 0 ||
+			workflowID > 0 && event.WorkflowID != workflowID || !cohort[event.WorkflowInstanceID] || !event.EventAt.Before(rangeValue.End) {
 			continue
 		}
+		if enteredByStage[event.ToStageID] == nil {
+			enteredByStage[event.ToStageID] = map[uint64]bool{}
+		}
+		enteredByStage[event.ToStageID][event.WorkflowInstanceID] = true
+	}
+	total := len(cohort)
+	previous := total
+	rows := make([]map[string]any, 0, len(stages))
+	for _, stage := range stages {
+		count := len(enteredByStage[stage.ID])
 		row := adminSummaryBreakdownRow(adminSummaryStageKey(stage.ID), stage.Name, count, total)
 		adminSummaryAttachDropFields(row, previous, count)
 		rows = append(rows, row)
 		previous = count
-		delete(counts, stage.ID)
-	}
-	for stageID, count := range counts {
-		name := "未进入阶段"
-		if stage, ok := stageByID[stageID]; ok && stage.Name != "" {
-			name = stage.Name
-		}
-		row := adminSummaryBreakdownRow(adminSummaryStageKey(stageID), name, count, total)
-		adminSummaryAttachDropFields(row, previous, count)
-		rows = append(rows, row)
 	}
 	return rows
 }
@@ -388,10 +588,9 @@ func adminSummaryAttachDropFields(row map[string]any, previousCount int, count i
 	row["drop_percent"] = dropPercent
 }
 
-func adminSummaryNodeBacklog(ctx context.Context, targets []*crmmodel.WorkflowInstance, stages []adminSummaryStageInfo, tasks []adminSummaryTaskInfo, todos []*crmmodel.WorkTodo) []map[string]any {
+func adminSummaryNodeBacklog(ctx context.Context, targets []*crmmodel.WorkflowInstance, stages []adminSummaryStageInfo, todos []*crmmodel.WorkTodo) []map[string]any {
 	stageByID := adminSummaryStageByID(stages)
 	stats := map[uint64]*adminSummaryNodeBacklogStat{}
-	targetStageByKey := map[string]uint64{}
 	for _, target := range targets {
 		if target == nil {
 			continue
@@ -408,7 +607,6 @@ func adminSummaryNodeBacklog(ctx context.Context, targets []*crmmodel.WorkflowIn
 		}
 		stat.Count++
 		stat.Days = append(stat.Days, workStageDwellDays(workStageEnteredAt(ctx, target)))
-		targetStageByKey[adminSummaryTargetKey(target.CustomerID, target.AssetID)] = stageID
 	}
 
 	pendingTodosByStage := map[uint64]int{}
@@ -416,25 +614,19 @@ func adminSummaryNodeBacklog(ctx context.Context, targets []*crmmodel.WorkflowIn
 		if todo == nil || todo.Status != crmmodel.WorkTodoStatusPending {
 			continue
 		}
-		stageID := targetStageByKey[adminSummaryTargetKey(todo.CustomerID, todo.AssetID)]
-		pendingTodosByStage[stageID]++
-	}
-
-	tasksByStage := map[uint64]int{}
-	for _, task := range tasks {
-		tasksByStage[task.StageID]++
+		pendingTodosByStage[todo.StageID]++
 	}
 
 	rows := make([]map[string]any, 0, len(stats))
 	total := len(targets)
 	for _, stage := range stages {
 		if stat := stats[stage.ID]; stat != nil {
-			rows = append(rows, adminSummaryNodeBacklogRow(stat, tasksByStage[stage.ID], pendingTodosByStage[stage.ID], total))
+			rows = append(rows, adminSummaryNodeBacklogRow(stat, pendingTodosByStage[stage.ID], total))
 			delete(stats, stage.ID)
 		}
 	}
 	for stageID, stat := range stats {
-		rows = append(rows, adminSummaryNodeBacklogRow(stat, 0, pendingTodosByStage[stageID], total))
+		rows = append(rows, adminSummaryNodeBacklogRow(stat, pendingTodosByStage[stageID], total))
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		left := inputInt(rows[i]["stale_7d"])*100000 + inputInt(rows[i]["max_days"])*1000 + inputInt(rows[i]["count"])
@@ -447,7 +639,7 @@ func adminSummaryNodeBacklog(ctx context.Context, targets []*crmmodel.WorkflowIn
 	return rows
 }
 
-func adminSummaryNodeBacklogRow(stat *adminSummaryNodeBacklogStat, taskCount int, pendingTodoCount int, total int) map[string]any {
+func adminSummaryNodeBacklogRow(stat *adminSummaryNodeBacklogStat, pendingTodoCount int, total int) map[string]any {
 	sumDays := 0
 	maxDays := 0
 	stale3d := 0
@@ -473,7 +665,6 @@ func adminSummaryNodeBacklogRow(stat *adminSummaryNodeBacklogStat, taskCount int
 		avgDays = (sumDays + stat.Count/2) / stat.Count
 	}
 	row := adminSummaryBreakdownRow(adminSummaryStageKey(stat.Stage.ID), stat.Stage.Name, stat.Count, total)
-	row["task_count"] = taskCount
 	row["pending_todo_count"] = pendingTodoCount
 	row["avg_days"] = avgDays
 	row["max_days"] = maxDays
@@ -483,26 +674,19 @@ func adminSummaryNodeBacklogRow(stat *adminSummaryNodeBacklogStat, taskCount int
 	return row
 }
 
-func adminSummaryTaskBreakdown(targets []*crmmodel.WorkflowInstance, stages []adminSummaryStageInfo, tasks []adminSummaryTaskInfo) []map[string]any {
-	tasksByStage := map[uint64][]adminSummaryTaskInfo{}
-	for _, task := range tasks {
-		tasksByStage[task.StageID] = append(tasksByStage[task.StageID], task)
-	}
-
+func adminSummaryTaskBreakdown(todos []*crmmodel.WorkTodo, tasks map[uint64]adminSummaryTaskInfo) []map[string]any {
 	counts := map[string]int{}
 	total := 0
-	for _, target := range targets {
-		if target == nil {
+	for _, todo := range todos {
+		if todo == nil {
 			continue
 		}
-		for _, task := range tasksByStage[target.StageID] {
-			key := task.Type
-			if key == "" {
-				key = "_unknown"
-			}
-			counts[key]++
-			total++
+		key := tasks[todo.TaskID].Type
+		if key == "" {
+			key = "_unknown"
 		}
+		counts[key]++
+		total++
 	}
 
 	rows := make([]map[string]any, 0, len(counts))
@@ -528,75 +712,127 @@ func adminSummaryBreakdownRow(key string, name string, count int, total int) map
 	}
 }
 
-func adminSummaryStaffOutput(ctx context.Context, events []*crmmodel.StatEvent, operations []*crmmodel.OperationLog, todos []*crmmodel.WorkTodo, start time.Time) []map[string]any {
-	statsByStaff := map[uint64]*adminSummaryStaffStat{}
-	for _, event := range events {
-		if event == nil || event.OperatorStaffID == 0 || event.EventAt.Before(start) {
+func adminSummaryPerformance(ctx context.Context, query AdminSummaryQuery, rangeValue adminSummaryRange) []map[string]any {
+	staffRows := crmmodel.NewStaffModel().Select(ctx, map[string]any{})
+	staffByID := map[uint64]*crmmodel.Staff{}
+	for _, staff := range staffRows {
+		if staff != nil {
+			staffByID[staff.ID] = staff
+		}
+	}
+	departmentNames := map[uint64]string{}
+	for _, department := range crmmodel.NewDepartmentModel().Select(ctx, map[string]any{}) {
+		if department != nil {
+			departmentNames[department.ID] = department.Name
+		}
+	}
+	tasks := adminSummaryTaskByID(adminSummaryTaskInfos(ctx))
+	stats := map[uint64]*adminSummaryStaffStat{}
+	todoFilters := map[string]any{}
+	if query.WorkflowID > 0 {
+		todoFilters["workflow_id"] = query.WorkflowID
+	}
+	if query.StaffID > 0 {
+		todoFilters["assignee_staff_id"] = query.StaffID
+	}
+	for _, todo := range crmmodel.NewWorkTodoModel().Select(ctx, todoFilters) {
+		if todo == nil || todo.AssigneeStaffID == 0 || !adminSummaryIsManualTask(tasks, todo.TaskID) ||
+			query.WorkflowID > 0 && todo.WorkflowID != query.WorkflowID ||
+			!adminSummaryStaffMatches(staffByID, todo.AssigneeStaffID, query) {
 			continue
 		}
-		stat := adminSummaryStaffStatFor(statsByStaff, event.OperatorStaffID)
-		adminSummaryTouchStaffStat(stat, event.EventAt)
-		switch event.EventType {
-		case crmmodel.StatEventTypeTask:
-			if event.ResultValue == workResultProgress {
-				continue
+		if todo.Status == crmmodel.WorkTodoStatusPending {
+			adminSummaryStaffStatFor(stats, todo.AssigneeStaffID).PendingTaskCount++
+			continue
+		}
+		if todo.Status != crmmodel.WorkTodoStatusDone || todo.CompletedAt == nil || !adminSummaryInRange(*todo.CompletedAt, rangeValue) {
+			continue
+		}
+		stat := adminSummaryStaffStatFor(stats, todo.AssigneeStaffID)
+		stat.CompletedTaskCount++
+		if duration := todo.CompletedAt.Sub(todo.CreatedAt).Seconds(); duration >= 0 {
+			stat.DurationSeconds += duration
+			stat.DurationSampleCount++
+		}
+		if todo.DueAt != nil {
+			stat.OnTimeEligibleCount++
+			if !todo.CompletedAt.After(*todo.DueAt) {
+				stat.OnTimeCount++
 			}
-			stat.TaskCount++
-		case crmmodel.StatEventTypeTransition:
-			stat.TransitionCount++
 		}
-	}
-	for _, operation := range operations {
-		if operation == nil || operation.OperatorStaffID == 0 || operation.CreatedAt.Before(start) {
-			continue
-		}
-		stat := adminSummaryStaffStatFor(statsByStaff, operation.OperatorStaffID)
-		stat.OperationCount++
-		adminSummaryTouchStaffStat(stat, operation.CreatedAt)
-	}
-	for _, todo := range todos {
-		if todo == nil || todo.AssigneeStaffID == 0 || todo.Status != crmmodel.WorkTodoStatusDone || todo.CompletedAt == nil || todo.CompletedAt.Before(start) {
-			continue
-		}
-		stat := adminSummaryStaffStatFor(statsByStaff, todo.AssigneeStaffID)
-		stat.TodoDoneCount++
 		adminSummaryTouchStaffStat(stat, *todo.CompletedAt)
 	}
-	names := adminSummaryStaffNames(ctx)
-	stats := make([]*adminSummaryStaffStat, 0, len(statsByStaff))
-	for id, stat := range statsByStaff {
-		stat.Name = names[id]
+	eventFilters := map[string]any{"event_type": crmmodel.StatEventTypeTransition}
+	if query.WorkflowID > 0 {
+		eventFilters["workflow_id"] = query.WorkflowID
+	}
+	if query.StaffID > 0 {
+		eventFilters["operator_staff_id"] = query.StaffID
+	}
+	for _, event := range crmmodel.NewStatEventModel().Select(ctx, eventFilters) {
+		if event == nil || event.OperatorStaffID == 0 || !adminSummaryInRange(event.EventAt, rangeValue) ||
+			query.WorkflowID > 0 && event.WorkflowID != query.WorkflowID ||
+			!adminSummaryStaffMatches(staffByID, event.OperatorStaffID, query) {
+			continue
+		}
+		stat := adminSummaryStaffStatFor(stats, event.OperatorStaffID)
+		stat.TransitionCount++
+		adminSummaryTouchStaffStat(stat, event.EventAt)
+	}
+
+	list := make([]*adminSummaryStaffStat, 0, len(stats))
+	for staffID, stat := range stats {
+		staff := staffByID[staffID]
+		if staff != nil {
+			stat.Name = staff.Name
+			stat.DepartmentName = departmentNames[staff.DepartmentID]
+		}
 		if stat.Name == "" {
 			stat.Name = "未命名人员"
 		}
-		stats = append(stats, stat)
+		list = append(list, stat)
 	}
-	sort.SliceStable(stats, func(i, j int) bool {
-		left := adminSummaryStaffTotal(stats[i])
-		right := adminSummaryStaffTotal(stats[j])
-		if left != right {
-			return left > right
+	sort.SliceStable(list, func(i, j int) bool {
+		if list[i].CompletedTaskCount != list[j].CompletedTaskCount {
+			return list[i].CompletedTaskCount > list[j].CompletedTaskCount
 		}
-		return stats[i].ID < stats[j].ID
+		if list[i].TransitionCount != list[j].TransitionCount {
+			return list[i].TransitionCount > list[j].TransitionCount
+		}
+		return list[i].ID < list[j].ID
 	})
-	if len(stats) > 8 {
-		stats = stats[:8]
-	}
 
-	rows := make([]map[string]any, 0, len(stats))
-	for _, stat := range stats {
+	rows := make([]map[string]any, 0, len(list))
+	for _, stat := range list {
+		avgHours := 0.0
+		if stat.DurationSampleCount > 0 {
+			avgHours = stat.DurationSeconds / float64(stat.DurationSampleCount) / 3600
+		}
 		rows = append(rows, map[string]any{
-			"id":               stat.ID,
-			"name":             stat.Name,
-			"task_count":       stat.TaskCount,
-			"transition_count": stat.TransitionCount,
-			"operation_count":  stat.OperationCount,
-			"todo_done_count":  stat.TodoDoneCount,
-			"last_active_at":   stat.LastActiveAt,
-			"total":            adminSummaryStaffTotal(stat),
+			"id":                   stat.ID,
+			"name":                 stat.Name,
+			"department_name":      stat.DepartmentName,
+			"completed_task_count": stat.CompletedTaskCount,
+			"transition_count":     stat.TransitionCount,
+			"pending_task_count":   stat.PendingTaskCount,
+			"on_time_rate":         adminSummaryPercent(stat.OnTimeCount, stat.OnTimeEligibleCount),
+			"on_time_sample_count": stat.OnTimeEligibleCount,
+			"avg_duration_hours":   avgHours,
+			"last_active_at":       stat.LastActiveAt,
 		})
 	}
 	return rows
+}
+
+func adminSummaryStaffMatches(staffByID map[uint64]*crmmodel.Staff, staffID uint64, query AdminSummaryQuery) bool {
+	if query.StaffID > 0 && staffID != query.StaffID {
+		return false
+	}
+	staff := staffByID[staffID]
+	if staff == nil {
+		return false
+	}
+	return query.DepartmentID == 0 || staff.DepartmentID == query.DepartmentID
 }
 
 func adminSummaryTouchStaffStat(stat *adminSummaryStaffStat, activeAt time.Time) {
@@ -608,15 +844,8 @@ func adminSummaryTouchStaffStat(stat *adminSummaryStaffStat, activeAt time.Time)
 	}
 }
 
-func adminSummaryStaffTotal(stat *adminSummaryStaffStat) int {
-	if stat == nil {
-		return 0
-	}
-	return stat.TaskCount + stat.TransitionCount + stat.OperationCount + stat.TodoDoneCount
-}
-
-func adminSummaryProbeSummary(ctx context.Context, assets []*crmmodel.CustomerAsset) map[string]any {
-	templates := adminSummaryProbeTemplates(ctx)
+func adminSummaryProbeSummary(ctx context.Context, assets []*crmmodel.CustomerAsset, workflowID uint64) map[string]any {
+	templates := adminSummaryProbeTemplates(ctx, workflowID)
 	if len(templates) == 0 {
 		return map[string]any{
 			"asset_count":          len(assets),
@@ -673,8 +902,16 @@ func adminSummaryProbeSummary(ctx context.Context, assets []*crmmodel.CustomerAs
 	fieldTotal := 0
 	fieldFilled := 0
 	completeAssets := 0
+	startedAssets := 0
 	parentNames := adminSummaryProbeParentNames(ctx, fieldsByID)
-	for _, values := range valuesByAsset {
+	for _, asset := range assets {
+		if asset == nil {
+			continue
+		}
+		values := valuesByAsset[asset.ID]
+		if len(values) > 0 {
+			startedAssets++
+		}
 		assetTotal := 0
 		assetFilled := 0
 		for templateID, fields := range fieldsByTemplate {
@@ -703,7 +940,7 @@ func adminSummaryProbeSummary(ctx context.Context, assets []*crmmodel.CustomerAs
 
 	return map[string]any{
 		"asset_count":          len(assets),
-		"started_asset_count":  len(valuesByAsset),
+		"started_asset_count":  startedAssets,
 		"complete_asset_count": completeAssets,
 		"field_total":          fieldTotal,
 		"field_filled":         fieldFilled,
@@ -713,15 +950,50 @@ func adminSummaryProbeSummary(ctx context.Context, assets []*crmmodel.CustomerAs
 	}
 }
 
-func adminSummaryProbeTemplates(ctx context.Context) []*crmmodel.DataTemplate {
-	rows := crmmodel.NewDataTemplateModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled})
-	templates := make([]*crmmodel.DataTemplate, 0, len(rows))
-	for _, row := range rows {
-		if row != nil && workDataCompletenessTemplateIsProbe(row.Name) {
-			templates = append(templates, row)
+func adminSummaryProbeTemplates(ctx context.Context, workflowID uint64) []*crmmodel.DataTemplate {
+	stageIDs := map[uint64]bool{}
+	for _, stage := range adminSummaryStageInfosForWorkflow(ctx, workflowID) {
+		stageIDs[stage.ID] = true
+	}
+	formIDs := map[uint64]bool{}
+	for _, task := range adminSummaryEnabledTaskInfos(ctx) {
+		if stageIDs[task.StageID] && task.FormID > 0 {
+			formIDs[task.FormID] = true
+		}
+	}
+	templateIDs := map[uint64]bool{}
+	for formID := range formIDs {
+		for _, field := range crmmodel.NewFormFieldModel().Select(ctx, map[string]any{"form_id": formID, "status": crmmodel.StatusEnabled}) {
+			if field != nil && field.DataTemplateID > 0 {
+				templateIDs[field.DataTemplateID] = true
+			}
+		}
+	}
+	templates := make([]*crmmodel.DataTemplate, 0, len(templateIDs))
+	for templateID := range templateIDs {
+		template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{"id": templateID, "status": crmmodel.StatusEnabled})
+		if template != nil && adminSummaryTemplateHasProbeDimensions(ctx, template.ID) {
+			templates = append(templates, template)
 		}
 	}
 	return templates
+}
+
+func adminSummaryTemplateHasProbeDimensions(ctx context.Context, templateID uint64) bool {
+	dimensions := map[string]bool{}
+	for _, field := range crmmodel.NewDataFieldModel().Select(ctx, map[string]any{"data_template_id": templateID, "status": crmmodel.StatusEnabled}) {
+		if field == nil {
+			continue
+		}
+		text := strings.ToLower(strings.TrimSpace(field.FieldKey + " " + field.Name))
+		for index := 1; index <= 12; index++ {
+			key := "p" + fmt.Sprintf("%02d", index)
+			if strings.Contains(text, key) {
+				dimensions[key] = true
+			}
+		}
+	}
+	return len(dimensions) >= 8
 }
 
 func adminSummaryProbeParentNames(ctx context.Context, fieldsByID map[uint64]*crmmodel.DataField) map[uint64]string {
@@ -801,18 +1073,6 @@ func adminSummaryStaffStatFor(stats map[uint64]*adminSummaryStaffStat, staffID u
 	return stats[staffID]
 }
 
-func adminSummaryStaffNames(ctx context.Context) map[uint64]string {
-	rows := crmmodel.NewStaffModel().Select(ctx, map[string]any{})
-	names := map[uint64]string{}
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		names[row.ID] = row.Name
-	}
-	return names
-}
-
 func adminSummaryStageInfos(ctx context.Context) []adminSummaryStageInfo {
 	rows := crmmodel.NewStageModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled})
 	stages := make([]adminSummaryStageInfo, 0, len(rows))
@@ -821,9 +1081,10 @@ func adminSummaryStageInfos(ctx context.Context) []adminSummaryStageInfo {
 			continue
 		}
 		stages = append(stages, adminSummaryStageInfo{
-			ID:   row.ID,
-			Name: row.Name,
-			Sort: row.Sort,
+			ID:         row.ID,
+			WorkflowID: row.WorkflowID,
+			Name:       row.Name,
+			Sort:       row.Sort,
 		})
 	}
 	sort.SliceStable(stages, func(i, j int) bool {
@@ -835,8 +1096,30 @@ func adminSummaryStageInfos(ctx context.Context) []adminSummaryStageInfo {
 	return stages
 }
 
+func adminSummaryStageInfosForWorkflow(ctx context.Context, workflowID uint64) []adminSummaryStageInfo {
+	stages := adminSummaryStageInfos(ctx)
+	if workflowID == 0 {
+		return stages
+	}
+	result := make([]adminSummaryStageInfo, 0, len(stages))
+	for _, stage := range stages {
+		if stage.WorkflowID == workflowID {
+			result = append(result, stage)
+		}
+	}
+	return result
+}
+
 func adminSummaryTaskInfos(ctx context.Context) []adminSummaryTaskInfo {
-	rows := crmmodel.NewTaskModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled})
+	return adminSummaryTaskInfosWithFilter(ctx, map[string]any{})
+}
+
+func adminSummaryEnabledTaskInfos(ctx context.Context) []adminSummaryTaskInfo {
+	return adminSummaryTaskInfosWithFilter(ctx, map[string]any{"status": crmmodel.StatusEnabled})
+}
+
+func adminSummaryTaskInfosWithFilter(ctx context.Context, filter map[string]any) []adminSummaryTaskInfo {
+	rows := crmmodel.NewTaskModel().Select(ctx, filter)
 	tasks := make([]adminSummaryTaskInfo, 0, len(rows))
 	for _, row := range rows {
 		if row == nil {
@@ -846,7 +1129,6 @@ func adminSummaryTaskInfos(ctx context.Context) []adminSummaryTaskInfo {
 			ID:      row.ID,
 			StageID: row.StageID,
 			Type:    row.TaskType,
-			Name:    row.Name,
 			FormID:  row.FormID,
 		})
 	}
@@ -868,60 +1150,9 @@ func adminSummaryStageKey(stageID uint64) string {
 	return strconv.FormatUint(stageID, 10)
 }
 
-func adminSummaryTargetKey(customerID uint64, assetID uint64) string {
-	return strconv.FormatUint(customerID, 10) + ":" + strconv.FormatUint(assetID, 10)
-}
-
 func adminSummaryPercent(count int, total int) int {
 	if total <= 0 {
 		return 0
 	}
 	return int(float64(count) / float64(total) * 100)
-}
-
-func adminSummaryMissingAssetCustomers(customers []*crmmodel.Customer, assets []*crmmodel.CustomerAsset) int {
-	hasAsset := map[uint64]bool{}
-	for _, asset := range assets {
-		if asset == nil {
-			continue
-		}
-		hasAsset[asset.CustomerID] = true
-	}
-	count := 0
-	for _, customer := range customers {
-		if customer != nil && !hasAsset[customer.ID] {
-			count++
-		}
-	}
-	return count
-}
-
-func adminSummaryEventCountsSince(events []*crmmodel.StatEvent, start time.Time) (int, int) {
-	taskCount := 0
-	transitionCount := 0
-	for _, event := range events {
-		if event == nil || event.EventAt.Before(start) {
-			continue
-		}
-		switch event.EventType {
-		case crmmodel.StatEventTypeTask:
-			if event.ResultValue == workResultProgress {
-				continue
-			}
-			taskCount++
-		case crmmodel.StatEventTypeTransition:
-			transitionCount++
-		}
-	}
-	return taskCount, transitionCount
-}
-
-func adminSummaryOperationCountSince(operations []*crmmodel.OperationLog, start time.Time) int {
-	count := 0
-	for _, operation := range operations {
-		if operation != nil && !operation.CreatedAt.Before(start) {
-			count++
-		}
-	}
-	return count
 }

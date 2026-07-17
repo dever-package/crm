@@ -50,13 +50,22 @@ func (WorkService) LeadPool(ctx context.Context, staff *WorkStaffSession, payloa
 		return leftPending && !rightPending
 	})
 	keyword := firstText(payload, "keyword")
+	quickFilter := firstText(payload, "quick_filter", "quickFilter")
+	stageFilter := firstText(payload, "stage_filter", "stage")
+	taskFilter := firstText(payload, "task_filter", "task")
 	rows := make([]map[string]any, 0, len(leads))
 	for _, lead := range leads {
 		if lead == nil || !matchesWorkLeadKeyword(lead, keyword) {
 			continue
 		}
 		instance := workflowInstanceForLead(ctx, lead.ID, workflow.ID)
-		if instance == nil || !canViewWorkflowInstance(ctx, staff, instance) {
+		if instance == nil || !workflowInstanceMatchesPersonalQuickFilter(ctx, staff, instance, quickFilter) {
+			continue
+		}
+		if !canViewWorkflowInstance(ctx, staff, instance) && quickFilter != "completedToday" {
+			continue
+		}
+		if !workflowInstanceMatchesSummaryFilters(ctx, staff, instance, stageFilter, taskFilter) {
 			continue
 		}
 		row := workLeadRow(ctx, lead, workflow.ID)
@@ -662,18 +671,26 @@ func findWorkLeadDuplicate(ctx context.Context, leadID uint64, phone, wechat str
 	customerModel := crmmodel.NewCustomerModel()
 	if phone != "" {
 		if customer := customerModel.Find(ctx, map[string]any{"phone": phone}); customer != nil {
-			return &workLeadDuplicate{CustomerID: customer.ID, Reason: "手机号已存在于客户库：" + customer.Code}
+			return &workLeadDuplicate{
+				CustomerID: customer.ID,
+				Reason:     "手机号已存在于客户库：" + customerCodeDisplayForWork(ctx, customer.Code),
+			}
 		}
 	}
 	if wechat != "" {
 		if customer := customerModel.Find(ctx, map[string]any{"wechat": wechat}); customer != nil {
-			return &workLeadDuplicate{CustomerID: customer.ID, Reason: "微信号已存在于客户库：" + customer.Code}
+			return &workLeadDuplicate{
+				CustomerID: customer.ID,
+				Reason:     "微信号已存在于客户库：" + customerCodeDisplayForWork(ctx, customer.Code),
+			}
 		}
 	}
 
 	leadModel := crmmodel.NewLeadModel()
 	for _, candidate := range leadModel.Select(ctx, map[string]any{}, map[string]any{"order": "id asc"}) {
-		if candidate == nil || candidate.ID == leadID || candidate.Status == crmmodel.LeadStatusInvalid {
+		if candidate == nil || candidate.ID == leadID ||
+			candidate.Status == crmmodel.LeadStatusInvalid ||
+			candidate.Status == crmmodel.LeadStatusDuplicate {
 			continue
 		}
 		reason := ""

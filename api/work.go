@@ -79,14 +79,20 @@ func (Work) GetCustomers(c *server.Context) error {
 
 func (Work) GetLeads(c *server.Context) error {
 	data, err := workService.LeadPool(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
-		"keyword":     c.Input("keyword"),
-		"status":      c.Input("status"),
-		"scope":       c.Input("scope"),
-		"workflow_id": c.Input("workflow_id"),
-		"workflowId":  c.Input("workflowId"),
-		"page":        c.Input("page"),
-		"page_size":   c.Input("page_size"),
-		"pageSize":    c.Input("pageSize"),
+		"keyword":      c.Input("keyword"),
+		"status":       c.Input("status"),
+		"scope":        c.Input("scope"),
+		"quick_filter": c.Input("quick_filter"),
+		"quickFilter":  c.Input("quickFilter"),
+		"stage_filter": c.Input("stage_filter"),
+		"stage":        c.Input("stage"),
+		"task_filter":  c.Input("task_filter"),
+		"task":         c.Input("task"),
+		"workflow_id":  c.Input("workflow_id"),
+		"workflowId":   c.Input("workflowId"),
+		"page":         c.Input("page"),
+		"page_size":    c.Input("page_size"),
+		"pageSize":     c.Input("pageSize"),
 	})
 	return crmJSON(c, data, err)
 }
@@ -111,10 +117,12 @@ func (Work) PostLeadAction(c *server.Context) error {
 
 func (Work) GetCustomerDetail(c *server.Context) error {
 	data, err := workService.CustomerDetail(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
-		"customer_id": c.Input("customer_id"),
-		"customerId":  c.Input("customerId"),
-		"asset_id":    c.Input("asset_id"),
-		"assetId":     c.Input("assetId"),
+		"customer_id":          c.Input("customer_id"),
+		"customerId":           c.Input("customerId"),
+		"asset_id":             c.Input("asset_id"),
+		"assetId":              c.Input("assetId"),
+		"workflow_instance_id": c.Input("workflow_instance_id"),
+		"workflowInstanceId":   c.Input("workflowInstanceId"),
 	})
 	return crmJSON(c, data, err)
 }

@@ -21,12 +21,14 @@ import {
 } from "./work-core";
 import { WorkFlowOwnerDialog } from "./work-flow-owner-dialog";
 import { WorkListState } from "./work-list-state";
+import { WorkPagination } from "./work-pagination";
 
 export type WorkCustomerListTaskView = {
   key: string;
   label: string;
   result?: string;
   kind: "action" | "rule";
+  canOperate: boolean;
   task: WorkTask;
 };
 
@@ -192,7 +194,7 @@ export function WorkCustomerListView({
           </table>
         </div>
 
-        <WorkCustomerPagination
+        <WorkPagination
           loading={loading}
           hidden={initialLoading}
           page={page}
@@ -405,7 +407,8 @@ function WorkCustomerTableRow({
   ) => void;
   onOpenReassign: (row: WorkCustomerListRowView) => void;
 }) {
-  const { primaryTask, ruleTask, extraTasks } = workCustomerTaskGroups(row);
+  const { summaryTask, primaryTask, ruleTask, extraTasks } =
+    workCustomerTaskGroups(row);
 
   return (
     <tr
@@ -468,7 +471,7 @@ function WorkCustomerTableRow({
       </td>
       <td className="px-3 py-3">
         <WorkCustomerTaskSummary
-          primaryTask={primaryTask}
+          primaryTask={summaryTask}
           ruleTask={ruleTask}
           total={row.tasks.length}
         />
@@ -526,9 +529,11 @@ function WorkCustomerTaskSummary({
 
 function workCustomerTaskGroups(row: WorkCustomerListRowView) {
   const actionableTasks = row.tasks.filter((task) => task.kind === "action");
+  const operableTasks = actionableTasks.filter((task) => task.canOperate);
   return {
-    primaryTask: actionableTasks[0],
-    extraTasks: actionableTasks.slice(1),
+    summaryTask: actionableTasks[0],
+    primaryTask: operableTasks[0],
+    extraTasks: operableTasks.slice(1),
     ruleTask: row.tasks.find((task) => task.kind === "rule"),
   };
 }
@@ -692,7 +697,7 @@ function WorkCustomerMobileList({
   return (
     <div>
       {rows.map((row) => {
-        const { primaryTask, ruleTask, extraTasks } =
+        const { summaryTask, primaryTask, ruleTask, extraTasks } =
           workCustomerTaskGroups(row);
         return (
           <article
@@ -734,7 +739,10 @@ function WorkCustomerMobileList({
               <div className="mt-2">
                 <span className="mr-2 text-xs text-muted-foreground">当前待办</span>
                 <span className="text-foreground">
-                  {primaryTask?.label || ruleTask?.label || "暂无待办"}
+                  {primaryTask?.label ||
+                    summaryTask?.label ||
+                    ruleTask?.label ||
+                    "暂无待办"}
                 </span>
               </div>
             </button>
@@ -750,53 +758,6 @@ function WorkCustomerMobileList({
           </article>
         );
       })}
-    </div>
-  );
-}
-
-function WorkCustomerPagination({
-  loading,
-  hidden,
-  page,
-  pageSize,
-  total,
-  onPageChange,
-}: {
-  loading: boolean;
-  hidden: boolean;
-  page: number;
-  pageSize: number;
-  total: number;
-  onPageChange: (page: number) => void;
-}) {
-  if (hidden || total <= 0) return null;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const currentPage = Math.min(totalPages, Math.max(1, page));
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 px-4 py-3 text-xs text-muted-foreground">
-      <span>
-        第 {currentPage} / {totalPages} 页，共 {total} 条
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={loading || currentPage <= 1}
-          onClick={() => onPageChange(currentPage - 1)}
-        >
-          上一页
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={loading || currentPage >= totalPages}
-          onClick={() => onPageChange(currentPage + 1)}
-        >
-          下一页
-        </Button>
-      </div>
     </div>
   );
 }

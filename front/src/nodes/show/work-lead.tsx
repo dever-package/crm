@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
+  Ban,
   ClipboardList,
   Eye,
   Loader2,
@@ -12,6 +13,14 @@ import { toast } from "sonner";
 
 import { AssistantContextFormFillButton } from "@/components/assistant/form-actions";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -58,6 +67,7 @@ import {
   type WorkDetailTab,
 } from "./work-customer-detail";
 import { useWorkFeedbackModalHeaderTarget } from "./work-feedback-modal";
+import { WorkPagination } from "./work-pagination";
 import { useWorkTaskStoreValue } from "./work-task-form-fields";
 import {
   initialWorkLeadTemplateValues,
@@ -111,12 +121,16 @@ type WorkLeadPoolResponse = {
   pending_count?: string | number;
   list?: WorkLead[];
   total?: string | number;
+  page?: string | number;
+  page_size?: string | number;
   sources?: WorkLeadOption[];
   channels?: WorkLeadOption[];
   invalid_reasons?: WorkLeadOption[];
   statuses?: WorkLeadOption[];
   templates?: WorkLeadTemplate[];
 };
+
+const workLeadPageSize = 30;
 
 type LeadDraft = {
   name: string;
@@ -221,10 +235,16 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
   const routeQuery = new URLSearchParams(window.location.search);
   const workflowID = routeQuery.get("workflow_id") || "";
   const routeKeyword = routeQuery.get("keyword") || "";
+  const routeQuickFilter = routeQuery.get("quick_filter") || "";
+  const routeStageFilter = routeQuery.get("stage_filter") || "";
+  const routeTaskFilter = routeQuery.get("task_filter") || "";
   const [leads, setLeads] = useState<WorkLead[]>([]);
   const [options, setOptions] = useState<WorkLeadPoolResponse>({});
   const [activeKeyword, setActiveKeyword] = useState(routeKeyword);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [invalidLead, setInvalidLead] = useState<WorkLead | null>(null);
+  const [invalidating, setInvalidating] = useState(false);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -232,17 +252,38 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
       const query = new URLSearchParams();
       if (workflowID) query.set("workflow_id", workflowID);
       if (activeKeyword) query.set("keyword", activeKeyword);
+      query.set("page", String(page));
+      query.set("page_size", String(workLeadPageSize));
+      if (routeQuickFilter) query.set("quick_filter", routeQuickFilter);
+      if (routeStageFilter) query.set("stage_filter", routeStageFilter);
+      if (routeTaskFilter) query.set("task_filter", routeTaskFilter);
       const payload = await workApi<WorkLeadPoolResponse>(
         `/crm/work/leads${query.size ? `?${query.toString()}` : ""}`,
       );
-      setLeads(Array.isArray(payload.list) ? payload.list : []);
+      const nextLeads = Array.isArray(payload.list) ? payload.list : [];
+      const total = Math.max(0, Number(payload.total) || 0);
+      const responsePageSize = Math.max(
+        1,
+        Number(payload.page_size) || workLeadPageSize,
+      );
+      const totalPages = Math.max(1, Math.ceil(total / responsePageSize));
+      const responsePage = Math.max(1, Number(payload.page) || page);
+      setLeads(nextLeads);
       setOptions(payload);
+      if (responsePage > totalPages) setPage(totalPages);
     } catch (error) {
       toast.error(errorMessage(error, "线索池加载失败"));
     } finally {
       setLoading(false);
     }
-  }, [activeKeyword, workflowID]);
+  }, [
+    activeKeyword,
+    page,
+    routeQuickFilter,
+    routeStageFilter,
+    routeTaskFilter,
+    workflowID,
+  ]);
 
   useEffect(() => {
     void loadLeads();
@@ -252,6 +293,8 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
     const search = (event: Event) => {
       const detail = readWorkListSearch(event);
       if (detail.workflowID && detail.workflowID !== workflowID) return;
+      setLeads([]);
+      setPage(1);
       setActiveKeyword(detail.keyword);
     };
     window.addEventListener(workListSearchEvent, search);
@@ -275,6 +318,40 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
     );
   };
 
+  const goToPage = (nextPage: number) => {
+    if (loading || nextPage === page) return;
+    setLeads([]);
+    setPage(nextPage);
+  };
+
+  const invalidateLead = useCallback(
+    async (reasonID: string, note: string) => {
+      const leadID = textValue(invalidLead?.id);
+      if (!leadID || invalidating) return;
+      setInvalidating(true);
+      try {
+        await workApi("/crm/work/lead_action", {
+          method: "POST",
+          body: JSON.stringify({
+            lead_id: leadID,
+            workflow_id: workflowID,
+            action: "invalid",
+            invalid_reason_id: reasonID,
+            note,
+          }),
+        });
+        toast.success("线索已判为无效");
+        setInvalidLead(null);
+        window.dispatchEvent(new CustomEvent(workRefreshEvent));
+      } catch (error) {
+        toast.error(errorMessage(error, "线索判无效失败"));
+      } finally {
+        setInvalidating(false);
+      }
+    },
+    [invalidLead?.id, invalidating, workflowID],
+  );
+
   if (!loading && options.enabled === false) {
     return (
       <section className="bg-background px-5 py-12 text-center text-muted-foreground">
@@ -289,7 +366,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted-foreground">
           待办 {Number(options.pending_count) || 0} 项，共{" "}
-          {Number(options.total) || leads.length} 条线索
+          {Math.max(0, Number(options.total) || 0)} 条线索
         </p>
         <div className="flex items-center gap-2">
           <Button
@@ -352,6 +429,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
                     )
                   }
                   onTask={openLeadTask}
+                  onInvalid={setInvalidLead}
                 />
               ))}
             </tbody>
@@ -367,6 +445,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
                 openWorkLeadDetail(store, options, currentLead)
               }
               onTask={openLeadTask}
+              onInvalid={setInvalidLead}
             />
           ))}
         </div>
@@ -384,8 +463,23 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
             description="正在同步最新的线索数据"
           />
         ) : null}
+        <WorkPagination
+          loading={loading}
+          hidden={loading && leads.length === 0}
+          page={Number(options.page) || page}
+          pageSize={Number(options.page_size) || workLeadPageSize}
+          total={Math.max(0, Number(options.total) || 0)}
+          onPageChange={goToPage}
+        />
       </section>
 
+      <InvalidateLeadDialog
+        lead={invalidLead}
+        reasons={options.invalid_reasons || []}
+        submitting={invalidating}
+        onClose={() => setInvalidLead(null)}
+        onSubmit={(reasonID, note) => void invalidateLead(reasonID, note)}
+      />
     </div>
   );
 }
@@ -394,6 +488,7 @@ function WorkLeadTableRow({
   lead,
   onDetail,
   onTask,
+  onInvalid,
 }: WorkLeadRowProps) {
   return (
     <tr className="crm-work-lead-row align-top">
@@ -428,6 +523,7 @@ function WorkLeadTableRow({
           lead={lead}
           onDetail={onDetail}
           onTask={onTask}
+          onInvalid={onInvalid}
         />
       </td>
     </tr>
@@ -438,6 +534,7 @@ function WorkLeadMobileRow({
   lead,
   onDetail,
   onTask,
+  onInvalid,
 }: WorkLeadRowProps) {
   return (
     <article className="crm-work-lead-mobile-row space-y-3 px-3 py-4">
@@ -455,6 +552,7 @@ function WorkLeadMobileRow({
         lead={lead}
         onDetail={onDetail}
         onTask={onTask}
+        onInvalid={onInvalid}
       />
     </article>
   );
@@ -464,6 +562,7 @@ type WorkLeadRowProps = {
   lead: WorkLead;
   onDetail: (lead: WorkLead) => void;
   onTask: (lead: WorkLead, task: WorkTask) => void;
+  onInvalid: (lead: WorkLead) => void;
 };
 
 function LeadIdentity({ lead }: { lead: WorkLead }) {
@@ -546,6 +645,7 @@ function LeadActions({
   lead,
   onDetail,
   onTask,
+  onInvalid,
 }: WorkLeadRowProps) {
   const status = workLeadEffectiveStatus(lead);
   const flow = lead.flow;
@@ -553,18 +653,32 @@ function LeadActions({
   return (
     <div className="flex flex-wrap justify-end gap-2">
       {status === "pending" ? (
-        tasks.map((task) => (
-          <Button
-            key={textValue(task.todo_id || task.id)}
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onTask(lead, task)}
-          >
-            <ClipboardList className="h-4 w-4" />
-            {displayText(task.task_name || task.name, "处理任务")}
-          </Button>
-        ))
+        <>
+          {tasks.map((task) => (
+            <Button
+              key={textValue(task.todo_id || task.id)}
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onTask(lead, task)}
+            >
+              <ClipboardList className="h-4 w-4" />
+              {displayText(task.task_name || task.name, "处理任务")}
+            </Button>
+          ))}
+          {tasks.length > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => onInvalid(lead)}
+            >
+              <Ban className="h-4 w-4" />
+              判无效
+            </Button>
+          ) : null}
+        </>
       ) : null}
       <Button
         type="button"
@@ -576,6 +690,95 @@ function LeadActions({
         详情
       </Button>
     </div>
+  );
+}
+
+function InvalidateLeadDialog({
+  lead,
+  reasons,
+  submitting,
+  onClose,
+  onSubmit,
+}: {
+  lead: WorkLead | null;
+  reasons: WorkLeadOption[];
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (reasonID: string, note: string) => void;
+}) {
+  const [reasonID, setReasonID] = useState("");
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    if (!lead) return;
+    setReasonID(textValue(reasons[0]?.id));
+    setNote("");
+  }, [lead, reasons]);
+
+  return (
+    <Dialog
+      open={Boolean(lead)}
+      onOpenChange={(open) => !open && !submitting && onClose()}
+    >
+      <DialogContent className="crm-work-lead-invalid-dialog">
+        <DialogHeader>
+          <DialogTitle>判为无效线索</DialogTitle>
+          <DialogDescription>
+            {displayText(lead?.name)} · {displayText(lead?.phone)}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-5 py-1">
+          <LeadField label="无效原因" required>
+            <Select value={reasonID} onValueChange={setReasonID}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="请选择无效原因" />
+              </SelectTrigger>
+              <SelectContent>
+                {reasons.map((reason) => (
+                  <SelectItem
+                    key={textValue(reason.id)}
+                    value={textValue(reason.id)}
+                  >
+                    {displayText(reason.name)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </LeadField>
+          <LeadField label="补充说明">
+            <Textarea
+              className="min-h-24 resize-y"
+              placeholder="请输入补充说明"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </LeadField>
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={submitting}
+            onClick={onClose}
+          >
+            取消
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={submitting || !reasonID}
+            onClick={() => onSubmit(reasonID, note)}
+          >
+            {submitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Ban className="h-4 w-4" />
+            )}
+            确认无效
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1379,6 +1582,11 @@ function WorkLeadPoolStyles() {
 
       .crm-work-lead-form-wide {
         grid-column: 1 / -1;
+      }
+
+      .crm-work-lead-invalid-dialog {
+        width: min(35rem, calc(100vw - 2rem)) !important;
+        max-width: 35rem !important;
       }
 
       .crm-work-ai-icon {
