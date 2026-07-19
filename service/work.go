@@ -130,7 +130,10 @@ func (WorkService) FeishuLogin(ctx context.Context, payload map[string]any) (map
 		return nil, err
 	}
 	if staff == nil {
-		return nil, fmt.Errorf("飞书账号未绑定人员，请管理员在人员管理中配置 OpenID：%s", openID)
+		staff, err = bindWorkStaffFeishuIdentity(ctx, identity)
+		if err != nil {
+			return nil, err
+		}
 	}
 	expiredAt := time.Now().Add(7 * 24 * time.Hour)
 	token, err := createWorkToken(staff, expiredAt)
@@ -141,6 +144,53 @@ func (WorkService) FeishuLogin(ctx context.Context, payload map[string]any) (map
 		"token": token,
 		"user":  workStaffPayload(staff, expiredAt),
 	}, nil
+}
+
+func bindWorkStaffFeishuIdentity(ctx context.Context, identity feishuIdentityResult) (*crmmodel.Staff, error) {
+	openID := strings.TrimSpace(identity.OpenID)
+	mobile := normalizeWorkFeishuMobile(identity.Mobile)
+	if mobile == "" {
+		return nil, fmt.Errorf("飞书未返回手机号，无法自动关联人员，请检查飞书应用手机号权限")
+	}
+	staff, err := findUniqueEnabledStaffByField(ctx, "phone", mobile, "手机号")
+	if err != nil {
+		return nil, err
+	}
+	if staff == nil {
+		return nil, fmt.Errorf("未找到手机号为 %s 的启用人员，请管理员先完善人员资料", mobile)
+	}
+	if boundOpenID := strings.TrimSpace(staff.FeishuOpenID); boundOpenID != "" {
+		if boundOpenID == openID {
+			return staff, nil
+		}
+		return nil, fmt.Errorf("手机号为 %s 的人员已绑定其他飞书账号", mobile)
+	}
+	if crmmodel.NewStaffModel().Update(ctx, map[string]any{
+		"id":             staff.ID,
+		"feishu_open_id": "",
+	}, map[string]any{"feishu_open_id": openID}) == 0 {
+		current := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": staff.ID})
+		if current == nil || strings.TrimSpace(current.FeishuOpenID) != openID {
+			return nil, fmt.Errorf("飞书账号自动绑定失败，请稍后重试")
+		}
+		return current, nil
+	}
+	staff.FeishuOpenID = openID
+	return staff, nil
+}
+
+func normalizeWorkFeishuMobile(mobile string) string {
+	mobile = strings.TrimSpace(mobile)
+	mobile = strings.NewReplacer(" ", "", "-", "", "(", "", ")", "").Replace(mobile)
+	switch {
+	case strings.HasPrefix(mobile, "+86"):
+		mobile = strings.TrimPrefix(mobile, "+86")
+	case strings.HasPrefix(mobile, "0086"):
+		mobile = strings.TrimPrefix(mobile, "0086")
+	case strings.HasPrefix(mobile, "86") && len(mobile) == 13:
+		mobile = strings.TrimPrefix(mobile, "86")
+	}
+	return mobile
 }
 
 func currentWorkFeishuConfig(ctx context.Context) crmmodel.BasicConfig {
@@ -2042,6 +2092,7 @@ func doneWorkCustomerRow(ctx context.Context, staff *WorkStaffSession, customerI
 		return map[string]any{}
 	}
 	attachWorkEntityDataValues(ctx, customer, workCustomerFormValues(ctx, customerID, 0, customer), crmmodel.CustomerDataTemplateCateID)
+	attachWorkCustomerTagIDs(ctx, customer, customerID)
 	displayAssetIDs := uniqueUint64Values(assetIDs)
 	if len(displayAssetIDs) == 0 {
 		displayAssetIDs = workSummaryVisibleAssetIDs(ctx, staff, customerID)
@@ -2267,6 +2318,7 @@ func workCustomerRow(ctx context.Context, staff *WorkStaffSession, customerID ui
 		return map[string]any{}
 	}
 	attachWorkEntityDataValues(ctx, customer, workCustomerFormValues(ctx, customerID, 0, customer), crmmodel.CustomerDataTemplateCateID)
+	attachWorkCustomerTagIDs(ctx, customer, customerID)
 	customer["assets"] = workAssetRows(ctx, staff, customerID)
 	enrichWorkCustomerRow(ctx, customer)
 	return customer
@@ -2282,6 +2334,15 @@ func workCustomerRowAsset(customer map[string]any, assetID uint64) map[string]an
 		}
 	}
 	return map[string]any{}
+}
+
+func attachWorkCustomerTagIDs(ctx context.Context, customer map[string]any, customerID uint64) {
+	if len(customer) == 0 || customerID == 0 {
+		return
+	}
+	if tagIDs := CustomerTagIDs(ctx, customerID); len(tagIDs) > 0 {
+		customer["tag_ids"] = tagIDs
+	}
 }
 
 func workAssetRows(ctx context.Context, staff *WorkStaffSession, customerID uint64) []map[string]any {
@@ -3644,9 +3705,16 @@ func workDataCompletenessTemplate(ctx context.Context, template *crmmodel.DataTe
 	filled := 0
 	missing := make([]string, 0)
 	parentNames := workDataCompletenessParentNames(ctx, fields)
+	probeFields := elevenDimensionProbeFields(fields, parentNames)
+	isProbe := isElevenDimensionProbeTemplate(probeFields)
 	for _, field := range fields {
 		if field == nil || field.FieldType == "group" {
 			continue
+		}
+		if isProbe {
+			if _, ok := probeFields[field.ID]; !ok {
+				continue
+			}
 		}
 		total++
 		value := values[fmt.Sprintf("data:%d", field.ID)]
@@ -3668,7 +3736,7 @@ func workDataCompletenessTemplate(ctx context.Context, template *crmmodel.DataTe
 		"filled":        filled,
 		"percent":       percent,
 		"missing":       missing,
-		"is_probe":      workDataCompletenessTemplateIsProbe(template.Name),
+		"is_probe":      isProbe,
 	}
 }
 
@@ -3699,15 +3767,6 @@ func workDataCompletenessFieldLabel(field *crmmodel.DataField, parentNames map[u
 		return parentName + "/" + field.Name
 	}
 	return field.Name
-}
-
-func workDataCompletenessTemplateIsProbe(name string) bool {
-	text := strings.ToLower(strings.TrimSpace(name))
-	return strings.Contains(text, "十一") ||
-		strings.Contains(text, "11") ||
-		strings.Contains(text, "探针") ||
-		strings.Contains(text, "p01") ||
-		strings.Contains(text, "p12")
 }
 
 func workAssetFormValues(ctx context.Context, customerID uint64, assetID uint64, asset map[string]any) map[string]any {
@@ -3928,6 +3987,8 @@ func mainFieldInputType(field string) string {
 		return "textarea"
 	case "gender":
 		return "radio"
+	case "tags":
+		return "customer_tags"
 	case "source_id", "channel_id", "level_id", "asset_status_id":
 		return "select"
 	default:
@@ -3949,6 +4010,8 @@ func mainFieldOptions(ctx context.Context, field string) []map[string]any {
 		return namedWorkOptions(crmmodel.NewCustomerChannelModel().SelectMap(ctx, map[string]any{"status": crmmodel.StatusEnabled}))
 	case "level_id":
 		return namedWorkOptions(crmmodel.NewCustomerLevelModel().SelectMap(ctx, map[string]any{"status": crmmodel.StatusEnabled}))
+	case "tags":
+		return CustomerTagOptions(ctx)
 	case "asset_status_id":
 		return namedWorkOptions(crmmodel.NewAssetStatusModel().SelectMap(ctx, map[string]any{"status": crmmodel.StatusEnabled}))
 	default:

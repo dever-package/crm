@@ -83,9 +83,34 @@ const (
 )
 
 const (
-	DataUsageTypeStat    = "stat"
-	DataUsageTypeFinance = "finance"
-	DataUsageTypeDisplay = "display"
+	DataUsageTypeStat             = "stat"
+	DataUsageTypeFinance          = "finance"
+	DataUsageTypeDisplay          = "display"
+	DataUsageTypeCustomerFollowAt = "customer_follow_at"
+)
+
+const (
+	ScheduleTypeCustomerFollow = "customer_follow"
+	ScheduleTypePersonal       = "personal"
+)
+
+const (
+	ScheduleStatusPending   = "pending"
+	ScheduleStatusCompleted = "completed"
+	ScheduleStatusCanceled  = "canceled"
+)
+
+const (
+	ScheduleSourceWorkForm = "work_form"
+	ScheduleSourceCalendar = "calendar"
+)
+
+const (
+	ScheduleReminderOnTime = 0
+	ScheduleReminder10Min  = 10
+	ScheduleReminder30Min  = 30
+	ScheduleReminder1Hour  = 60
+	ScheduleReminder1Day   = 1440
 )
 
 const (
@@ -183,6 +208,39 @@ var dataUsageTypeOptions = []map[string]any{
 	{"id": DataUsageTypeStat, "value": "统计"},
 	{"id": DataUsageTypeFinance, "value": "财务"},
 	{"id": DataUsageTypeDisplay, "value": "展示"},
+	{"id": DataUsageTypeCustomerFollowAt, "value": "客户下次跟进时间"},
+}
+
+var scheduleTypeOptions = []map[string]any{
+	{"id": ScheduleTypeCustomerFollow, "value": "客户跟进"},
+	{"id": ScheduleTypePersonal, "value": "个人日程"},
+}
+
+var scheduleStatusOptions = []map[string]any{
+	{"id": ScheduleStatusPending, "value": "待进行"},
+	{"id": ScheduleStatusCompleted, "value": "已完成"},
+	{"id": ScheduleStatusCanceled, "value": "已取消"},
+}
+
+var scheduleSourceOptions = []map[string]any{
+	{"id": ScheduleSourceWorkForm, "value": "签约表单"},
+	{"id": ScheduleSourceCalendar, "value": "工作台日历"},
+}
+
+var scheduleReminderOptions = []map[string]any{
+	{"id": ScheduleReminderOnTime, "value": "准时"},
+	{"id": ScheduleReminder10Min, "value": "提前10分钟"},
+	{"id": ScheduleReminder30Min, "value": "提前30分钟"},
+	{"id": ScheduleReminder1Hour, "value": "提前1小时"},
+	{"id": ScheduleReminder1Day, "value": "提前1天"},
+}
+
+func ScheduleReminderOptions() []map[string]any {
+	result := make([]map[string]any, len(scheduleReminderOptions))
+	for index, option := range scheduleReminderOptions {
+		result[index] = map[string]any{"id": option["id"], "value": option["value"]}
+	}
+	return result
 }
 
 var dataUsageValueTypeOptions = []map[string]any{
@@ -375,6 +433,26 @@ var customerLevelRelation = orm.Relation{
 	OptionKeys: []string{"name", "code"},
 }
 
+var customerTagRelation = orm.Relation{
+	Field:      "tag_id",
+	Option:     "crm.NewCustomerTagModel",
+	OptionKeys: []string{"name", "level_id"},
+}
+
+var customerTagRelations = orm.Relation{
+	Field:      "tag_relations",
+	Through:    "crm.NewCustomerTagRelationModel",
+	OwnerField: "customer_id",
+	Order:      "id asc",
+}
+
+var customerLevelTagsRelation = orm.Relation{
+	Field:      "level_tags",
+	Through:    "crm.NewCustomerTagModel",
+	OwnerField: "level_id",
+	Order:      "sort asc,id asc",
+}
+
 var taskRelation = orm.Relation{
 	Field:      "task_id",
 	Option:     "crm.NewTaskModel",
@@ -493,6 +571,18 @@ var dataRecordRelation = orm.Relation{
 	Field:      "data_record_id",
 	Option:     "crm.NewDataRecordModel",
 	OptionKeys: []string{"summary", "status"},
+}
+
+var dataUsageFieldIDRelation = orm.Relation{
+	Field:      "data_usage_field_id",
+	Option:     "crm.NewDataUsageFieldModel",
+	OptionKeys: []string{"usage_id", "data_template_id", "data_field_id", "display_name"},
+}
+
+var scheduleEventRelation = orm.Relation{
+	Field:      "schedule_event_id",
+	Option:     "crm.NewScheduleEventModel",
+	OptionKeys: []string{"title", "schedule_type", "start_at", "status"},
 }
 
 var departmentRelation = orm.Relation{

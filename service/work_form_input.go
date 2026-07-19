@@ -10,12 +10,14 @@ import (
 )
 
 type workFormInput struct {
-	leadFields          map[string]any
-	customerFields      map[string]any
-	assetFields         map[string]any
-	leadDataRecords     map[uint64]map[string]any
-	customerDataRecords map[uint64]map[string]any
-	assetDataRecords    map[uint64]map[string]any
+	leadFields           map[string]any
+	customerFields       map[string]any
+	assetFields          map[string]any
+	customerTagIDs       []uint64
+	customerTagsProvided bool
+	leadDataRecords      map[uint64]map[string]any
+	customerDataRecords  map[uint64]map[string]any
+	assetDataRecords     map[uint64]map[string]any
 }
 
 type workFormInputOptions struct {
@@ -56,6 +58,7 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 		leadFields:          map[string]any{},
 		customerFields:      map[string]any{},
 		assetFields:         map[string]any{},
+		customerTagIDs:      []uint64{},
 		leadDataRecords:     map[uint64]map[string]any{},
 		customerDataRecords: map[uint64]map[string]any{},
 		assetDataRecords:    map[uint64]map[string]any{},
@@ -78,6 +81,9 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 			if inputOptions.skipMissingFields && !submitted {
 				continue
 			}
+			if field.Readonly {
+				continue
+			}
 			if field.MainField != "" {
 				if isWorkLeadTemplateField(field) {
 					applyWorkLeadMainField(result.leadFields, field.MainField, value)
@@ -85,6 +91,15 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 				}
 				if isWorkAssetMainField(field) {
 					applyWorkAssetMainField(result.assetFields, field.MainField, value)
+					continue
+				}
+				if field.MainField == "tags" {
+					selection, err := ResolveCustomerTagSelection(ctx, value)
+					if err != nil {
+						return nil, err
+					}
+					result.customerTagIDs = selection.TagIDs
+					result.customerTagsProvided = submitted
 					continue
 				}
 				applyWorkCustomerMainField(result.customerFields, field.MainField, value)
@@ -166,6 +181,7 @@ func emptyWorkFormInput() *workFormInput {
 		leadFields:          map[string]any{},
 		customerFields:      map[string]any{},
 		assetFields:         map[string]any{},
+		customerTagIDs:      []uint64{},
 		leadDataRecords:     map[uint64]map[string]any{},
 		customerDataRecords: map[uint64]map[string]any{},
 		assetDataRecords:    map[uint64]map[string]any{},
@@ -187,6 +203,10 @@ func mergeWorkFormInput(target *workFormInput, source *workFormInput) *workFormI
 	}
 	for key, value := range source.assetFields {
 		target.assetFields[key] = value
+	}
+	if source.customerTagsProvided {
+		target.customerTagIDs = append([]uint64(nil), source.customerTagIDs...)
+		target.customerTagsProvided = true
 	}
 	mergeWorkFormRecordMap(target.leadDataRecords, source.leadDataRecords)
 	mergeWorkFormRecordMap(target.customerDataRecords, source.customerDataRecords)
@@ -233,6 +253,20 @@ func saveWorkFormInput(ctx context.Context, leadID uint64, customerID uint64, as
 		}
 		formInput.customerFields["updated_at"] = time.Now()
 		crmmodel.NewCustomerModel().Update(ctx, map[string]any{"id": customerID}, formInput.customerFields)
+	}
+	if formInput.customerTagsProvided {
+		if customerID == 0 {
+			return fmt.Errorf("客户不能为空")
+		}
+		needsSync, err := CustomerTagsNeedSync(ctx, customerID, formInput.customerTagIDs)
+		if err != nil {
+			return err
+		}
+		if needsSync {
+			if _, err := SyncCustomerTags(ctx, customerID, formInput.customerTagIDs); err != nil {
+				return err
+			}
+		}
 	}
 	if len(formInput.assetFields) > 0 {
 		if assetID == 0 {
@@ -378,7 +412,13 @@ func saveWorkFormDataRecords(ctx context.Context, ownership workDataOwnership, t
 		return nil
 	}
 	for templateID, record := range formInput.customerDataRecords {
-		saveWorkDataRecord(ctx, workDataOwnership{CustomerID: ownership.CustomerID}, templateID, taskID, operationID, record)
+		recordID := saveWorkDataRecord(ctx, workDataOwnership{CustomerID: ownership.CustomerID}, templateID, taskID, operationID, record)
+		if recordID == 0 {
+			return fmt.Errorf("客户资料保存失败")
+		}
+		if err := syncCustomerFollowFromForm(ctx, ownership, recordID, templateID, taskID, operationID, record); err != nil {
+			return err
+		}
 	}
 	if ownership.AssetID > 0 {
 		for templateID, record := range formInput.assetDataRecords {
@@ -460,7 +500,9 @@ func duplicateWorkCustomerFieldMessage(field string) string {
 
 func applyWorkCustomerMainField(record map[string]any, field string, value any) {
 	switch field {
-	case "name", "phone", "wechat", "id_card", "gender", "tags", "remark":
+	case "tags":
+		return
+	case "name", "phone", "wechat", "id_card", "gender", "remark":
 		record[field] = inputText(value)
 	case "source_id", "channel_id", "level_id":
 		if id := inputUint64(value); id > 0 {

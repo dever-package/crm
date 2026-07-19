@@ -1313,7 +1313,7 @@ function AdminProbeSummaryCard({ summary }: { summary?: AdminProbeSummary }) {
         <div>
           <h3 className="text-base font-semibold leading-6">十一维收集</h3>
           <p className="text-sm leading-6 text-muted-foreground">
-            统计 P01-P12 资料填写完整度。
+            统计 P01-P11 探针填写完整度。
           </p>
         </div>
         <ShieldCheck className="h-5 w-5 shrink-0 text-muted-foreground/70" />
@@ -1331,7 +1331,7 @@ function AdminProbeSummaryCard({ summary }: { summary?: AdminProbeSummary }) {
             <AdminMiniStat label="完整资产" value={summary.complete_asset_count} />
           </div>
           <div className="grid gap-2">
-            {dimensions.slice(0, 12).map((row) => (
+            {dimensions.slice(0, 11).map((row) => (
               <AdminProbeDimensionProgress key={textValue(row.key || row.name)} row={row} />
             ))}
           </div>

@@ -38,7 +38,6 @@ var collectMainFields = map[uint64][]collectFieldOption{
 		{Key: "gender", Name: "性别"},
 		{Key: "source_id", Name: "来源"},
 		{Key: "channel_id", Name: "渠道"},
-		{Key: "level_id", Name: "客户等级"},
 		{Key: "tags", Name: "标签"},
 		{Key: "remark", Name: "备注"},
 	},

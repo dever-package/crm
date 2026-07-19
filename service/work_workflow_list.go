@@ -31,6 +31,7 @@ func workflowCustomerList(
 	instances := crmmodel.NewWorkflowInstanceModel().Select(ctx, map[string]any{
 		"workflow_id": workflow.ID,
 	}, map[string]any{"order": "updated_at desc,id desc"})
+	visibleInstanceIDs := workVisibleWorkflowInstanceIDs(ctx, staff, instances, false)
 	latestTargetsByAsset := map[string]workflowCustomerTarget{}
 	modeCounts := map[string]map[string]bool{
 		workCustomerModeAll:     {},
@@ -39,7 +40,7 @@ func workflowCustomerList(
 	}
 	for _, instance := range instances {
 		if instance == nil || instance.CustomerID == 0 || instance.AssetID == 0 ||
-			!canViewWorkflowInstanceInScope(ctx, staff, instance) {
+			!visibleInstanceIDs[instance.ID] {
 			continue
 		}
 		assetKey := fmt.Sprintf("%d:%d", instance.CustomerID, instance.AssetID)
@@ -76,17 +77,29 @@ func workflowCustomerList(
 		}
 		return targets[i].updated.After(targets[j].updated)
 	})
-	rows := workflowCustomerRows(ctx, staff, targets)
-	if hasWorkCustomerStructuredFilter(payload) {
-		rows = filterWorkCustomersByFields(rows, payload)
+	var list []map[string]any
+	var page, pageSize, total int
+	if !hasWorkCustomerListFilter(payload) {
+		groups := workflowCustomerTargetGroups(targets)
+		pageGroups, currentPage, currentPageSize, currentTotal := paginateWorkflowCustomerTargetGroups(groups, payload)
+		list = workflowCustomerRows(ctx, staff, flattenWorkflowCustomerTargetGroups(pageGroups))
+		page, pageSize, total = currentPage, currentPageSize, currentTotal
+	} else {
+		rows := workflowCustomerFilterRows(ctx, staff, targets, payload)
+		if hasWorkCustomerStructuredFilter(payload) {
+			rows = filterWorkCustomersByFields(rows, payload)
+		}
+		if keyword := firstText(payload, "keyword"); keyword != "" {
+			rows = filterWorkCustomers(rows, keyword)
+		}
+		if hasWorkCustomerWorkFilter(payload) {
+			rows = filterWorkCustomersByWorkFilters(rows, payload)
+		}
+		pageRows, currentPage, currentPageSize, currentTotal := paginateWorkCustomerRows(rows, payload)
+		pageTargets := workflowCustomerTargetsForRows(targets, pageRows)
+		list = workflowCustomerRows(ctx, staff, pageTargets)
+		page, pageSize, total = currentPage, currentPageSize, currentTotal
 	}
-	if keyword := firstText(payload, "keyword"); keyword != "" {
-		rows = filterWorkCustomers(rows, keyword)
-	}
-	if hasWorkCustomerWorkFilter(payload) {
-		rows = filterWorkCustomersByWorkFilters(rows, payload)
-	}
-	list, page, pageSize, total := paginateWorkCustomerRows(rows, payload)
 	return map[string]any{
 		"list":      workCustomerListRows(list),
 		"total":     total,
@@ -106,6 +119,56 @@ func workflowCustomerList(
 			"subject_type": workflow.SubjectType,
 		},
 	}, nil
+}
+
+type workflowCustomerTargetGroup struct {
+	customerID uint64
+	targets    []workflowCustomerTarget
+}
+
+func workflowCustomerTargetGroups(targets []workflowCustomerTarget) []workflowCustomerTargetGroup {
+	groups := make([]workflowCustomerTargetGroup, 0)
+	groupIndexes := map[uint64]int{}
+	for _, target := range targets {
+		if target.instance == nil || target.instance.CustomerID == 0 {
+			continue
+		}
+		customerID := target.instance.CustomerID
+		if index, exists := groupIndexes[customerID]; exists {
+			groups[index].targets = append(groups[index].targets, target)
+			continue
+		}
+		groupIndexes[customerID] = len(groups)
+		groups = append(groups, workflowCustomerTargetGroup{
+			customerID: customerID,
+			targets:    []workflowCustomerTarget{target},
+		})
+	}
+	return groups
+}
+
+func paginateWorkflowCustomerTargetGroups(
+	groups []workflowCustomerTargetGroup,
+	payload map[string]any,
+) ([]workflowCustomerTargetGroup, int, int, int) {
+	total := len(groups)
+	page, pageSize, start, end := workCustomerPageBounds(total, payload)
+	if start >= total {
+		return []workflowCustomerTargetGroup{}, page, pageSize, total
+	}
+	return groups[start:end], page, pageSize, total
+}
+
+func flattenWorkflowCustomerTargetGroups(groups []workflowCustomerTargetGroup) []workflowCustomerTarget {
+	total := 0
+	for _, group := range groups {
+		total += len(group.targets)
+	}
+	targets := make([]workflowCustomerTarget, 0, total)
+	for _, group := range groups {
+		targets = append(targets, group.targets...)
+	}
+	return targets
 }
 
 func workflowCustomerPersonalQuickFilterTargets(
@@ -222,6 +285,43 @@ func workflowInstanceMatchesMode(instance *crmmodel.WorkflowInstance, mode strin
 }
 
 func workflowCustomerRows(ctx context.Context, staff *WorkStaffSession, targets []workflowCustomerTarget) []map[string]any {
+	return workflowCustomerRowsWithDetail(ctx, staff, targets, true, true)
+}
+
+func workflowCustomerFilterRows(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	targets []workflowCustomerTarget,
+	payload map[string]any,
+) []map[string]any {
+	return workflowCustomerRowsWithDetail(
+		ctx,
+		staff,
+		targets,
+		false,
+		workflowCustomerFilterNeedsTasks(payload),
+	)
+}
+
+func workflowCustomerFilterNeedsTasks(payload map[string]any) bool {
+	if firstText(payload, "task_filter", "task") != "" {
+		return true
+	}
+	switch firstText(payload, "quick_filter", "quickFilter") {
+	case "hasTasks", "approval":
+		return true
+	default:
+		return false
+	}
+}
+
+func workflowCustomerRowsWithDetail(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	targets []workflowCustomerTarget,
+	includeDetail bool,
+	includeTasks bool,
+) []map[string]any {
 	builder := newWorkCustomerListRowBuilder(ctx, staff)
 	customerRows := map[uint64]map[string]any{}
 	customerOrder := make([]uint64, 0)
@@ -248,10 +348,14 @@ func workflowCustomerRows(ctx context.Context, staff *WorkStaffSession, targets 
 			continue
 		}
 		asset["asset_status_name"] = builder.assetStatusName(inputUint64(asset["asset_status_id"]))
-		asset["customer_products"] = workCustomerProductRows(ctx, staff, instance.CustomerID, instance.AssetID)
 		builder.attachStageFields(asset, instance)
-		asset["flow"] = workFlowDetail(ctx, staff, instance.ID)
-		asset["row_tasks"] = workflowInstanceTodoRows(ctx, staff, instance)
+		if includeTasks {
+			asset["row_tasks"] = workflowInstanceTodoRows(ctx, staff, instance)
+		}
+		if includeDetail {
+			asset["customer_products"] = workCustomerProductRows(ctx, staff, instance.CustomerID, instance.AssetID)
+			asset["flow"] = workFlowDetail(ctx, staff, instance.ID)
+		}
 		customer["assets"] = append(mapListFromAny(customer["assets"]), asset)
 	}
 	rows := make([]map[string]any, 0, len(customerOrder))
@@ -261,6 +365,36 @@ func workflowCustomerRows(ctx context.Context, staff *WorkStaffSession, targets 
 		}
 	}
 	return rows
+}
+
+func workflowCustomerTargetsForRows(
+	targets []workflowCustomerTarget,
+	rows []map[string]any,
+) []workflowCustomerTarget {
+	targetsByInstanceID := make(map[uint64]workflowCustomerTarget, len(targets))
+	for _, target := range targets {
+		if target.instance != nil && target.instance.ID > 0 {
+			targetsByInstanceID[target.instance.ID] = target
+		}
+	}
+
+	seen := map[uint64]bool{}
+	result := make([]workflowCustomerTarget, 0)
+	for _, row := range rows {
+		for _, asset := range mapListFromAny(row["assets"]) {
+			instanceID := inputUint64(asset["workflow_instance_id"])
+			if instanceID == 0 || seen[instanceID] {
+				continue
+			}
+			target, exists := targetsByInstanceID[instanceID]
+			if !exists {
+				continue
+			}
+			seen[instanceID] = true
+			result = append(result, target)
+		}
+	}
+	return result
 }
 
 func workflowInstanceTodoRows(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) []map[string]any {

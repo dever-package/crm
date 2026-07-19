@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -879,6 +878,20 @@ func adminSummaryProbeSummary(ctx context.Context, assets []*crmmodel.CustomerAs
 			fieldsByID[field.ID] = field
 		}
 	}
+	parentNames := adminSummaryProbeParentNames(ctx, fieldsByID)
+	probeFieldsByID := map[uint64]*crmmodel.DataField{}
+	for templateID, fields := range fieldsByTemplate {
+		probeFieldCodes := elevenDimensionProbeFields(fields, parentNames)
+		probeFields := make([]*crmmodel.DataField, 0, elevenDimensionProbeCount)
+		for _, field := range fields {
+			if _, ok := probeFieldCodes[field.ID]; !ok {
+				continue
+			}
+			probeFields = append(probeFields, field)
+			probeFieldsByID[field.ID] = field
+		}
+		fieldsByTemplate[templateID] = probeFields
+	}
 
 	valuesByAsset := map[uint64]map[uint64]any{}
 	for _, record := range crmmodel.NewDataRecordModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled}) {
@@ -892,7 +905,7 @@ func adminSummaryProbeSummary(ctx context.Context, assets []*crmmodel.CustomerAs
 		}
 		for rawFieldID, value := range mapFromAny(record.RecordJSON) {
 			fieldID := inputUint64(rawFieldID)
-			if fieldsByID[fieldID] != nil {
+			if probeFieldsByID[fieldID] != nil {
 				values[fieldID] = value
 			}
 		}
@@ -903,7 +916,6 @@ func adminSummaryProbeSummary(ctx context.Context, assets []*crmmodel.CustomerAs
 	fieldFilled := 0
 	completeAssets := 0
 	startedAssets := 0
-	parentNames := adminSummaryProbeParentNames(ctx, fieldsByID)
 	for _, asset := range assets {
 		if asset == nil {
 			continue
@@ -922,7 +934,11 @@ func adminSummaryProbeSummary(ctx context.Context, assets []*crmmodel.CustomerAs
 				if field == nil {
 					continue
 				}
-				stat := adminSummaryProbeDimensionStat(dimensionStats, field, parentNames)
+				code, ok := elevenDimensionProbeFieldCode(field, parentNames)
+				if !ok {
+					continue
+				}
+				stat := adminSummaryProbeDimensionStat(dimensionStats, field, parentNames, code)
 				stat.Total++
 				fieldTotal++
 				assetTotal++
@@ -980,20 +996,12 @@ func adminSummaryProbeTemplates(ctx context.Context, workflowID uint64) []*crmmo
 }
 
 func adminSummaryTemplateHasProbeDimensions(ctx context.Context, templateID uint64) bool {
-	dimensions := map[string]bool{}
-	for _, field := range crmmodel.NewDataFieldModel().Select(ctx, map[string]any{"data_template_id": templateID, "status": crmmodel.StatusEnabled}) {
-		if field == nil {
-			continue
-		}
-		text := strings.ToLower(strings.TrimSpace(field.FieldKey + " " + field.Name))
-		for index := 1; index <= 12; index++ {
-			key := "p" + fmt.Sprintf("%02d", index)
-			if strings.Contains(text, key) {
-				dimensions[key] = true
-			}
-		}
-	}
-	return len(dimensions) >= 8
+	fields := crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
+		"data_template_id": templateID,
+		"status":           crmmodel.StatusEnabled,
+	})
+	parentNames := workDataCompletenessParentNames(ctx, fields)
+	return isElevenDimensionProbeTemplate(elevenDimensionProbeFields(fields, parentNames))
 }
 
 func adminSummaryProbeParentNames(ctx context.Context, fieldsByID map[uint64]*crmmodel.DataField) map[uint64]string {
@@ -1012,24 +1020,18 @@ func adminSummaryProbeParentNames(ctx context.Context, fieldsByID map[uint64]*cr
 	return names
 }
 
-func adminSummaryProbeDimensionStat(stats map[string]*adminSummaryProbeFieldStat, field *crmmodel.DataField, parentNames map[uint64]string) *adminSummaryProbeFieldStat {
+func adminSummaryProbeDimensionStat(stats map[string]*adminSummaryProbeFieldStat, field *crmmodel.DataField, parentNames map[uint64]string, code string) *adminSummaryProbeFieldStat {
 	name := workDataCompletenessFieldLabel(field, parentNames)
 	if parentName := parentNames[field.ParentFieldID]; parentName != "" {
 		name = parentName
 	}
-	key := name
-	if key == "" && field != nil {
-		key = field.FieldKey
+	if name == "" && field != nil {
 		name = field.Name
 	}
-	if key == "" {
-		key = "unknown"
-		name = "未命名维度"
-	}
-	stat := stats[key]
+	stat := stats[code]
 	if stat == nil {
-		stat = &adminSummaryProbeFieldStat{Key: key, Name: name}
-		stats[key] = stat
+		stat = &adminSummaryProbeFieldStat{Key: code, Name: name}
+		stats[code] = stat
 	}
 	return stat
 }

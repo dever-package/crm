@@ -229,7 +229,10 @@
         "action": {
           "confirm": {
             "type": "delete",
-            "params": "data.actionTarget.deleteDataUsageId"
+            "params": "data.actionTarget.deleteDataUsageId",
+            "before": {
+              "service": "crm.setting.CrmHook.BeforeDeleteDataUsage"
+            }
           }
         }
       }
@@ -253,6 +256,10 @@
         {
           "id": "display",
           "value": "展示"
+        },
+        {
+          "id": "customer_follow_at",
+          "value": "客户下次跟进时间"
         }
       ]
     },

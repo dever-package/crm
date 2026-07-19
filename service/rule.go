@@ -11,6 +11,8 @@ import (
 
 type RuleService struct{}
 
+const crmRuleScriptMaxBytes = 512 * 1024
+
 type ScriptValidateRequest struct {
 	Script          string
 	Input           any
@@ -46,11 +48,12 @@ func NewRuleService() RuleService {
 func (RuleService) Validate(ctx context.Context, req ScriptValidateRequest) (fronteval.ValidateResult, error) {
 	return fronteval.Validate(ctx, fronteval.ValidateRequest{
 		Request: fronteval.Request{
-			Language: fronteval.LanguageJavaScript,
-			Script:   req.Script,
-			Input:    req.Input,
-			Config:   req.Config,
-			Entry:    fronteval.DefaultEntry,
+			Language:       fronteval.LanguageJavaScript,
+			Script:         req.Script,
+			Input:          req.Input,
+			Config:         req.Config,
+			Entry:          fronteval.DefaultEntry,
+			MaxScriptBytes: crmRuleScriptMaxBytes,
 		},
 		Expected:        req.Expected,
 		CompareExpected: req.CompareExpected,
@@ -76,11 +79,12 @@ func evaluateTaskRuleScript(ctx context.Context, script string, input map[string
 		return TaskRuleResult{}, fmt.Errorf("规则脚本不能为空")
 	}
 	result, err := fronteval.Run(ctx, fronteval.Request{
-		Language: fronteval.LanguageJavaScript,
-		Script:   script,
-		Entry:    fronteval.DefaultEntry,
-		Input:    input,
-		Config:   map[string]any{},
+		Language:       fronteval.LanguageJavaScript,
+		Script:         script,
+		Entry:          fronteval.DefaultEntry,
+		Input:          input,
+		Config:         map[string]any{},
+		MaxScriptBytes: crmRuleScriptMaxBytes,
 	})
 	if err != nil {
 		return TaskRuleResult{}, err

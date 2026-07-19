@@ -12,7 +12,19 @@
     "children": {
       "content": {
         "type": "container",
-        "className": "min-w-0"
+        "className": "min-w-0 space-y-4",
+        "children": {
+          "lead-summary": {
+            "type": "container"
+          },
+          "toolbar-row": {
+            "type": "row",
+            "className": "flex-nowrap items-center gap-2 overflow-x-auto border-y border-border/70 py-2"
+          },
+          "lead-list": {
+            "type": "container"
+          }
+        }
       },
       "feedback-shell": {
         "type": "container"
@@ -20,7 +32,104 @@
     }
   },
   "nodes": {
-    "content": [
+    "lead-summary": [
+      {
+        "type": "show-crm-work-lead-toolbar"
+      }
+    ],
+    "toolbar-row": [
+      {
+        "type": "form-select",
+        "placeholder": "全部状态",
+        "value": "workLeadFilterDraft.status",
+        "mode": "search",
+        "option": "workLeadPool.filterOptions.statuses",
+        "meta": {
+          "searchable": false,
+          "showWhen": [
+            {
+              "path": "workLeadPool.visible",
+              "operator": "equals",
+              "value": true
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "placeholder": "全部来源",
+        "value": "workLeadFilterDraft.sourceID",
+        "mode": "search",
+        "option": "workLeadPool.filterOptions.sources",
+        "meta": {
+          "searchable": false,
+          "showWhen": [
+            {
+              "path": "workLeadPool.visible",
+              "operator": "equals",
+              "value": true
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "placeholder": "全部渠道",
+        "value": "workLeadFilterDraft.channelID",
+        "mode": "search",
+        "option": "workLeadPool.filterOptions.channels",
+        "meta": {
+          "searchable": false,
+          "showWhen": [
+            {
+              "path": "workLeadPool.visible",
+              "operator": "equals",
+              "value": true
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "placeholder": "全部负责人",
+        "value": "workLeadFilterDraft.ownerStaffID",
+        "mode": "search",
+        "option": "workLeadPool.filterOptions.owners",
+        "meta": {
+          "searchable": false,
+          "showWhen": [
+            {
+              "path": "workLeadPool.visible",
+              "operator": "equals",
+              "value": true
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-date",
+        "placeholder": "录入时间",
+        "value": "workLeadFilterDraft.createdFrom",
+        "mode": "search",
+        "className": "w-[320px]",
+        "meta": {
+          "range": true,
+          "endValue": "workLeadFilterDraft.createdTo",
+          "inputType": "date",
+          "showWhen": [
+            {
+              "path": "workLeadPool.visible",
+              "operator": "equals",
+              "value": true
+            }
+          ]
+        }
+      },
+      {
+        "type": "show-crm-work-lead-filter-actions"
+      }
+    ],
+    "lead-list": [
       {
         "type": "show-crm-work-lead-pool"
       }

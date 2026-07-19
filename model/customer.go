@@ -16,8 +16,8 @@ type Customer struct {
 	Gender           string    `dorm:"type:varchar(16);not null;default:'unknown';comment:性别"`
 	SourceID         uint64    `dorm:"type:bigint;not null;default:1;comment:来源"`
 	ChannelID        uint64    `dorm:"type:bigint;not null;default:1;comment:渠道"`
-	LevelID          uint64    `dorm:"type:bigint;not null;default:1;comment:客户等级"`
-	Tags             string    `dorm:"type:varchar(255);not null;default:'';comment:标签"`
+	LevelID          uint64    `dorm:"type:bigint;not null;default:0;comment:客户等级"`
+	Tags             string    `dorm:"type:text;not null;default:'';comment:标签"`
 	Remark           string    `dorm:"type:text;not null;default:'';comment:备注"`
 	CreatedByStaffID uint64    `dorm:"type:bigint;not null;default:0;comment:创建人员"`
 	CreatedAt        time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
@@ -43,6 +43,7 @@ func NewCustomerModel() *orm.Model[Customer] {
 			customerSourceRelation,
 			customerChannelRelation,
 			customerLevelRelation,
+			customerTagRelations,
 			createdByStaffRelation,
 		},
 	})

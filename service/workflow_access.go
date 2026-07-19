@@ -123,6 +123,47 @@ func canViewWorkflowInstance(ctx context.Context, staff *WorkStaffSession, insta
 	return canViewAssignedWorkflowInstance(ctx, staff, instance)
 }
 
+func workVisibleWorkflowInstanceIDs(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	instances []*crmmodel.WorkflowInstance,
+	dispatcherCanViewAll bool,
+) map[uint64]bool {
+	visible := map[uint64]bool{}
+	if staff == nil || staff.ID == 0 || len(instances) == 0 {
+		return visible
+	}
+	if staff.CanDispatch && (dispatcherCanViewAll || staff.ViewAll) {
+		for _, instance := range instances {
+			if instance != nil && instance.ID > 0 {
+				visible[instance.ID] = true
+			}
+		}
+		return visible
+	}
+
+	assigned := map[uint64]bool{}
+	for _, todo := range crmmodel.NewWorkTodoModel().Select(ctx, map[string]any{
+		"assignee_staff_id": staff.ID,
+		"status":            crmmodel.WorkTodoStatusPending,
+	}) {
+		if todo != nil && todo.WorkflowInstanceID > 0 {
+			assigned[todo.WorkflowInstanceID] = true
+		}
+	}
+	for _, instance := range instances {
+		if instance == nil || instance.ID == 0 {
+			continue
+		}
+		if instance.OwnerStaffID == staff.ID ||
+			isWorkflowDepartmentLeader(staff, instance) ||
+			assigned[instance.ID] {
+			visible[instance.ID] = true
+		}
+	}
+	return visible
+}
+
 func workflowInstanceForLead(ctx context.Context, leadID, workflowID uint64) *crmmodel.WorkflowInstance {
 	if leadID == 0 || workflowID == 0 {
 		return nil

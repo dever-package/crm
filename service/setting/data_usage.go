@@ -28,6 +28,7 @@ func (CrmHook) ProviderBeforeSaveDataUsage(c *server.Context, params []any) any 
 	}
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
+	validateCustomerFollowUsage(c.Context(), record)
 	return record
 }
 
@@ -37,8 +38,21 @@ func (CrmHook) ProviderBeforeSaveDataUsageField(c *server.Context, params []any)
 		return record
 	}
 	partial := isPartialOrInlineCrmRecord(record, "status", "sort")
+	validateCustomerFollowUsageFieldChange(c.Context(), record)
 	normalizeDataUsageFieldRecord(c, record, partial, true)
 	return record
+}
+
+func (CrmHook) ProviderBeforeDeleteDataUsage(c *server.Context, params []any) any {
+	id := configDeleteID(params)
+	if id == 0 {
+		panicCrmField("form.id", "系统用途不存在。")
+	}
+	usage := crmmodel.NewDataUsageModel().Find(contextFromServer(c), map[string]any{"id": id})
+	if usage != nil && usage.UsageType == crmmodel.DataUsageTypeCustomerFollowAt && customerFollowSchedulesPending(contextFromServer(c)) {
+		panicCrmField("form.id", "存在未完成客户跟进日程，不能删除跟进时间用途。")
+	}
+	return id
 }
 
 func (CrmHook) ProviderBuildDataUsageForm(c *server.Context, params []any) any {
@@ -185,8 +199,12 @@ func normalizeDataUsageFieldRecord(c *server.Context, record map[string]any, par
 	if util.ToStringTrimmed(record["config_json"]) == "" {
 		record["config_json"] = "{}"
 	}
-	if dataUsageFieldUsageType(ctx, record) == crmmodel.DataUsageTypeFinance && util.ToUint64(record["finance_type_id"]) == 0 {
+	usageType := dataUsageFieldUsageType(ctx, record)
+	if usageType == crmmodel.DataUsageTypeFinance && util.ToUint64(record["finance_type_id"]) == 0 {
 		panicCrmField("form.finance_type_id", "财务用途必须选择财务类型。")
+	}
+	if usageType == crmmodel.DataUsageTypeCustomerFollowAt {
+		validateCustomerFollowField(ctx, record, field)
 	}
 	delete(record, "data_field")
 	delete(record, "finance_type")
@@ -200,6 +218,11 @@ func dataUsageFieldUsageType(ctx context.Context, record map[string]any) string 
 		return normalizeDataUsageType(usageType)
 	}
 	usageID := util.ToUint64(record["usage_id"])
+	if usageID == 0 {
+		if current := crmmodel.NewDataUsageFieldModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); current != nil {
+			usageID = current.UsageID
+		}
+	}
 	if usageID == 0 {
 		return ""
 	}
@@ -258,6 +281,8 @@ func dataUsageFieldAncestorIDs(ctx context.Context, field *crmmodel.DataField) [
 
 func normalizeDataUsageType(value any) string {
 	switch util.ToStringTrimmed(value) {
+	case crmmodel.DataUsageTypeCustomerFollowAt:
+		return crmmodel.DataUsageTypeCustomerFollowAt
 	case crmmodel.DataUsageTypeFinance:
 		return crmmodel.DataUsageTypeFinance
 	case crmmodel.DataUsageTypeDisplay:
@@ -265,6 +290,143 @@ func normalizeDataUsageType(value any) string {
 	default:
 		return crmmodel.DataUsageTypeStat
 	}
+}
+
+func validateCustomerFollowUsage(ctx context.Context, record map[string]any) {
+	currentID := util.ToUint64(record["id"])
+	current := crmmodel.NewDataUsageModel().Find(ctx, map[string]any{"id": currentID})
+	usageType := util.ToStringTrimmed(record["usage_type"])
+	if usageType == "" && current != nil {
+		usageType = current.UsageType
+	}
+	status := int16(util.ToIntDefault(record["status"], 0))
+	if status == 0 && current != nil {
+		status = current.Status
+	}
+	if current != nil && current.UsageType == crmmodel.DataUsageTypeCustomerFollowAt &&
+		(usageType != crmmodel.DataUsageTypeCustomerFollowAt || status != crmmodel.StatusEnabled) && customerFollowSchedulesPending(ctx) {
+		panicCrmField("form.status", "存在未完成客户跟进日程，不能停用或更换跟进时间用途。")
+	}
+	if current != nil && current.UsageType == crmmodel.DataUsageTypeCustomerFollowAt &&
+		usageType == crmmodel.DataUsageTypeCustomerFollowAt && status == crmmodel.StatusEnabled &&
+		customerFollowSchedulesPending(ctx) && !customerFollowBindingPreserved(ctx, current.ID, record) {
+		panicCrmField("form.fields", "存在未完成客户跟进日程，不能移除或更换跟进时间字段。")
+	}
+	if usageType != crmmodel.DataUsageTypeCustomerFollowAt || status != crmmodel.StatusEnabled {
+		return
+	}
+	for _, usage := range crmmodel.NewDataUsageModel().Select(ctx, map[string]any{
+		"usage_type": crmmodel.DataUsageTypeCustomerFollowAt,
+		"status":     crmmodel.StatusEnabled,
+	}) {
+		if usage != nil && usage.ID != currentID {
+			panicCrmField("form.usage_type", "客户下次跟进时间只能配置一个启用用途。")
+		}
+	}
+	rows := formFieldRows(record["fields"])
+	activeCount := 0
+	for _, row := range rows {
+		rowStatus := int16(util.ToIntDefault(row["status"], 0))
+		if rowStatus == 0 || rowStatus == crmmodel.StatusEnabled {
+			activeCount++
+		}
+	}
+	if activeCount > 1 {
+		panicCrmField("form.fields", "客户下次跟进时间只能绑定一个启用字段。")
+	}
+}
+
+func customerFollowBindingPreserved(ctx context.Context, usageID uint64, record map[string]any) bool {
+	if _, submitted := record["fields"]; !submitted {
+		return true
+	}
+	current := crmmodel.NewDataUsageFieldModel().Find(ctx, map[string]any{
+		"usage_id": usageID,
+		"status":   crmmodel.StatusEnabled,
+	}, map[string]any{"order": "id asc"})
+	if current == nil {
+		return true
+	}
+	for _, row := range formFieldRows(record["fields"]) {
+		status := int16(util.ToIntDefault(row["status"], 0))
+		if status != 0 && status != crmmodel.StatusEnabled {
+			continue
+		}
+		if util.ToUint64(row["id"]) == current.ID && util.ToUint64(row["data_field_id"]) == current.DataFieldID {
+			return true
+		}
+	}
+	return false
+}
+
+func validateCustomerFollowUsageFieldChange(ctx context.Context, record map[string]any) {
+	current := crmmodel.NewDataUsageFieldModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])})
+	if current == nil || !customerFollowUsageID(ctx, current.UsageID) {
+		return
+	}
+	status := int16(util.ToIntDefault(record["status"], 0))
+	if status == 0 {
+		status = current.Status
+	}
+	fieldID := util.ToUint64(record["data_field_id"])
+	if fieldID == 0 {
+		fieldID = dataUsageFieldIDFromPath(record["field_path"])
+	}
+	if fieldID == 0 {
+		fieldID = current.DataFieldID
+	}
+	if (status != crmmodel.StatusEnabled || fieldID != current.DataFieldID) && customerFollowSchedulesPending(ctx) {
+		panicCrmField("form.field_path", "存在未完成客户跟进日程，不能停用或更换跟进时间字段。")
+	}
+}
+
+func validateCustomerFollowField(ctx context.Context, record map[string]any, field *crmmodel.DataField) {
+	if field == nil || field.FieldType != "datetime" {
+		panicCrmField("form.field_path", "客户下次跟进时间必须绑定日期时间字段。")
+	}
+	template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{
+		"id":     field.DataTemplateID,
+		"status": crmmodel.StatusEnabled,
+	})
+	if template == nil || template.CateID != crmmodel.CustomerDataTemplateCateID {
+		panicCrmField("form.field_path", "客户下次跟进时间必须绑定客户信息模板字段。")
+	}
+	status := int16(util.ToIntDefault(record["status"], 0))
+	if status != 0 && status != crmmodel.StatusEnabled {
+		return
+	}
+	currentID := util.ToUint64(record["id"])
+	for _, usage := range crmmodel.NewDataUsageModel().Select(ctx, map[string]any{
+		"usage_type": crmmodel.DataUsageTypeCustomerFollowAt,
+		"status":     crmmodel.StatusEnabled,
+	}) {
+		if usage == nil {
+			continue
+		}
+		for _, binding := range crmmodel.NewDataUsageFieldModel().Select(ctx, map[string]any{
+			"usage_id": usage.ID,
+			"status":   crmmodel.StatusEnabled,
+		}) {
+			if binding != nil && binding.ID != currentID {
+				panicCrmField("form.field_path", "客户下次跟进时间只能绑定一个启用字段。")
+			}
+		}
+	}
+}
+
+func customerFollowUsageID(ctx context.Context, usageID uint64) bool {
+	if usageID == 0 {
+		return false
+	}
+	usage := crmmodel.NewDataUsageModel().Find(ctx, map[string]any{"id": usageID})
+	return usage != nil && usage.UsageType == crmmodel.DataUsageTypeCustomerFollowAt
+}
+
+func customerFollowSchedulesPending(ctx context.Context) bool {
+	return crmmodel.NewScheduleEventModel().Count(ctx, map[string]any{
+		"schedule_type": crmmodel.ScheduleTypeCustomerFollow,
+		"status":        crmmodel.ScheduleStatusPending,
+	}) > 0
 }
 
 func normalizeDataUsageValueType(value any, fieldType string) string {

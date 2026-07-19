@@ -307,16 +307,23 @@ func executePendingRuleTodo(ctx context.Context, todo *crmmodel.WorkTodo, task *
 	if todo == nil || task == nil || task.TaskType != crmmodel.TaskTypeRule {
 		return nil
 	}
-	result, err := NewRuleService().EvaluateTask(ctx, task, workRuleInput(ctx, todo, task))
+	ruleInput := workRuleInput(ctx, todo, task)
+	isElevenDimensionRule := isElevenDimensionRuleTask(ctx, task)
+	result, err := NewRuleService().EvaluateTask(ctx, task, ruleInput)
 	if err != nil {
 		result = TaskRuleResult{Passed: false, Reason: err.Error()}
 	}
+	inputFields := elevenDimensionRuleInputSnapshot(ruleInput)
 	if !result.Passed {
 		reason := taskRuleResultText(result)
 		if reason == "" {
 			reason = "自动核验未通过"
 		}
-		recordWorkTaskOperation(ctx, nil, todo, task, "failed", reason, map[string]any{"raw_result": result.RawResult}, false)
+		operationSnapshot := map[string]any{"raw_result": result.RawResult}
+		if isElevenDimensionRule {
+			operationSnapshot["input_fields"] = inputFields
+		}
+		recordWorkTaskOperation(ctx, nil, todo, task, "failed", reason, operationSnapshot, false)
 		crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
 			"id":     todo.ID,
 			"status": crmmodel.WorkTodoStatusPending,
@@ -330,12 +337,16 @@ func executePendingRuleTodo(ctx context.Context, todo *crmmodel.WorkTodo, task *
 	if resultText == "" {
 		resultText = "自动核验通过"
 	}
-	operationID := recordWorkTaskOperation(ctx, nil, todo, task, "passed", resultText, map[string]any{
+	operationSnapshot := map[string]any{
 		"raw_result":    result.RawResult,
 		"duration_ms":   result.DurationMS,
 		"fields":        result.OutputFields,
 		"product_codes": result.ProductCodes,
-	}, true)
+	}
+	if isElevenDimensionRule {
+		operationSnapshot["input_fields"] = inputFields
+	}
+	operationID := recordWorkTaskOperation(ctx, nil, todo, task, "passed", resultText, operationSnapshot, true)
 	if operationID == 0 {
 		return fmt.Errorf("自动核验记录创建失败")
 	}
@@ -350,7 +361,7 @@ func applyTaskRuleOutputs(ctx context.Context, todo *crmmodel.WorkTodo, task *cr
 		return fmt.Errorf("自动核验任务不存在")
 	}
 	formInput := emptyWorkFormInput()
-	for fieldKey, value := range result.OutputFields {
+	for fieldKey, value := range operationBackedElevenDimensionFields(operationID, result.OutputFields) {
 		fieldKey = strings.TrimSpace(fieldKey)
 		if fieldKey == "" {
 			continue

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   Ban,
   ClipboardList,
+  Download,
   Eye,
   Loader2,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,11 +41,13 @@ import {
   displayText,
   errorMessage,
   formatWorkDate,
+  normalizeWorkDetailSections,
   readWorkListSearch,
   setWorkModalOpen,
   setWorkStoreValue,
   textValue,
   workApi,
+  workStoreValue,
   workListSearchEvent,
   workRefreshEvent,
   type WorkCustomer,
@@ -61,12 +65,14 @@ import {
 import { WorkListState } from "./work-list-state";
 import {
   WorkCustomerDetailStyles,
+  WorkCustomerDetailData,
   WorkDetailSectionsData,
   WorkDetailTabs,
   workDetailValueEmpty,
   type WorkDetailTab,
 } from "./work-customer-detail";
 import { useWorkFeedbackModalHeaderTarget } from "./work-feedback-modal";
+import { WorkFormField } from "./work-form-field";
 import { WorkPagination } from "./work-pagination";
 import { useWorkTaskStoreValue } from "./work-task-form-fields";
 import {
@@ -80,6 +86,7 @@ import {
 type WorkLeadOption = {
   id?: string | number;
   name?: string;
+  value?: string;
 };
 
 type WorkLead = {
@@ -125,12 +132,199 @@ type WorkLeadPoolResponse = {
   page_size?: string | number;
   sources?: WorkLeadOption[];
   channels?: WorkLeadOption[];
+  owner_options?: WorkLeadOption[];
   invalid_reasons?: WorkLeadOption[];
   statuses?: WorkLeadOption[];
   templates?: WorkLeadTemplate[];
 };
 
-const workLeadPageSize = 30;
+type WorkLeadExportResponse = {
+  filename?: string;
+  content?: string;
+  total?: string | number;
+};
+
+type WorkLeadFilterValues = {
+  status: string;
+  sourceID: string;
+  channelID: string;
+  ownerStaffID: string;
+  createdFrom: string;
+  createdTo: string;
+};
+
+type WorkLeadPoolView = {
+  visible: boolean;
+  pendingCount: number;
+  total: number;
+  canCreate: boolean;
+  loading: boolean;
+  exporting: boolean;
+  options: WorkLeadPoolResponse;
+  filterOptions: {
+    statuses: WorkLeadOption[];
+    sources: WorkLeadOption[];
+    channels: WorkLeadOption[];
+    owners: WorkLeadOption[];
+  };
+};
+
+const workLeadAllFilterValue = "__all__";
+const emptyWorkLeadFilters: WorkLeadFilterValues = {
+  status: "",
+  sourceID: "",
+  channelID: "",
+  ownerStaffID: "",
+  createdFrom: "",
+  createdTo: "",
+};
+const emptyWorkLeadPoolView: WorkLeadPoolView = {
+  visible: false,
+  pendingCount: 0,
+  total: 0,
+  canCreate: false,
+  loading: true,
+  exporting: false,
+  options: {},
+  filterOptions: {
+    statuses: [],
+    sources: [],
+    channels: [],
+    owners: [],
+  },
+};
+const workLeadFilterDraftPath = "data.workLeadFilterDraft";
+const workLeadFilterAppliedPath = "data.workLeadFilters";
+const workLeadPoolViewPath = "data.workLeadPool";
+const workLeadFilterApplyEvent = "crm-work-lead-filter-apply";
+const workLeadExportEvent = "crm-work-lead-export";
+
+const workLeadPageSize = 10;
+
+type WorkLeadQueryFilters = {
+  workflowID: string;
+  keyword: string;
+  quickFilter: string;
+  stageFilter: string;
+  taskFilter: string;
+  status: string;
+  sourceID: string;
+  channelID: string;
+  ownerStaffID: string;
+  createdFrom: string;
+  createdTo: string;
+};
+
+function buildWorkLeadQuery(filters: WorkLeadQueryFilters): URLSearchParams {
+  const query = new URLSearchParams();
+  const values: Array<[string, string]> = [
+    ["workflow_id", filters.workflowID],
+    ["keyword", filters.keyword],
+    ["quick_filter", filters.quickFilter],
+    ["stage_filter", filters.stageFilter],
+    ["task_filter", filters.taskFilter],
+    ["status", filters.status],
+    ["source_id", filters.sourceID],
+    ["channel_id", filters.channelID],
+    ["owner_staff_id", filters.ownerStaffID],
+    ["created_from", filters.createdFrom],
+    ["created_to", filters.createdTo],
+  ];
+  values.forEach(([key, value]) => {
+    if (value) query.set(key, value);
+  });
+  return query;
+}
+
+function downloadWorkLeadExport(filename: string, content: string) {
+  const url = URL.createObjectURL(
+    new Blob([content], { type: "text/csv;charset=utf-8" }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function normalizeWorkLeadFilters(value: unknown): WorkLeadFilterValues {
+  const current =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    status: normalizeWorkLeadFilterValue(current.status),
+    sourceID: normalizeWorkLeadFilterValue(current.sourceID),
+    channelID: normalizeWorkLeadFilterValue(current.channelID),
+    ownerStaffID: normalizeWorkLeadFilterValue(current.ownerStaffID),
+    createdFrom: textValue(current.createdFrom),
+    createdTo: textValue(current.createdTo),
+  };
+}
+
+function normalizeWorkLeadFilterValue(value: unknown): string {
+  const current = textValue(value);
+  return current === workLeadAllFilterValue ? "" : current;
+}
+
+function workLeadFilterDraftValues(
+  filters: WorkLeadFilterValues,
+): WorkLeadFilterValues {
+  return {
+    ...filters,
+    status: filters.status || workLeadAllFilterValue,
+    sourceID: filters.sourceID || workLeadAllFilterValue,
+    channelID: filters.channelID || workLeadAllFilterValue,
+    ownerStaffID: filters.ownerStaffID || workLeadAllFilterValue,
+  };
+}
+
+function workLeadFilterOptions(
+  options: WorkLeadOption[] | undefined,
+  allLabel: string,
+): WorkLeadOption[] {
+  const normalizedOptions = (options || [])
+    .filter((option) => textValue(option.id) !== workLeadAllFilterValue)
+    .map((option) => {
+      const label = textValue(option.name || option.value);
+      return {
+        ...option,
+        name: label,
+        value: label,
+      };
+    });
+  return [
+    {
+      id: workLeadAllFilterValue,
+      name: allLabel,
+      value: allLabel,
+    },
+    ...normalizedOptions,
+  ];
+}
+
+function workLeadFiltersFromQuery(query: URLSearchParams): WorkLeadFilterValues {
+  return {
+    status: query.get("status") || "",
+    sourceID: query.get("source_id") || "",
+    channelID: query.get("channel_id") || "",
+    ownerStaffID: query.get("owner_staff_id") || "",
+    createdFrom: query.get("created_from") || "",
+    createdTo: query.get("created_to") || "",
+  };
+}
+
+function hasWorkLeadFilters(filters: WorkLeadFilterValues): boolean {
+  return Object.values(filters).some(Boolean);
+}
+
+function requestWorkLeadFilters(filters: WorkLeadFilterValues) {
+  window.dispatchEvent(
+    new CustomEvent(workLeadFilterApplyEvent, { detail: filters }),
+  );
+}
 
 type LeadDraft = {
   name: string;
@@ -223,43 +417,224 @@ type WorkLeadDetailTarget = {
   options?: WorkLeadPoolResponse;
 };
 
-type WorkLeadOperationsResponse = {
-  list?: WorkOperation[];
+type WorkLeadDetailResponse = {
+  lead?: WorkLead;
+  customer?: WorkCustomer | null;
+  operations?: WorkOperation[];
+  detail_sections?: unknown;
 };
 
 const emptyWorkLeadDetailTarget: WorkLeadDetailTarget = {};
 const workLeadDetailTargetPath = "data.actionTarget.workLeadDetail";
 const workLeadDetailDrawerKey = "drawer.workLeadDetail";
 
-export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
+export function ShowCrmWorkLeadToolbar({ store }: WorkNodeProps = {}) {
   const routeQuery = new URLSearchParams(window.location.search);
+  const workflowID = routeQuery.get("workflow_id") || "";
+  const poolView = useWorkTaskStoreValue(
+    store,
+    workLeadPoolViewPath,
+    emptyWorkLeadPoolView,
+  );
+
+  return (
+    <>
+      <WorkLeadPoolStyles />
+      {poolView.visible ? (
+        <div className="crm-work-lead-pool flex flex-wrap items-center justify-between gap-3">
+          <p className="text-muted-foreground">
+            待办 {poolView.pendingCount} 项，共 {poolView.total} 条线索
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              title="导出当前筛选结果"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent(workLeadExportEvent))
+              }
+              disabled={
+                poolView.loading || poolView.exporting || poolView.total === 0
+              }
+            >
+              {poolView.exporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              导出
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title="刷新"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent(workRefreshEvent))
+              }
+              disabled={poolView.loading}
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${poolView.loading ? "animate-spin" : ""}`}
+              />
+            </Button>
+            {poolView.canCreate ? (
+              <Button
+                type="button"
+                onClick={() =>
+                  openWorkLeadEditor(
+                    store,
+                    poolView.options,
+                    workflowID,
+                    null,
+                  )
+                }
+              >
+                <Plus className="h-4 w-4" />
+                录入线索
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+export function ShowCrmWorkLeadFilterActions({ store }: WorkNodeProps = {}) {
+  const rawDraft = useWorkTaskStoreValue(
+    store,
+    workLeadFilterDraftPath,
+    emptyWorkLeadFilters,
+  );
+  const rawApplied = useWorkTaskStoreValue(
+    store,
+    workLeadFilterAppliedPath,
+    emptyWorkLeadFilters,
+  );
+  const poolView = useWorkTaskStoreValue(
+    store,
+    workLeadPoolViewPath,
+    emptyWorkLeadPoolView,
+  );
+  const draft = normalizeWorkLeadFilters(rawDraft);
+  const applied = normalizeWorkLeadFilters(rawApplied);
+  const canReset = hasWorkLeadFilters(draft) || hasWorkLeadFilters(applied);
+
+  if (!poolView.visible) return null;
+
+  const applyFilters = () => {
+    const nextFilters = { ...draft };
+    setWorkStoreValue(store, workLeadFilterAppliedPath, nextFilters);
+    requestWorkLeadFilters(nextFilters);
+  };
+  const resetFilters = () => {
+    const nextFilters = { ...emptyWorkLeadFilters };
+    setWorkStoreValue(
+      store,
+      workLeadFilterDraftPath,
+      workLeadFilterDraftValues(nextFilters),
+    );
+    setWorkStoreValue(store, workLeadFilterAppliedPath, { ...nextFilters });
+    requestWorkLeadFilters(nextFilters);
+  };
+
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <Button
+        type="button"
+        size="sm"
+        onClick={applyFilters}
+        disabled={poolView.loading}
+      >
+        {poolView.loading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Search className="h-4 w-4" />
+        )}
+        搜索
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={resetFilters}
+        disabled={poolView.loading || !canReset}
+      >
+        <RotateCcw className="h-4 w-4" />
+        重置
+      </Button>
+    </div>
+  );
+}
+
+export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
+  const routeQuery = useMemo(
+    () => new URLSearchParams(window.location.search),
+    [],
+  );
   const workflowID = routeQuery.get("workflow_id") || "";
   const routeKeyword = routeQuery.get("keyword") || "";
   const routeQuickFilter = routeQuery.get("quick_filter") || "";
   const routeStageFilter = routeQuery.get("stage_filter") || "";
   const routeTaskFilter = routeQuery.get("task_filter") || "";
+  const initialFilters = useMemo(
+    () => workLeadFiltersFromQuery(routeQuery),
+    [routeQuery],
+  );
   const [leads, setLeads] = useState<WorkLead[]>([]);
   const [options, setOptions] = useState<WorkLeadPoolResponse>({});
   const [activeKeyword, setActiveKeyword] = useState(routeKeyword);
+  const [appliedFilters, setAppliedFilters] =
+    useState<WorkLeadFilterValues>(initialFilters);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [invalidLead, setInvalidLead] = useState<WorkLead | null>(null);
   const [invalidating, setInvalidating] = useState(false);
+  const loadVersionRef = useRef(0);
+  const loadingQueryRef = useRef("");
+
+  useEffect(() => {
+    if (workStoreValue(store, workLeadFilterDraftPath, undefined) === undefined) {
+      setWorkStoreValue(
+        store,
+        workLeadFilterDraftPath,
+        workLeadFilterDraftValues(initialFilters),
+      );
+    }
+    if (
+      workStoreValue(store, workLeadFilterAppliedPath, undefined) === undefined
+    ) {
+      setWorkStoreValue(store, workLeadFilterAppliedPath, {
+        ...initialFilters,
+      });
+    }
+  }, [initialFilters, store]);
 
   const loadLeads = useCallback(async () => {
+    const query = buildWorkLeadQuery({
+      workflowID,
+      keyword: activeKeyword,
+      quickFilter: routeQuickFilter,
+      stageFilter: routeStageFilter,
+      taskFilter: routeTaskFilter,
+      ...appliedFilters,
+    });
+    query.set("page", String(page));
+    query.set("page_size", String(workLeadPageSize));
+    const requestKey = query.toString();
+    if (loadingQueryRef.current === requestKey) return;
+    const version = loadVersionRef.current + 1;
+    loadVersionRef.current = version;
+    loadingQueryRef.current = requestKey;
     setLoading(true);
     try {
-      const query = new URLSearchParams();
-      if (workflowID) query.set("workflow_id", workflowID);
-      if (activeKeyword) query.set("keyword", activeKeyword);
-      query.set("page", String(page));
-      query.set("page_size", String(workLeadPageSize));
-      if (routeQuickFilter) query.set("quick_filter", routeQuickFilter);
-      if (routeStageFilter) query.set("stage_filter", routeStageFilter);
-      if (routeTaskFilter) query.set("task_filter", routeTaskFilter);
       const payload = await workApi<WorkLeadPoolResponse>(
         `/crm/work/leads${query.size ? `?${query.toString()}` : ""}`,
       );
+      if (loadVersionRef.current !== version) return;
       const nextLeads = Array.isArray(payload.list) ? payload.list : [];
       const total = Math.max(0, Number(payload.total) || 0);
       const responsePageSize = Math.max(
@@ -270,14 +645,23 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
       const responsePage = Math.max(1, Number(payload.page) || page);
       setLeads(nextLeads);
       setOptions(payload);
+      setLoaded(true);
       if (responsePage > totalPages) setPage(totalPages);
     } catch (error) {
-      toast.error(errorMessage(error, "线索池加载失败"));
+      if (loadVersionRef.current === version) {
+        toast.error(errorMessage(error, "线索池加载失败"));
+      }
     } finally {
-      setLoading(false);
+      if (loadingQueryRef.current === requestKey) {
+        loadingQueryRef.current = "";
+      }
+      if (loadVersionRef.current === version) {
+        setLoading(false);
+      }
     }
   }, [
     activeKeyword,
+    appliedFilters,
     page,
     routeQuickFilter,
     routeStageFilter,
@@ -285,9 +669,79 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
     workflowID,
   ]);
 
+  const exportLeads = useCallback(async () => {
+    if (exporting || loading) return;
+    setExporting(true);
+    try {
+      const query = buildWorkLeadQuery({
+        workflowID,
+        keyword: activeKeyword,
+        quickFilter: routeQuickFilter,
+        stageFilter: routeStageFilter,
+        taskFilter: routeTaskFilter,
+        ...appliedFilters,
+      });
+      const payload = await workApi<WorkLeadExportResponse>(
+        `/crm/work/lead_export${query.size ? `?${query.toString()}` : ""}`,
+      );
+      downloadWorkLeadExport(
+        payload.filename || "线索导出.csv",
+        payload.content || "",
+      );
+      toast.success(`已导出 ${Math.max(0, Number(payload.total) || 0)} 条线索`);
+    } catch (error) {
+      toast.error(errorMessage(error, "线索导出失败"));
+    } finally {
+      setExporting(false);
+    }
+  }, [
+    activeKeyword,
+    appliedFilters,
+    exporting,
+    loading,
+    routeQuickFilter,
+    routeStageFilter,
+    routeTaskFilter,
+    workflowID,
+  ]);
+
+  useEffect(() => {
+    const poolOptions = { ...options };
+    delete poolOptions.list;
+    setWorkStoreValue(store, workLeadPoolViewPath, {
+      visible: loaded && options.enabled !== false,
+      pendingCount: Number(options.pending_count) || 0,
+      total: Math.max(0, Number(options.total) || 0),
+      canCreate: options.can_create === true,
+      loading,
+      exporting,
+      options: poolOptions,
+      filterOptions: {
+        statuses: workLeadFilterOptions(options.statuses, "全部状态"),
+        sources: workLeadFilterOptions(options.sources, "全部来源"),
+        channels: workLeadFilterOptions(options.channels, "全部渠道"),
+        owners: workLeadFilterOptions(options.owner_options, "全部负责人"),
+      },
+    } satisfies WorkLeadPoolView);
+  }, [exporting, loaded, loading, options, store]);
+
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
+
+  useEffect(() => {
+    const applyFilters = (event: Event) => {
+      const nextFilters = normalizeWorkLeadFilters(
+        (event as CustomEvent<unknown>).detail,
+      );
+      setAppliedFilters(nextFilters);
+      setLeads([]);
+      setPage(1);
+    };
+    window.addEventListener(workLeadFilterApplyEvent, applyFilters);
+    return () =>
+      window.removeEventListener(workLeadFilterApplyEvent, applyFilters);
+  }, []);
 
   useEffect(() => {
     const search = (event: Event) => {
@@ -308,6 +762,15 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
     window.addEventListener(workRefreshEvent, refresh);
     return () => window.removeEventListener(workRefreshEvent, refresh);
   }, [loadLeads]);
+
+  useEffect(() => {
+    const exportCurrentLeads = () => {
+      void exportLeads();
+    };
+    window.addEventListener(workLeadExportEvent, exportCurrentLeads);
+    return () =>
+      window.removeEventListener(workLeadExportEvent, exportCurrentLeads);
+  }, [exportLeads]);
 
   const openLeadTask = (lead: WorkLead, task: WorkTask) => {
     void openWorkLeadTask(
@@ -362,37 +825,6 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
 
   return (
     <div className="crm-work-lead-pool space-y-4">
-      <WorkLeadPoolStyles />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted-foreground">
-          待办 {Number(options.pending_count) || 0} 项，共{" "}
-          {Math.max(0, Number(options.total) || 0)} 条线索
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            title="刷新"
-            onClick={() => void loadLeads()}
-            disabled={loading}
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          </Button>
-          {options.can_create ? (
-            <Button
-              type="button"
-              onClick={() =>
-                openWorkLeadEditor(store, options, workflowID, null)
-              }
-            >
-              <Plus className="h-4 w-4" />
-              录入线索
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
       <section className="overflow-hidden bg-background">
         <div className="hidden overflow-x-auto md:block">
           <table className="crm-work-lead-table w-full min-w-[1060px] table-fixed border-collapse">
@@ -728,7 +1160,7 @@ function InvalidateLeadDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-5 py-1">
-          <LeadField label="无效原因" required>
+          <WorkFormField label="无效原因" required>
             <Select value={reasonID} onValueChange={setReasonID}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="请选择无效原因" />
@@ -744,15 +1176,15 @@ function InvalidateLeadDialog({
                 ))}
               </SelectContent>
             </Select>
-          </LeadField>
-          <LeadField label="补充说明">
+          </WorkFormField>
+          <WorkFormField label="补充说明">
             <Textarea
               className="min-h-24 resize-y"
               placeholder="请输入补充说明"
               value={note}
               onChange={(event) => setNote(event.target.value)}
             />
-          </LeadField>
+          </WorkFormField>
         </div>
         <DialogFooter>
           <Button
@@ -840,41 +1272,54 @@ export function ShowCrmWorkLeadDetail({ store }: WorkNodeProps) {
   );
   const lead = target.lead || null;
   const options = target.options || {};
-  const flow = lead?.flow;
-  const workflowInstanceID = textValue(
-    flow?.workflow_instance_id || flow?.id || lead?.workflow_instance_id,
-  );
+  const leadID = textValue(lead?.id);
+  const workflowID = textValue(lead?.workflow_id || lead?.flow?.workflow_id);
   const [activeTab, setActiveTab] = useState<WorkDetailTab>("records");
+  const [detailLead, setDetailLead] = useState<WorkLead | null>(null);
+  const [customer, setCustomer] = useState<WorkCustomer | null>(null);
+  const [detailSections, setDetailSections] = useState<WorkDetailSection[]>([]);
   const [operations, setOperations] = useState<WorkOperation[]>([]);
   const [operationsLoading, setOperationsLoading] = useState(false);
   const [operationScope, setOperationScope] = useState<"all" | "mine">(
     "all",
   );
-  const sections = useMemo(
-    () => (lead ? workLeadDetailSections(lead, options.templates || []) : []),
-    [lead, options.templates],
+  const currentLead = detailLead || lead;
+  const leadSections = useMemo(
+    () =>
+      currentLead
+        ? workLeadDetailSections(currentLead, options.templates || [])
+        : [],
+    [currentLead, options.templates],
   );
   useEffect(() => {
     setActiveTab("records");
     setOperationScope("all");
-  }, [lead?.id]);
+  }, [leadID]);
 
   useEffect(() => {
     let cancelled = false;
+    setDetailLead(null);
+    setCustomer(null);
+    setDetailSections([]);
     setOperations([]);
-    if (!workflowInstanceID) {
+    if (!leadID) {
       setOperationsLoading(false);
       return;
     }
     setOperationsLoading(true);
-    const query = new URLSearchParams({
-      workflow_instance_id: workflowInstanceID,
-    });
-    void workApi<WorkLeadOperationsResponse>(
-      `/crm/work/operations?${query.toString()}`,
+    const query = new URLSearchParams({ lead_id: leadID });
+    if (workflowID) query.set("workflow_id", workflowID);
+    void workApi<WorkLeadDetailResponse>(
+      `/crm/work/lead_detail?${query.toString()}`,
     )
       .then((payload) => {
-        if (!cancelled) setOperations(payload.list || []);
+        if (cancelled) return;
+        setDetailLead(payload.lead || null);
+        setCustomer(payload.customer || null);
+        setOperations(payload.operations || []);
+        setDetailSections(
+          normalizeWorkDetailSections(payload.detail_sections),
+        );
       })
       .catch((error) => {
         if (!cancelled) toast.error(errorMessage(error));
@@ -885,7 +1330,7 @@ export function ShowCrmWorkLeadDetail({ store }: WorkNodeProps) {
     return () => {
       cancelled = true;
     };
-  }, [workflowInstanceID]);
+  }, [leadID, workflowID]);
 
   useEffect(() => {
     const closeOnRefresh = () => {
@@ -916,7 +1361,14 @@ export function ShowCrmWorkLeadDetail({ store }: WorkNodeProps) {
             emptyText="暂无记录"
           />
         ) : (
-          <WorkDetailSectionsData sections={sections} />
+          customer ? (
+            <WorkCustomerDetailData
+              customer={customer}
+              sections={detailSections}
+            />
+          ) : (
+            <WorkDetailSectionsData sections={leadSections} />
+          )
         )}
       </div>
     </div>
@@ -1226,7 +1678,7 @@ export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
           )
         : null}
       <div ref={contentRef} className="grid gap-4 sm:grid-cols-2">
-        <LeadField label="姓名" required>
+        <WorkFormField label="姓名" required>
           <Input
             placeholder="请输入姓名"
             value={draft.name}
@@ -1234,8 +1686,8 @@ export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
               setDraft({ ...draft, name: event.target.value })
             }
           />
-        </LeadField>
-        <LeadField label="手机号">
+        </WorkFormField>
+        <WorkFormField label="手机号">
           <Input
             placeholder="请输入手机号"
             value={draft.phone}
@@ -1243,8 +1695,8 @@ export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
               setDraft({ ...draft, phone: event.target.value })
             }
           />
-        </LeadField>
-        <LeadField label="微信号">
+        </WorkFormField>
+        <WorkFormField label="微信号">
           <Input
             placeholder="请输入微信号"
             value={draft.wechat}
@@ -1252,8 +1704,8 @@ export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
               setDraft({ ...draft, wechat: event.target.value })
             }
           />
-        </LeadField>
-        <LeadField label="城市">
+        </WorkFormField>
+        <WorkFormField label="城市">
           <Input
             placeholder="请输入城市"
             value={draft.city}
@@ -1261,8 +1713,8 @@ export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
               setDraft({ ...draft, city: event.target.value })
             }
           />
-        </LeadField>
-        <LeadField label="来源">
+        </WorkFormField>
+        <WorkFormField label="来源">
           <Select
             value={draft.sourceID}
             onValueChange={(sourceID) => setDraft({ ...draft, sourceID })}
@@ -1283,8 +1735,8 @@ export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
                 ))}
             </SelectContent>
           </Select>
-        </LeadField>
-        <LeadField label="渠道">
+        </WorkFormField>
+        <WorkFormField label="渠道">
           <Select
             value={draft.channelID}
             onValueChange={(channelID) => setDraft({ ...draft, channelID })}
@@ -1305,8 +1757,8 @@ export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
                 ))}
             </SelectContent>
           </Select>
-        </LeadField>
-        <LeadField label="外部线索ID">
+        </WorkFormField>
+        <WorkFormField label="外部线索ID">
           <Input
             placeholder="请输入外部线索ID"
             value={draft.externalID}
@@ -1314,8 +1766,8 @@ export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
               setDraft({ ...draft, externalID: event.target.value })
             }
           />
-        </LeadField>
-        <LeadField label="初始诉求" className="crm-work-lead-form-wide">
+        </WorkFormField>
+        <WorkFormField label="初始诉求" className="crm-work-lead-form-wide">
           <Textarea
             className="min-h-24 resize-y"
             placeholder="请输入初始诉求"
@@ -1324,7 +1776,7 @@ export function ShowCrmWorkLeadEditorForm({ store }: WorkNodeProps) {
               setDraft({ ...draft, initialNeed: event.target.value })
             }
           />
-        </LeadField>
+        </WorkFormField>
         <WorkLeadTemplateFields
           templates={templates}
           values={draft.dataValues}
@@ -1605,28 +2057,6 @@ function WorkLeadPoolStyles() {
       }
 
     `}</style>
-  );
-}
-
-function LeadField({
-  label,
-  required = false,
-  className = "",
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className={`block min-w-0 ${className}`.trim()}>
-      <span className="mb-1.5 block text-sm font-medium">
-        {label}
-        {required ? <span className="ml-1 text-destructive">*</span> : null}
-      </span>
-      {children}
-    </div>
   );
 }
 

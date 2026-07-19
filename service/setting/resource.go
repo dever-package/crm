@@ -9,6 +9,7 @@ import (
 	"github.com/shemic/dever/util"
 
 	crmmodel "github.com/dever-package/crm/model"
+	crmservice "github.com/dever-package/crm/service"
 )
 
 func (CrmHook) ProviderBeforeSavePublicResourceCate(_ *server.Context, params []any) any {
@@ -121,22 +122,11 @@ func normalizeBookingTimeField(record map[string]any, field string, partial bool
 }
 
 func validateResourceBookingTime(ctx context.Context, currentID uint64, resourceID uint64, startAt time.Time, endAt time.Time) error {
-	if !endAt.After(startAt) {
-		return fmt.Errorf("结束时间必须晚于开始时间")
-	}
-	for _, booking := range crmmodel.NewPublicResourceBookingModel().Select(ctx, map[string]any{"resource_id": resourceID}) {
-		if booking == nil || booking.ID == currentID || resourceBookingCanceled(booking.BookingStatus) {
-			continue
-		}
-		if startAt.Before(booking.EndAt) && endAt.After(booking.StartAt) {
-			return fmt.Errorf("该资源在所选时间已被预定")
-		}
-	}
-	return nil
+	return crmservice.ValidateResourceBookingTime(ctx, currentID, resourceID, startAt, endAt)
 }
 
 func resourceBookingCanceled(status string) bool {
-	return status == crmmodel.ResourceBookingStatusCanceled || status == crmmodel.ResourceBookingStatusRejected
+	return crmservice.ResourceBookingInactive(status)
 }
 
 func resourceBookingStatusName(value any) string {

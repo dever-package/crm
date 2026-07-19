@@ -89,7 +89,8 @@
             "confirm": true,
             "confirmText": "保存"
           },
-          "size": "sm",
+          "size": "xl",
+          "width": "52rem",
           "bodyClassName": "py-2"
         }
       },
@@ -107,7 +108,8 @@
           "pageRouteQuery": {
             "id": "data.actionTarget.id"
           },
-          "size": "sm",
+          "size": "xl",
+          "width": "52rem",
           "bodyClassName": "py-2"
         }
       }

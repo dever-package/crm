@@ -20,15 +20,39 @@ type CustomerLevelIndex struct {
 	StatusSort struct{} `index:"status,sort,id"`
 }
 
-const DefaultCustomerLevelID uint64 = 1
+const (
+	DefaultCustomerLevelID    uint64 = 0
+	highIntentCustomerLevelID uint64 = 1
+)
 
 var customerLevelSeed = []map[string]any{
 	{
-		"id":     DefaultCustomerLevelID,
-		"code":   "normal",
-		"name":   "普通",
+		"id":     highIntentCustomerLevelID,
+		"code":   "high_intent",
+		"name":   "高意向",
 		"status": StatusEnabled,
-		"sort":   100,
+		"sort":   10,
+	},
+	{
+		"id":     uint64(2),
+		"code":   "medium_intent",
+		"name":   "中意向",
+		"status": StatusEnabled,
+		"sort":   20,
+	},
+	{
+		"id":     uint64(3),
+		"code":   "no_intent",
+		"name":   "无意向",
+		"status": StatusEnabled,
+		"sort":   30,
+	},
+	{
+		"id":     uint64(4),
+		"code":   "unreachable",
+		"name":   "联系不上",
+		"status": StatusEnabled,
+		"sort":   40,
 	},
 }
 
@@ -41,5 +65,6 @@ func NewCustomerLevelModel() *orm.Model[CustomerLevel] {
 		Options: map[string]any{
 			"status": statusOptions,
 		},
+		Relations: []orm.Relation{customerLevelTagsRelation},
 	})
 }

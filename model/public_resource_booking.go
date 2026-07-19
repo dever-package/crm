@@ -9,6 +9,7 @@ import (
 type PublicResourceBooking struct {
 	ID                 uint64     `dorm:"primaryKey;autoIncrement;comment:预定ID"`
 	ResourceID         uint64     `dorm:"type:bigint;not null;comment:公共资源"`
+	ScheduleEventID    uint64     `dorm:"type:bigint;not null;default:0;comment:日程"`
 	CustomerID         uint64     `dorm:"type:bigint;not null;comment:客户"`
 	AssetID            uint64     `dorm:"type:bigint;not null;default:0;comment:客户资产"`
 	TaskID             uint64     `dorm:"type:bigint;not null;default:0;comment:任务"`
@@ -33,6 +34,7 @@ type PublicResourceBookingIndex struct {
 	StaffTime    struct{} `index:"booker_staff_id,start_at,id"`
 	StatusTime   struct{} `index:"booking_status,start_at,id"`
 	TaskTime     struct{} `index:"task_id,created_at,id"`
+	ScheduleTime struct{} `index:"schedule_event_id,start_at,id"`
 }
 
 func NewPublicResourceBookingModel() *orm.Model[PublicResourceBooking] {
@@ -45,6 +47,7 @@ func NewPublicResourceBookingModel() *orm.Model[PublicResourceBooking] {
 		},
 		Relations: []orm.Relation{
 			resourceRelation,
+			scheduleEventRelation,
 			customerRelation,
 			assetRelation,
 			taskRelation,

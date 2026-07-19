@@ -23,6 +23,11 @@ import {
   type WorkStoreLike,
   type WorkTaskFormField,
 } from "./work-core";
+import {
+  CustomerTagSelector,
+  normalizeCustomerTagIDs,
+  normalizeCustomerTagOptions,
+} from "./customer-tag-selector";
 import { ShowCrmWorkTaskUpload } from "./work-upload";
 
 type TaskFieldRendererProps = {
@@ -40,6 +45,7 @@ const taskFieldRenderers: Record<string, TaskFieldRenderer> = {
   "form-textarea": renderTaskTextarea,
   "form-select": renderTaskSelect,
   "form-switch": renderTaskBoolean,
+  "show-crm-work-customer-tags": renderTaskCustomerTags,
   "show-crm-work-task-upload": renderTaskUpload,
 };
 
@@ -196,6 +202,23 @@ function renderTaskSelect(props: TaskFieldRendererProps) {
   return props.field.meta?.["multiple"]
     ? renderTaskMultiSelect(props)
     : renderTaskSingleSelect(props);
+}
+
+function renderTaskCustomerTags({
+  field,
+  value,
+  setValue,
+  error,
+}: TaskFieldRendererProps) {
+  return (
+    <CustomerTagSelector
+      options={normalizeCustomerTagOptions(field.options)}
+      value={normalizeCustomerTagIDs(value)}
+      disabled={field.readonly}
+      error={error}
+      onChange={setValue}
+    />
+  );
 }
 
 function renderTaskSingleSelect({

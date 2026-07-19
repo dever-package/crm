@@ -46,7 +46,7 @@ type douyinSyncTotals struct {
 }
 
 func (DouyinCronService) ProviderSyncLeads(c *server.Context, params []any) any {
-	result, err := SyncDouyinLeads(douyinCronContext(c, params), douyinCronPayload(params))
+	result, err := SyncDouyinLeads(crmCronContext(c, params), crmCronPayload(params))
 	if err != nil {
 		panic(err)
 	}
@@ -308,7 +308,7 @@ func douyinCronStatus(enabled bool) int {
 	return frontmodel.CronStatusDisabled
 }
 
-func douyinCronContext(c *server.Context, params []any) context.Context {
+func crmCronContext(c *server.Context, params []any) context.Context {
 	if c != nil {
 		return c.Context()
 	}
@@ -320,7 +320,7 @@ func douyinCronContext(c *server.Context, params []any) context.Context {
 	return context.Background()
 }
 
-func douyinCronPayload(params []any) map[string]any {
+func crmCronPayload(params []any) map[string]any {
 	for _, item := range params {
 		if row, ok := item.(map[string]any); ok && row != nil {
 			return copyMap(row)

@@ -92,6 +92,10 @@
         {
           "id": "display",
           "value": "展示"
+        },
+        {
+          "id": "customer_follow_at",
+          "value": "客户下次跟进时间"
         }
       ]
     },

@@ -50,13 +50,31 @@
         "meta": {
           "formLayout": "horizontal"
         }
+      },
+      {
+        "type": "form-array",
+        "name": "等级标签",
+        "value": "form.tags",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "pageRoute": "/crm/customer_tag/update",
+          "addText": "添加标签",
+          "drag": "sort"
+        }
       }
     ]
   },
   "data": {
     "form": {
+      "_fields": [
+        "name",
+        "tags"
+      ],
+      "service": "crm.setting.CrmHook.BuildCustomerLevelForm",
       "id": "",
-      "name": ""
+      "name": "",
+      "tags": []
     }
   },
   "state": {},
@@ -66,6 +84,9 @@
       "params": "form",
       "before": {
         "service": "crm.setting.CrmHook.BeforeSaveCustomerLevel"
+      },
+      "after": {
+        "service": "crm.setting.CrmHook.AfterSaveCustomerLevel"
       }
     }
   }

@@ -48,6 +48,10 @@ export type WorkFieldOption = {
   name?: string;
   label?: string;
   value?: string | number;
+  level_id?: string | number;
+  level_name?: string;
+  level_sort?: string | number;
+  sort?: string | number;
 };
 
 export type WorkDisplayField = {
@@ -168,6 +172,8 @@ export type WorkCustomer = {
   channel?: string;
   level_name?: string;
   customer_level?: string;
+  tags?: string;
+  tag_ids?: Array<string | number>;
   source_id?: string | number;
   channel_id?: string | number;
   level_id?: string | number;
@@ -177,6 +183,8 @@ export type WorkCustomer = {
   status_code?: string;
   current_stage_name?: string;
   current_status_name?: string;
+  current_owner_staff_name?: string;
+  current_owner_department_name?: string;
   stage_entered_at?: string;
   stage_days?: string | number;
   last_operated_at?: string;

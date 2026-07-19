@@ -1,0 +1,63 @@
+{
+  "page": {
+    "name": "日程",
+    "icon": "calendar-days",
+    "parent": "crm-work-customer-center",
+    "type": 1,
+    "sort": 99
+  },
+  "layout": {
+    "type": "container",
+    "className": "crm-body-page crm-schedule-page-shell",
+    "children": {
+      "content": {
+        "type": "container",
+        "className": "min-w-0 h-full"
+      },
+      "feedback-shell": {
+        "type": "container"
+      }
+    }
+  },
+  "nodes": {
+    "content": [
+      {
+        "type": "show-crm-work-schedule"
+      }
+    ],
+    "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.workSchedule",
+          "formSection": "work-schedule-form-section",
+          "title": "创建日程",
+          "titlePath": "data.actionTarget.workScheduleTitle",
+          "descriptionPath": "data.actionTarget.workScheduleDescription",
+          "assistant": false,
+          "size": "lg",
+          "width": "42rem",
+          "footer": {
+            "close": true,
+            "closeText": "取消",
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "bodyClassName": "crm-work-task-modal-body crm-work-task-scroll-area max-h-[70vh] overflow-y-auto px-6 py-2"
+        }
+      }
+    ],
+    "work-schedule-form-section": [
+      {
+        "type": "show-crm-work-schedule-form"
+      }
+    ]
+  },
+  "data": {},
+  "state": {
+    "dialog": {
+      "workSchedule": false
+    }
+  },
+  "action": {}
+}

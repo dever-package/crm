@@ -237,6 +237,66 @@ func workOperatorIDs(staff *WorkStaffSession) (uint64, uint64) {
 	return staff.ID, staff.DepartmentID
 }
 
+func recordCustomerScheduleOperation(
+	ctx context.Context,
+	event *crmmodel.ScheduleEvent,
+	operatorStaffID uint64,
+	operatorDepartmentID uint64,
+	action string,
+	previousAt time.Time,
+	nextAt time.Time,
+	remark string,
+) uint64 {
+	if event == nil || event.CustomerID == 0 || operatorStaffID == 0 {
+		return 0
+	}
+	title := map[string]string{
+		"arranged":    "已安排客户跟进",
+		"rescheduled": "已调整跟进时间",
+		"completed":   "已完成客户跟进",
+		"canceled":    "已取消客户跟进",
+	}[action]
+	if title == "" {
+		title = "客户跟进日程变更"
+	}
+	workflowID := uint64(0)
+	stageID := uint64(0)
+	customerProductID := uint64(0)
+	if event.SourceWorkflowInstanceID > 0 {
+		if instance := crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{"id": event.SourceWorkflowInstanceID}); instance != nil {
+			workflowID = instance.WorkflowID
+			stageID = instance.StageID
+			customerProductID = instance.CustomerProductID
+		}
+	}
+	content := strings.TrimSpace(remark)
+	if content == "" && !nextAt.IsZero() {
+		content = customerFollowTimeValue(nextAt)
+	}
+	return uint64(crmmodel.NewOperationLogModel().Insert(ctx, map[string]any{
+		"customer_id":          event.CustomerID,
+		"asset_id":             uint64(0),
+		"workflow_instance_id": event.SourceWorkflowInstanceID,
+		"customer_product_id":  customerProductID,
+		"workflow_id":          workflowID,
+		"stage_id":             stageID,
+		"task_id":              uint64(0),
+		"task_type":            "",
+		"result_value":         action,
+		"title":                title,
+		"content":              content,
+		"data_snapshot_json": jsonText(map[string]any{
+			"schedule_event_id": event.ID,
+			"previous_at":       customerFollowTimeValue(previousAt),
+			"next_at":           customerFollowTimeValue(nextAt),
+			"source":            event.Source,
+		}),
+		"operator_staff_id":      operatorStaffID,
+		"operator_department_id": operatorDepartmentID,
+		"created_at":             time.Now(),
+	}))
+}
+
 func insertWorkStatEvent(ctx context.Context, record map[string]any) {
 	model := crmmodel.NewStatEventModel()
 	if model.Find(ctx, map[string]any{
@@ -330,7 +390,7 @@ func workDataRecordOwnershipFilter(ownership workDataOwnership, templateID uint6
 	}
 }
 
-func saveWorkDataRecord(ctx context.Context, ownership workDataOwnership, templateID uint64, taskID uint64, operationID uint64, record map[string]any) {
+func saveWorkDataRecord(ctx context.Context, ownership workDataOwnership, templateID uint64, taskID uint64, operationID uint64, record map[string]any) uint64 {
 	now := time.Now()
 	data := map[string]any{
 		"customer_id":          ownership.CustomerID,
@@ -356,11 +416,12 @@ func saveWorkDataRecord(ctx context.Context, ownership workDataOwnership, templa
 		data["record_json"] = jsonText(merged)
 		model.Update(ctx, map[string]any{"id": existing.ID}, data)
 		syncWorkStatFieldValues(ctx, ownership, templateID, taskID, operationID, record, now)
-		return
+		return existing.ID
 	}
 	data["created_at"] = now
-	model.Insert(ctx, data)
+	recordID := uint64(model.Insert(ctx, data))
 	syncWorkStatFieldValues(ctx, ownership, templateID, taskID, operationID, record, now)
+	return recordID
 }
 
 func syncWorkStatFieldValues(ctx context.Context, ownership workDataOwnership, templateID uint64, taskID uint64, operationID uint64, record map[string]any, changedAt time.Time) {

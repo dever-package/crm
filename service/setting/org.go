@@ -53,10 +53,11 @@ func (CrmHook) ProviderBeforeSaveStaff(c *server.Context, params []any) any {
 		return record
 	}
 	partial := isPartialCrmRecord(record)
+	// 飞书 OpenID 只允许登录流程自动绑定，后台人员表单不能写入或清空。
+	delete(record, "feishu_open_id")
 	trimCrmStringField(record, "name", partial)
 	trimCrmStringField(record, "staff_type", partial)
 	trimCrmStringField(record, "phone", partial)
-	trimCrmStringField(record, "feishu_open_id", partial)
 	if shouldNormalizeCrmField(record, "department_id", partial) && util.ToUint64(record["department_id"]) == 0 {
 		record["department_id"] = crmmodel.DefaultDepartmentID
 	}
@@ -73,7 +74,6 @@ func (CrmHook) ProviderBeforeSaveStaff(c *server.Context, params []any) any {
 		ctx = c.Context()
 	}
 	validateStaffUniqueField(ctx, "phone", "form.phone", "该手机号已存在，请更换。", record)
-	validateStaffUniqueField(ctx, "feishu_open_id", "form.feishu_open_id", "该飞书 OpenID 已绑定其他人员。", record)
 	defaultCrmBool(record, "can_dispatch", false, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	return record

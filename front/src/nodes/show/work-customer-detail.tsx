@@ -280,6 +280,22 @@ function workCustomerDetailSections(
       ],
     }
     : null;
+  const customerBaseFields = [
+    workBaseDetailField("姓名", customer.name || customer.customer_name),
+    workBaseDetailField("手机号", customer.phone || customer.mobile),
+    workBaseDetailField("微信", customer.wechat),
+    workBaseDetailField("来源", customer.source_name || customer.source),
+    workBaseDetailField("渠道", customer.channel_name || customer.channel),
+    workBaseDetailField("等级", customer.level_name || customer.customer_level),
+  ];
+  if (customer.tags) {
+    customerBaseFields.push(workBaseDetailField("标签", customer.tags));
+  }
+  if (customer.current_owner_staff_name) {
+    customerBaseFields.push(
+      workBaseDetailField("当前负责人", customer.current_owner_staff_name),
+    );
+  }
   const baseSections: WorkDetailSection[] = [
     {
       id: "base:customer",
@@ -288,14 +304,7 @@ function workCustomerDetailSections(
       filled: 0,
       total: 0,
       percent: 0,
-      fields: [
-        workBaseDetailField("姓名", customer.name || customer.customer_name),
-        workBaseDetailField("手机号", customer.phone || customer.mobile),
-        workBaseDetailField("微信", customer.wechat),
-        workBaseDetailField("来源", customer.source_name || customer.source),
-        workBaseDetailField("渠道", customer.channel_name || customer.channel),
-        workBaseDetailField("等级", customer.level_name || customer.customer_level),
-      ],
+      fields: customerBaseFields,
     },
   ];
   if (asset) {

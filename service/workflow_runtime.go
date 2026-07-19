@@ -308,49 +308,18 @@ func createStageTodos(ctx context.Context, instance *crmmodel.WorkflowInstance, 
 		task *crmmodel.Task
 	}, 0)
 	for _, task := range tasks {
-		if task == nil || crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{
-			"workflow_instance_id": instance.ID,
-			"stage_id":             stage.ID,
-			"task_id":              task.ID,
-		}) != nil {
+		if task == nil {
 			continue
 		}
-		departmentID, staffID, err := resolveTaskAssignee(ctx, instance, task)
+		createdTodo, activated, err := createOrReactivateStageTodo(ctx, instance, task, now)
 		if err != nil {
 			return err
 		}
-		var dueAt *time.Time
-		if task.DueDays > 0 {
-			deadline := now.AddDate(0, 0, task.DueDays)
-			dueAt = &deadline
+		if !activated {
+			continue
 		}
-		todoID := uint64(crmmodel.NewWorkTodoModel().Insert(ctx, map[string]any{
-			"lead_id":                instance.LeadID,
-			"customer_id":            instance.CustomerID,
-			"asset_id":               instance.AssetID,
-			"workflow_instance_id":   instance.ID,
-			"customer_product_id":    instance.CustomerProductID,
-			"workflow_id":            instance.WorkflowID,
-			"stage_id":               stage.ID,
-			"task_id":                task.ID,
-			"assignee_department_id": departmentID,
-			"assignee_staff_id":      staffID,
-			"required":               task.Required,
-			"status":                 crmmodel.WorkTodoStatusPending,
-			"due_at":                 dueAt,
-			"result":                 "",
-			"created_at":             now,
-			"updated_at":             now,
-		}))
-		if todoID == 0 {
-			return fmt.Errorf("阶段待办创建失败")
-		}
-		createdTodo := crmmodel.NewWorkTodoModel().Find(ctx, map[string]any{"id": todoID})
-		if createdTodo == nil {
-			return fmt.Errorf("阶段待办创建失败")
-		}
-		if staffID > 0 {
-			assignee := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": staffID})
+		if createdTodo.AssigneeStaffID > 0 {
+			assignee := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": createdTodo.AssigneeStaffID})
 			if recordWorkTodoAssignment(ctx, nil, instance, createdTodo, task, 0, assignee) == 0 {
 				return fmt.Errorf("任务分配记录创建失败")
 			}
@@ -370,6 +339,76 @@ func createStageTodos(ctx context.Context, instance *crmmodel.WorkflowInstance, 
 		}
 	}
 	return nil
+}
+
+func createOrReactivateStageTodo(
+	ctx context.Context,
+	instance *crmmodel.WorkflowInstance,
+	task *crmmodel.Task,
+	now time.Time,
+) (*crmmodel.WorkTodo, bool, error) {
+	if instance == nil || task == nil {
+		return nil, false, fmt.Errorf("流程实例和任务不能为空")
+	}
+	todoModel := crmmodel.NewWorkTodoModel()
+	existing := todoModel.Find(ctx, map[string]any{
+		"workflow_instance_id": instance.ID,
+		"stage_id":             task.StageID,
+		"task_id":              task.ID,
+	})
+	if existing != nil && existing.Status != crmmodel.WorkTodoStatusCanceled {
+		return existing, false, nil
+	}
+	departmentID, staffID, err := resolveTaskAssignee(ctx, instance, task)
+	if err != nil {
+		return nil, false, err
+	}
+	var dueAt *time.Time
+	if task.DueDays > 0 {
+		deadline := now.AddDate(0, 0, task.DueDays)
+		dueAt = &deadline
+	}
+	data := map[string]any{
+		"lead_id":                instance.LeadID,
+		"customer_id":            instance.CustomerID,
+		"asset_id":               instance.AssetID,
+		"workflow_instance_id":   instance.ID,
+		"customer_product_id":    instance.CustomerProductID,
+		"workflow_id":            instance.WorkflowID,
+		"stage_id":               task.StageID,
+		"task_id":                task.ID,
+		"assignee_department_id": departmentID,
+		"assignee_staff_id":      staffID,
+		"required":               task.Required,
+		"status":                 crmmodel.WorkTodoStatusPending,
+		"due_at":                 dueAt,
+		"result":                 "",
+		"completed_at":           nil,
+		"updated_at":             now,
+	}
+	if existing != nil {
+		if todoModel.Update(ctx, map[string]any{
+			"id":     existing.ID,
+			"status": crmmodel.WorkTodoStatusCanceled,
+		}, data) == 0 {
+			return nil, false, fmt.Errorf("已取消待办重新启用失败")
+		}
+		createdTodo := todoModel.Find(ctx, map[string]any{"id": existing.ID})
+		if createdTodo == nil {
+			return nil, false, fmt.Errorf("已取消待办重新启用后无法读取")
+		}
+		return createdTodo, true, nil
+	}
+	data["created_at"] = now
+	todoID := uint64(todoModel.Insert(ctx, data))
+	if todoID == 0 {
+		return nil, false, fmt.Errorf("阶段待办创建失败")
+	}
+	createdTodo := todoModel.Find(ctx, map[string]any{"id": todoID})
+	if createdTodo == nil {
+		return nil, false, fmt.Errorf("阶段待办创建后无法读取")
+	}
+	return createdTodo, true, nil
 }
 
 func nextEnabledStage(ctx context.Context, workflowID, stageID uint64) *crmmodel.Stage {

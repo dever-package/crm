@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, ReactNode, RefObject } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -95,7 +95,10 @@ import {
   type WorkDetailTab,
 } from "./work-customer-detail";
 import { WorkFlowOwnerDialog } from "./work-flow-owner-dialog";
-import { useWorkFeedbackModalHeaderTarget } from "./work-feedback-modal";
+import {
+  useWorkFeedbackModalFooterTargets,
+  useWorkFeedbackModalHeaderTarget,
+} from "./work-feedback-modal";
 import {
   focusFirstWorkTaskFormError,
   workTaskFormValueEmpty,
@@ -1106,6 +1109,15 @@ function workTaskFieldRenderConfig(
   options: WorkCommonOption[],
 ): WorkTaskFieldRenderConfig {
   const fieldType = textValue(field.field_type);
+  if (fieldType === "customer_tags") {
+    return {
+      type: "show-crm-work-customer-tags",
+      placeholderPrefix: "请选择",
+      fullWidth: true,
+      options,
+      meta: { multiple: true },
+    };
+  }
   if (fieldType === "boolean") {
     return {
       type: "form-switch",
@@ -3734,7 +3746,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
     contentRef,
     canAIFill,
   );
-  const footerTargets = useWorkTaskModalFooterTargets(
+  const footerTargets = useWorkFeedbackModalFooterTargets(
     contentRef,
     canCompleteDirectly,
     canCompleteDirectly,
@@ -4023,90 +4035,6 @@ function workTaskHasPendingUploads(store: StoreLike | undefined): boolean {
   ).some(Boolean);
 }
 
-type WorkTaskModalFooterTargets = {
-  left: HTMLElement;
-  actions: HTMLElement;
-};
-
-function useWorkTaskModalFooterTargets(
-  contentRef: RefObject<HTMLElement | null>,
-  enabled: boolean,
-  replaceSubmit: boolean,
-) {
-  const [targets, setTargets] = useState<WorkTaskModalFooterTargets | null>(
-    null,
-  );
-
-  useEffect(() => {
-    if (!enabled) {
-      setTargets(null);
-      return undefined;
-    }
-
-    const content = contentRef.current;
-    if (!content) {
-      setTargets(null);
-      return undefined;
-    }
-
-    const form = content.closest("form");
-    const footer = findWorkTaskModalFooter(form);
-    const submitButton =
-      footer?.querySelector<HTMLButtonElement>('button[type="submit"]') || null;
-    if (!footer) {
-      setTargets(null);
-      return undefined;
-    }
-
-    const left = document.createElement("div");
-    left.setAttribute("data-crm-work-task-footer-left", "true");
-    left.className = "mr-auto flex items-center gap-2";
-
-    const actions = document.createElement("div");
-    actions.setAttribute("data-crm-work-task-footer-actions", "true");
-    actions.className = "flex items-center gap-2";
-
-    const previousSubmitDisplay = submitButton?.style.display || "";
-    footer.insertBefore(left, footer.firstChild);
-    if (submitButton) {
-      footer.insertBefore(actions, submitButton);
-      if (replaceSubmit) {
-        submitButton.style.display = "none";
-      }
-    } else {
-      footer.appendChild(actions);
-    }
-    setTargets({ left, actions });
-
-    return () => {
-      left.remove();
-      actions.remove();
-      if (submitButton) {
-        submitButton.style.display = previousSubmitDisplay;
-      }
-      setTargets(null);
-    };
-  }, [contentRef, enabled, replaceSubmit]);
-
-  return targets;
-}
-
-function findWorkTaskModalFooter(form: Element | null): HTMLElement | null {
-  if (!form) return null;
-  const children = Array.from(form.children).filter(
-    (child): child is HTMLElement => child instanceof HTMLElement,
-  );
-  for (const child of [...children].reverse()) {
-    if (child.querySelector('button[type="submit"]')) {
-      return child;
-    }
-  }
-  const submitButton = form.querySelector<HTMLButtonElement>(
-    'button[type="submit"]',
-  );
-  return submitButton?.parentElement || null;
-}
-
 function validateCurrentWorkTaskForm(
   store: StoreLike | undefined,
   options: { allowMissingRequired?: boolean } = {},
@@ -4298,6 +4226,7 @@ function workTaskSubmitErrorField(message: string): string {
   if (message.includes("办理结果")) return "result";
   if (message.includes("产品") || message.includes("product"))
     return "product_ids";
+  if (message.includes("客户标签") || message.includes("标签")) return "tags";
   return "";
 }
 
@@ -4360,13 +4289,36 @@ function workFieldInitialValue(
           .split(",")
           .map((value) => value.trim())
           .filter(Boolean);
-    return values.map((value) => workFieldOptionID(options, value));
+    const resolveOptionID =
+      renderConfig.type === "show-crm-work-customer-tags"
+        ? workCustomerTagOptionID
+        : workFieldOptionID;
+    return values.map((value) => resolveOptionID(options, value));
   }
 
   const value = formatFormValue(rawValue);
   if (!value || options.length === 0) return value;
 
   return workFieldOptionID(options, value);
+}
+
+function workCustomerTagOptionID(
+  options: WorkFieldOption[],
+  rawValue: unknown,
+): string {
+  const value = textValue(rawValue);
+  if (!value || options.length === 0) return value;
+
+  const exactOption = options.find((option) => workOptionID(option) === value);
+  if (exactOption) return workOptionID(exactOption);
+
+  const matchingOptions = options.filter(
+    (option) =>
+      workOptionValue(option) === value || workOptionLabel(option) === value,
+  );
+  return matchingOptions.length === 1
+    ? workOptionID(matchingOptions[0])
+    : value;
 }
 
 function workFieldOptionID(
@@ -4394,6 +4346,7 @@ const workMainFieldAliases: Record<string, string[]> = {
   source_id: ["source_id", "source", "customer_source_id", "source_name"],
   channel_id: ["channel_id", "channel", "customer_channel_id", "channel_name"],
   level_id: ["level_id", "customer_level_id", "customer_level", "level_name"],
+  tags: ["tag_ids", "tags"],
   asset_status_id: ["asset_status_id", "asset_status", "asset_status_name"],
 };
 
@@ -4416,7 +4369,10 @@ function workEntityFieldValue(
 ): unknown {
   const mainField = textValue(field.main_field);
   if (mainField) {
-    const keys = [mainField, ...(workMainFieldAliases[mainField] || [])];
+    const keys =
+      mainField === "tags"
+        ? workMainFieldAliases.tags
+        : [mainField, ...(workMainFieldAliases[mainField] || [])];
     const assetValue = workEntityValueByKeys(asset, keys);
     if (assetValue !== undefined) return assetValue;
     const customerValue = workEntityValueByKeys(customer, keys);

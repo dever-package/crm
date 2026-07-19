@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   BriefcaseBusiness,
+  CalendarDays,
   LayoutDashboard,
   LoaderCircle,
   LogOut,
@@ -70,6 +71,11 @@ const workbenchNavItem: WorkNavItem = {
   to: "/crm/stats",
   title: "工作台",
   icon: LayoutDashboard,
+};
+const scheduleNavItem: WorkNavItem = {
+  to: "/crm/schedule",
+  title: "日程",
+  icon: CalendarDays,
 };
 let workNavigationSnapshot: WorkNavItem[] = [workbenchNavItem];
 let workNavigationPromise: Promise<void> | null = null;
@@ -271,10 +277,13 @@ function readWorkNavigation() {
 
 async function loadWorkNavigation() {
   if (workNavigationPromise) return workNavigationPromise;
-  workNavigationPromise = workApi<{ list?: WorkNavigationRow[] }>(
-    "/crm/work/navigation",
-  )
-    .then((payload) => {
+  workNavigationPromise = Promise.all([
+    workApi<{ list?: WorkNavigationRow[] }>("/crm/work/navigation"),
+    workApi<{ total?: string | number }>("/crm/work/schedule_reminders").catch(
+      () => ({ total: 0 }),
+    ),
+  ])
+    .then(([payload, reminderPayload]) => {
       const workflows = Array.isArray(payload.list) ? payload.list : [];
       workNavigationSnapshot = [
         workbenchNavItem,
@@ -295,6 +304,10 @@ async function loadWorkNavigation() {
             },
           ];
         }),
+        {
+          ...scheduleNavItem,
+          pendingCount: Number(reminderPayload.total) || 0,
+        },
       ];
       workNavigationListeners.forEach((listener) => listener());
     })

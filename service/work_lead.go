@@ -32,63 +32,36 @@ func (WorkService) LeadPool(ctx context.Context, staff *WorkStaffSession, payloa
 			"total":           0,
 			"sources":         workLeadSourceOptions(ctx),
 			"channels":        workLeadChannelOptions(ctx),
+			"owner_options":   []map[string]any{},
 			"invalid_reasons": workLeadInvalidReasonOptions(ctx),
 			"statuses":        workLeadStatusOptions(),
 			"templates":       workLeadTemplateRows(ctx),
 		}, nil
 	}
 
-	filter := map[string]any{}
-	status := firstText(payload, "status")
-	if status != "" && validWorkLeadStatus(status) {
-		filter["status"] = status
-	}
-	leads := crmmodel.NewLeadModel().Select(ctx, filter, map[string]any{"order": "id desc"})
-	sort.SliceStable(leads, func(i, j int) bool {
-		leftPending := leads[i] != nil && leads[i].Status == crmmodel.LeadStatusPending
-		rightPending := leads[j] != nil && leads[j].Status == crmmodel.LeadStatusPending
-		return leftPending && !rightPending
-	})
-	keyword := firstText(payload, "keyword")
-	quickFilter := firstText(payload, "quick_filter", "quickFilter")
-	stageFilter := firstText(payload, "stage_filter", "stage")
-	taskFilter := firstText(payload, "task_filter", "task")
-	rows := make([]map[string]any, 0, len(leads))
-	for _, lead := range leads {
-		if lead == nil || !matchesWorkLeadKeyword(lead, keyword) {
-			continue
-		}
-		instance := workflowInstanceForLead(ctx, lead.ID, workflow.ID)
-		if instance == nil || !workflowInstanceMatchesPersonalQuickFilter(ctx, staff, instance, quickFilter) {
-			continue
-		}
-		if !canViewWorkflowInstance(ctx, staff, instance) && quickFilter != "completedToday" {
-			continue
-		}
-		if !workflowInstanceMatchesSummaryFilters(ctx, staff, instance, stageFilter, taskFilter) {
-			continue
-		}
-		row := workLeadRow(ctx, lead, workflow.ID)
-		row["flow"] = workLeadFlowDetail(ctx, staff, instance)
-		rows = append(rows, row)
+	targets, err := workLeadVisibleTargets(ctx, staff, workflow, payload)
+	if err != nil {
+		return nil, err
 	}
 
-	page, pageSize, start, end := workLeadPageBounds(len(rows), payload)
-	pageRows := []map[string]any{}
-	if start < len(rows) {
-		pageRows = rows[start:end]
+	page, pageSize, start, end := workLeadPageBounds(len(targets), payload)
+	pageTargets := []workLeadListTarget{}
+	if start < len(targets) {
+		pageTargets = targets[start:end]
 	}
+	pageRows := workLeadRows(ctx, staff, pageTargets, true)
 	pendingCounts := currentWorkPersonalWorkload(ctx, staff).pendingTaskCountByWorkflow()
 	return map[string]any{
 		"enabled":         true,
 		"can_create":      canCreateLeadInWorkflow(ctx, staff, workflow),
 		"pending_count":   pendingCounts[workflow.ID],
 		"list":            pageRows,
-		"total":           len(rows),
+		"total":           len(targets),
 		"page":            page,
 		"page_size":       pageSize,
 		"sources":         workLeadSourceOptions(ctx),
 		"channels":        workLeadChannelOptions(ctx),
+		"owner_options":   workLeadOwnerOptions(ctx, workflow),
 		"invalid_reasons": workLeadInvalidReasonOptions(ctx),
 		"statuses":        workLeadStatusOptions(),
 		"templates":       workLeadTemplateRows(ctx),
@@ -98,6 +71,162 @@ func (WorkService) LeadPool(ctx context.Context, staff *WorkStaffSession, payloa
 			"subject_type": workflow.SubjectType,
 		},
 	}, nil
+}
+
+type workLeadSelfFilter struct {
+	SourceID      uint64
+	ChannelID     uint64
+	OwnerStaffID  uint64
+	CreatedFrom   *time.Time
+	CreatedBefore *time.Time
+}
+
+type workLeadListTarget struct {
+	lead     *crmmodel.Lead
+	instance *crmmodel.WorkflowInstance
+}
+
+func workLeadVisibleTargets(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	workflow *crmmodel.Workflow,
+	payload map[string]any,
+) ([]workLeadListTarget, error) {
+	if staff == nil || staff.ID == 0 || workflow == nil {
+		return nil, fmt.Errorf("线索查询权限无效")
+	}
+	selfFilter, err := parseWorkLeadSelfFilter(payload)
+	if err != nil {
+		return nil, err
+	}
+	filters := map[string]any{}
+	if status := firstText(payload, "status"); validWorkLeadStatus(status) {
+		filters["status"] = status
+	}
+	if selfFilter.SourceID > 0 {
+		filters["source_id"] = selfFilter.SourceID
+	}
+	if selfFilter.ChannelID > 0 {
+		filters["channel_id"] = selfFilter.ChannelID
+	}
+	if selfFilter.OwnerStaffID > 0 {
+		filters["owner_staff_id"] = selfFilter.OwnerStaffID
+	}
+	keyword := firstText(payload, "keyword")
+	quickFilter := firstText(payload, "quick_filter", "quickFilter")
+	stageFilter := firstText(payload, "stage_filter", "stage")
+	taskFilter := firstText(payload, "task_filter", "task")
+	leads := crmmodel.NewLeadModel().Select(ctx, filters, map[string]any{"order": "id desc"})
+	leadsByID := make(map[uint64]*crmmodel.Lead, len(leads))
+	for _, lead := range leads {
+		if lead == nil || !matchesWorkLeadKeyword(lead, keyword) || !selfFilter.matches(lead) {
+			continue
+		}
+		leadsByID[lead.ID] = lead
+	}
+
+	instances := crmmodel.NewWorkflowInstanceModel().Select(ctx, map[string]any{
+		"workflow_id": workflow.ID,
+	}, map[string]any{"order": "id desc"})
+	visibleInstanceIDs := workVisibleWorkflowInstanceIDs(ctx, staff, instances, true)
+	seenLeadIDs := map[uint64]bool{}
+	targets := make([]workLeadListTarget, 0, len(leadsByID))
+	for _, instance := range instances {
+		if instance == nil || instance.LeadID == 0 || seenLeadIDs[instance.LeadID] {
+			continue
+		}
+		lead := leadsByID[instance.LeadID]
+		if lead == nil {
+			continue
+		}
+		seenLeadIDs[instance.LeadID] = true
+		if !workflowInstanceMatchesPersonalQuickFilter(ctx, staff, instance, quickFilter) {
+			continue
+		}
+		if !visibleInstanceIDs[instance.ID] && quickFilter != "completedToday" {
+			continue
+		}
+		if !workflowInstanceMatchesSummaryFilters(ctx, staff, instance, stageFilter, taskFilter) {
+			continue
+		}
+		targets = append(targets, workLeadListTarget{lead: lead, instance: instance})
+	}
+	sort.SliceStable(targets, func(i, j int) bool {
+		leftPending := targets[i].lead.Status == crmmodel.LeadStatusPending
+		rightPending := targets[j].lead.Status == crmmodel.LeadStatusPending
+		if leftPending != rightPending {
+			return leftPending
+		}
+		return targets[i].lead.ID > targets[j].lead.ID
+	})
+	return targets, nil
+}
+
+func workLeadRows(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	targets []workLeadListTarget,
+	includeFlow bool,
+) []map[string]any {
+	rows := make([]map[string]any, 0, len(targets))
+	for _, target := range targets {
+		if target.lead == nil {
+			continue
+		}
+		row := workLeadRow(ctx, target.lead)
+		if includeFlow && target.instance != nil {
+			attachWorkLeadWorkflowInstance(ctx, row, target.instance)
+			row["flow"] = workLeadFlowDetail(ctx, staff, target.instance)
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func parseWorkLeadSelfFilter(payload map[string]any) (workLeadSelfFilter, error) {
+	result := workLeadSelfFilter{
+		SourceID:     firstUint64(payload, "source_id", "sourceId"),
+		ChannelID:    firstUint64(payload, "channel_id", "channelId"),
+		OwnerStaffID: firstUint64(payload, "owner_staff_id", "ownerStaffId"),
+	}
+	createdFrom, err := parseWorkLeadFilterDate(firstText(payload, "created_from", "createdFrom"), "录入开始日期")
+	if err != nil {
+		return result, err
+	}
+	createdTo, err := parseWorkLeadFilterDate(firstText(payload, "created_to", "createdTo"), "录入结束日期")
+	if err != nil {
+		return result, err
+	}
+	result.CreatedFrom = createdFrom
+	if createdTo != nil {
+		createdBefore := createdTo.AddDate(0, 0, 1)
+		result.CreatedBefore = &createdBefore
+	}
+	if result.CreatedFrom != nil && result.CreatedBefore != nil && !result.CreatedFrom.Before(*result.CreatedBefore) {
+		return result, fmt.Errorf("录入开始日期不能晚于结束日期")
+	}
+	return result, nil
+}
+
+func parseWorkLeadFilterDate(raw, label string) (*time.Time, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	value, err := time.ParseInLocation("2006-01-02", raw, time.Local)
+	if err != nil {
+		return nil, fmt.Errorf("%s格式无效", label)
+	}
+	return &value, nil
+}
+
+func (filter workLeadSelfFilter) matches(lead *crmmodel.Lead) bool {
+	if lead == nil {
+		return false
+	}
+	if filter.CreatedFrom != nil && lead.CreatedAt.Before(*filter.CreatedFrom) {
+		return false
+	}
+	return filter.CreatedBefore == nil || lead.CreatedAt.Before(*filter.CreatedBefore)
 }
 
 func (WorkService) RegisterLead(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
@@ -740,7 +869,7 @@ func workLeadPageBounds(total int, payload map[string]any) (int, int, int, int) 
 	}
 	pageSize := inputInt(firstPresent(payload, "page_size", "pageSize", "limit"))
 	if pageSize <= 0 {
-		pageSize = 30
+		pageSize = 10
 	}
 	if pageSize > 100 {
 		pageSize = 100
@@ -822,6 +951,13 @@ func workLeadRow(ctx context.Context, lead *crmmodel.Lead, workflowIDs ...uint64
 
 func attachWorkLeadWorkflow(ctx context.Context, row map[string]any, leadID, workflowID uint64) {
 	instance := workflowInstanceForLead(ctx, leadID, workflowID)
+	if instance == nil {
+		return
+	}
+	attachWorkLeadWorkflowInstance(ctx, row, instance)
+}
+
+func attachWorkLeadWorkflowInstance(ctx context.Context, row map[string]any, instance *crmmodel.WorkflowInstance) {
 	if instance == nil {
 		return
 	}
@@ -1030,6 +1166,44 @@ func workLeadSourceOptions(ctx context.Context) []map[string]any {
 
 func workLeadChannelOptions(ctx context.Context) []map[string]any {
 	return workLeadNamedOptions(crmmodel.NewCustomerChannelModel().SelectMap(ctx, map[string]any{"status": crmmodel.StatusEnabled}))
+}
+
+func workLeadOwnerOptions(ctx context.Context, workflow *crmmodel.Workflow) []map[string]any {
+	if workflow == nil {
+		return []map[string]any{}
+	}
+	rows := []map[string]any{}
+	seen := map[uint64]bool{}
+	seenDepartments := map[uint64]bool{}
+	for _, stage := range crmmodel.NewStageModel().Select(ctx, map[string]any{
+		"workflow_id": workflow.ID,
+		"status":      crmmodel.StatusEnabled,
+	}) {
+		if stage == nil || stage.OwnerDepartmentID == 0 || seenDepartments[stage.OwnerDepartmentID] {
+			continue
+		}
+		seenDepartments[stage.OwnerDepartmentID] = true
+		for _, staff := range crmmodel.NewStaffModel().SelectMap(ctx, map[string]any{
+			"department_id": stage.OwnerDepartmentID,
+			"status":        crmmodel.StatusEnabled,
+		}) {
+			staffID := inputUint64(staff["id"])
+			if staffID == 0 || seen[staffID] {
+				continue
+			}
+			seen[staffID] = true
+			rows = append(rows, staff)
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		leftName := inputText(rows[i]["name"])
+		rightName := inputText(rows[j]["name"])
+		if leftName == rightName {
+			return inputUint64(rows[i]["id"]) < inputUint64(rows[j]["id"])
+		}
+		return leftName < rightName
+	})
+	return workLeadNamedOptions(rows)
 }
 
 func workLeadInvalidReasonOptions(ctx context.Context) []map[string]any {

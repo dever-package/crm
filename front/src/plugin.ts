@@ -4,11 +4,19 @@ const loadWorkAuth = () => import("./nodes/show/work-auth");
 const loadWorkTaskForm = () => import("./nodes/show/work-task-form");
 const loadWorkLead = () => import("./nodes/show/work-lead");
 const loadWorkShell = () => import("./nodes/show/work-shell");
+const loadWorkSchedule = () => import("./nodes/show/work-schedule");
 const loadAdminStats = () => import("./nodes/show/admin-stats");
+const loadCustomerTagSelector = () =>
+  import("./nodes/show/customer-tag-selector");
 
 export default defineFrontPlugin({
   name: "crm",
   nodes: {
+    "form-crm-customer-tags": lazyNode(() =>
+      loadCustomerTagSelector().then((mod) => ({
+        default: mod.ShowCrmCustomerTagSelector,
+      })),
+    ),
     "show-crm-work-login": lazyNode(() =>
       loadWorkAuth().then((mod) => ({
         default: mod.ShowCrmWorkLogin,
@@ -59,6 +67,16 @@ export default defineFrontPlugin({
         default: mod.ShowCrmWorkLeadPool,
       })),
     ),
+    "show-crm-work-lead-toolbar": lazyNode(() =>
+      loadWorkLead().then((mod) => ({
+        default: mod.ShowCrmWorkLeadToolbar,
+      })),
+    ),
+    "show-crm-work-lead-filter-actions": lazyNode(() =>
+      loadWorkLead().then((mod) => ({
+        default: mod.ShowCrmWorkLeadFilterActions,
+      })),
+    ),
     "show-crm-work-lead-editor-form": lazyNode(() =>
       loadWorkLead().then((mod) => ({
         default: mod.ShowCrmWorkLeadEditorForm,
@@ -77,6 +95,16 @@ export default defineFrontPlugin({
     "show-crm-work-titlebar": lazyNode(() =>
       loadWorkShell().then((mod) => ({
         default: mod.ShowCrmWorkTitlebar,
+      })),
+    ),
+    "show-crm-work-schedule": lazyNode(() =>
+      loadWorkSchedule().then((mod) => ({
+        default: mod.ShowCrmWorkSchedule,
+      })),
+    ),
+    "show-crm-work-schedule-form": lazyNode(() =>
+      loadWorkSchedule().then((mod) => ({
+        default: mod.ShowCrmWorkScheduleForm,
       })),
     ),
     "show-crm-work-stats": lazyNode(() =>

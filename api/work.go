@@ -78,23 +78,52 @@ func (Work) GetCustomers(c *server.Context) error {
 }
 
 func (Work) GetLeads(c *server.Context) error {
-	data, err := workService.LeadPool(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
-		"keyword":      c.Input("keyword"),
-		"status":       c.Input("status"),
-		"scope":        c.Input("scope"),
-		"quick_filter": c.Input("quick_filter"),
-		"quickFilter":  c.Input("quickFilter"),
-		"stage_filter": c.Input("stage_filter"),
-		"stage":        c.Input("stage"),
-		"task_filter":  c.Input("task_filter"),
-		"task":         c.Input("task"),
-		"workflow_id":  c.Input("workflow_id"),
-		"workflowId":   c.Input("workflowId"),
-		"page":         c.Input("page"),
-		"page_size":    c.Input("page_size"),
-		"pageSize":     c.Input("pageSize"),
+	data, err := workService.LeadPool(c.Context(), crmservice.CurrentWorkStaff(c.Context()), workLeadQueryPayload(c))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetLeadExport(c *server.Context) error {
+	data, err := workService.LeadExport(c.Context(), crmservice.CurrentWorkStaff(c.Context()), workLeadQueryPayload(c))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetLeadDetail(c *server.Context) error {
+	data, err := workService.LeadDetail(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"lead_id":     c.Input("lead_id"),
+		"leadId":      c.Input("leadId"),
+		"workflow_id": c.Input("workflow_id"),
+		"workflowId":  c.Input("workflowId"),
 	})
 	return crmJSON(c, data, err)
+}
+
+func workLeadQueryPayload(c *server.Context) map[string]any {
+	return map[string]any{
+		"keyword":        c.Input("keyword"),
+		"status":         c.Input("status"),
+		"source_id":      c.Input("source_id"),
+		"sourceId":       c.Input("sourceId"),
+		"channel_id":     c.Input("channel_id"),
+		"channelId":      c.Input("channelId"),
+		"owner_staff_id": c.Input("owner_staff_id"),
+		"ownerStaffId":   c.Input("ownerStaffId"),
+		"created_from":   c.Input("created_from"),
+		"createdFrom":    c.Input("createdFrom"),
+		"created_to":     c.Input("created_to"),
+		"createdTo":      c.Input("createdTo"),
+		"scope":          c.Input("scope"),
+		"quick_filter":   c.Input("quick_filter"),
+		"quickFilter":    c.Input("quickFilter"),
+		"stage_filter":   c.Input("stage_filter"),
+		"stage":          c.Input("stage"),
+		"task_filter":    c.Input("task_filter"),
+		"task":           c.Input("task"),
+		"workflow_id":    c.Input("workflow_id"),
+		"workflowId":     c.Input("workflowId"),
+		"page":           c.Input("page"),
+		"page_size":      c.Input("page_size"),
+		"pageSize":       c.Input("pageSize"),
+	}
 }
 
 func (Work) PostCreateLead(c *server.Context) error {
@@ -129,6 +158,72 @@ func (Work) GetCustomerDetail(c *server.Context) error {
 
 func (Work) GetSummary(c *server.Context) error {
 	data, err := workService.Summary(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetSchedules(c *server.Context) error {
+	data, err := workService.Schedules(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"start_at": c.Input("start_at"),
+		"startAt":  c.Input("startAt"),
+		"end_at":   c.Input("end_at"),
+		"endAt":    c.Input("endAt"),
+		"status":   c.Input("status"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetScheduleOptions(c *server.Context) error {
+	data, err := workService.ScheduleOptions(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetScheduleReminders(c *server.Context) error {
+	data, err := workService.ScheduleReminders(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostSchedule(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.ScheduleCalendar(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostReschedule(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.RescheduleCalendar(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostCompleteSchedule(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.CompleteCalendar(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostCancelSchedule(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.CancelCalendar(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostReadScheduleReminder(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.ReadScheduleReminder(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
 	return crmJSON(c, data, err)
 }
 
