@@ -9,6 +9,7 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   LayoutDashboard,
+  KeyRound,
   LoaderCircle,
   LogOut,
   PanelLeft,
@@ -30,6 +31,7 @@ import {
   workListSearchEvent,
   workRefreshEvent,
 } from "./work-core";
+import { WorkPasswordDialog } from "./work-password-dialog";
 
 type WorkNavItem = {
   to: string;
@@ -159,6 +161,7 @@ function WorkAccountMenu({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -177,37 +180,57 @@ function WorkAccountMenu({
   }, [open]);
 
   return (
-    <div ref={containerRef} className="crm-body-account">
-      <Button
-        type="button"
-        variant="ghost"
-        className="crm-body-account-trigger"
-        aria-label={`${userName}，打开账号菜单`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title="账号菜单"
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span aria-hidden="true">{workAccountInitial(userName)}</span>
-      </Button>
-      {open ? (
-        <div className="crm-body-account-menu" role="menu">
-          <div className="crm-body-account-profile">
-            <strong>{userName}</strong>
-            {userPhone ? <span>{userPhone}</span> : null}
+    <>
+      <div ref={containerRef} className="crm-body-account">
+        <Button
+          type="button"
+          variant="ghost"
+          className="crm-body-account-trigger"
+          aria-label={`${userName}，打开账号菜单`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          title="账号菜单"
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span aria-hidden="true">{workAccountInitial(userName)}</span>
+        </Button>
+        {open ? (
+          <div className="crm-body-account-menu" role="menu">
+            <div className="crm-body-account-profile">
+              <strong>{userName}</strong>
+              {userPhone ? <span>{userPhone}</span> : null}
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                setPasswordOpen(true);
+              }}
+            >
+              <KeyRound size={15} aria-hidden="true" />
+              修改密码
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="is-danger"
+              role="menuitem"
+              onClick={handleWorkLogout}
+            >
+              <LogOut size={15} aria-hidden="true" />
+              退出登录
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            role="menuitem"
-            onClick={handleWorkLogout}
-          >
-            <LogOut size={15} aria-hidden="true" />
-            退出登录
-          </Button>
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+      </div>
+      <WorkPasswordDialog
+        open={passwordOpen}
+        onOpenChange={setPasswordOpen}
+        onChanged={handleWorkPasswordChanged}
+      />
+    </>
   );
 }
 
@@ -217,6 +240,15 @@ function workAccountInitial(name: string) {
 
 function handleWorkLogout() {
   clearWorkSession();
+  redirectToWorkLogin();
+}
+
+function handleWorkPasswordChanged() {
+  clearWorkSession();
+  window.setTimeout(redirectToWorkLogin, 500);
+}
+
+function redirectToWorkLogin() {
   const entry = getWorkEntryPath().replace(/\/+$/, "");
   window.location.replace(`${entry}/login`);
 }
@@ -1108,7 +1140,7 @@ function WorkShellStyles() {
         border: 0;
         border-top: 1px solid var(--crm-body-line);
         background: transparent;
-        color: #b42318;
+        color: var(--crm-body-text);
         padding: 9px 12px;
         font: inherit;
         text-align: left;
@@ -1117,6 +1149,15 @@ function WorkShellStyles() {
       .crm-body-account-menu > button:hover,
       .crm-body-account-menu > button:focus-visible {
         outline: none;
+        background: var(--crm-body-active);
+      }
+
+      .crm-body-account-menu > button.is-danger {
+        color: #b42318;
+      }
+
+      .crm-body-account-menu > button.is-danger:hover,
+      .crm-body-account-menu > button.is-danger:focus-visible {
         background: #fff3f1;
       }
 

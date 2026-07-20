@@ -8,6 +8,7 @@ const loadWorkSchedule = () => import("./nodes/show/work-schedule");
 const loadAdminStats = () => import("./nodes/show/admin-stats");
 const loadCustomerTagSelector = () =>
   import("./nodes/show/customer-tag-selector");
+const loadExportButton = () => import("./nodes/show/export-button");
 
 export default defineFrontPlugin({
   name: "crm",
@@ -115,6 +116,11 @@ export default defineFrontPlugin({
     "show-crm-admin-stats": lazyNode(() =>
       loadAdminStats().then((mod) => ({
         default: mod.ShowCrmAdminStats,
+      })),
+    ),
+    "show-crm-export-button": lazyNode(() =>
+      loadExportButton().then((mod) => ({
+        default: mod.ShowCrmExportButton,
       })),
     ),
     "show-crm-work-detail": lazyNode(() =>

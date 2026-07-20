@@ -21,6 +21,8 @@ export function WorkScheduleStyles() {
         --schedule-customer-soft: #eaf1ff;
         --schedule-personal: #16835f;
         --schedule-personal-soft: #e7f6f0;
+        --schedule-meeting: #9f1239;
+        --schedule-meeting-soft: #fff1f2;
         position: relative;
         display: flex;
         width: 100%;
@@ -396,6 +398,11 @@ export function WorkScheduleStyles() {
       .crm-schedule-calendar-stage .crm-schedule-event-personal {
         background: var(--schedule-personal-soft);
         color: #116149;
+      }
+
+      .crm-schedule-calendar-stage .crm-schedule-event-meeting {
+        background: var(--schedule-meeting-soft);
+        color: var(--schedule-meeting);
       }
 
       .crm-schedule-calendar-stage .crm-schedule-event-completed,

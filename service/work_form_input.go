@@ -24,13 +24,16 @@ type workFormInputOptions struct {
 	allowEmptyCustomerContactFields bool
 	allowMissingRequiredFields      bool
 	skipMissingFields               bool
+	allowEmptyForm                  bool
 }
 
 func collectWorkFormInput(ctx context.Context, task *crmmodel.Task, values map[string]any) (*workFormInput, error) {
 	if task == nil {
 		return nil, fmt.Errorf("任务不能为空")
 	}
-	return collectWorkFormInputByFormID(ctx, task.FormID, values)
+	return collectWorkFormInputByFormID(ctx, task.FormID, values, workFormInputOptions{
+		allowEmptyForm: workTaskHasSystemFormFields(task),
+	})
 }
 
 func collectWorkCreateFormInput(ctx context.Context, task *crmmodel.Task, values map[string]any) (*workFormInput, error) {
@@ -39,6 +42,7 @@ func collectWorkCreateFormInput(ctx context.Context, task *crmmodel.Task, values
 	}
 	return collectWorkFormInputByFormID(ctx, task.FormID, values, workFormInputOptions{
 		allowEmptyCustomerContactFields: true,
+		allowEmptyForm:                  workTaskHasSystemFormFields(task),
 	})
 }
 
@@ -50,8 +54,12 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 	if form == nil {
 		return nil, fmt.Errorf("任务未配置有效资料模板")
 	}
+	inputOptions := workFormInputOptions{}
+	if len(options) > 0 {
+		inputOptions = options[0]
+	}
 	fields := crmmodel.NewFormFieldModel().Select(ctx, map[string]any{"form_id": form.ID, "status": crmmodel.StatusEnabled})
-	if len(fields) == 0 {
+	if len(fields) == 0 && !inputOptions.allowEmptyForm {
 		return nil, fmt.Errorf("资料模板未配置字段")
 	}
 	result := &workFormInput{
@@ -63,13 +71,12 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 		customerDataRecords: map[uint64]map[string]any{},
 		assetDataRecords:    map[uint64]map[string]any{},
 	}
-	inputOptions := workFormInputOptions{}
-	if len(options) > 0 {
-		inputOptions = options[0]
-	}
 	for _, sourceField := range fields {
 		for _, field := range expandWorkInputFormFields(ctx, sourceField) {
 			if field == nil {
+				continue
+			}
+			if !workFormFieldVisible(field, values) {
 				continue
 			}
 			value, submitted := values[workFieldInputKey(field)]
@@ -159,7 +166,12 @@ func collectWorkProgressFormInput(ctx context.Context, task *crmmodel.Task, valu
 	return collectWorkFormInputByFormID(ctx, task.FormID, values, workFormInputOptions{
 		allowMissingRequiredFields: true,
 		skipMissingFields:          true,
+		allowEmptyForm:             workTaskHasSystemFormFields(task),
 	})
+}
+
+func workTaskHasSystemFormFields(task *crmmodel.Task) bool {
+	return task != nil && (task.MeetingEnabled || task.CustomerFollowEnabled)
 }
 
 func collectWorkProgressFormInputForForm(ctx context.Context, formID uint64, values map[string]any) (*workFormInput, error) {
@@ -416,9 +428,6 @@ func saveWorkFormDataRecords(ctx context.Context, ownership workDataOwnership, t
 		if recordID == 0 {
 			return fmt.Errorf("客户资料保存失败")
 		}
-		if err := syncCustomerFollowFromForm(ctx, ownership, recordID, templateID, taskID, operationID, record); err != nil {
-			return err
-		}
 	}
 	if ownership.AssetID > 0 {
 		for templateID, record := range formInput.assetDataRecords {
@@ -428,7 +437,7 @@ func saveWorkFormDataRecords(ctx context.Context, ownership workDataOwnership, t
 			}, templateID, taskID, operationID, record)
 		}
 	}
-	return nil
+	return syncWorkDataFieldStatValues(ctx, ownership, taskID, operationID, formInput)
 }
 
 func defaultWorkCustomerRecord(staff *WorkStaffSession) map[string]any {

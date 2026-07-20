@@ -77,6 +77,7 @@ func resetScheduleParticipantReminders(ctx context.Context, eventID uint64) {
 func scheduleParticipantReminderReset(updatedAt time.Time) map[string]any {
 	return map[string]any{
 		"workbench_read_at": nil,
+		"checked_in_at":     nil,
 		"feishu_sent_at":    nil,
 		"feishu_claimed_at": nil,
 		"feishu_attempts":   0,
@@ -92,6 +93,30 @@ func scheduleParticipantIDs(ctx context.Context, eventID uint64) []uint64 {
 		if row != nil && row.StaffID > 0 {
 			result = append(result, row.StaffID)
 		}
+	}
+	return result
+}
+
+func scheduleParticipantResults(ctx context.Context, eventID uint64) []map[string]any {
+	rows := crmmodel.NewScheduleParticipantModel().Select(ctx, map[string]any{"schedule_event_id": eventID})
+	result := make([]map[string]any, 0, len(rows))
+	for _, participant := range rows {
+		if participant == nil || participant.StaffID == 0 {
+			continue
+		}
+		row := map[string]any{
+			"staff_id":      participant.StaffID,
+			"role":          participant.Role,
+			"checked_in_at": participant.CheckedInAt,
+		}
+		if staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": participant.StaffID}); staff != nil {
+			row["staff_name"] = staff.Name
+			row["department_id"] = staff.DepartmentID
+			if department := crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": staff.DepartmentID}); department != nil {
+				row["department_name"] = department.Name
+			}
+		}
+		result = append(result, row)
 	}
 	return result
 }

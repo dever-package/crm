@@ -31,7 +31,7 @@ func (WorkService) Schedules(ctx context.Context, staff *WorkStaffSession, paylo
 		if !event.StartAt.Before(endAt) || !event.EndAt.After(startAt) {
 			continue
 		}
-		row := scheduleEventResult(ctx, event)
+		row := scheduleEventResult(ctx, event, staff)
 		row["can_edit"] = canEditScheduleEvent(ctx, staff, event)
 		events = append(events, row)
 	}
@@ -55,7 +55,6 @@ func (WorkService) ScheduleOptions(ctx context.Context, staff *WorkStaffSession)
 		"staff":     scheduleStaffOptions(ctx),
 		"resources": scheduleResourceOptions(ctx),
 		"reminders": crmmodel.ScheduleReminderOptions(),
-		"config":    customerFollowConfiguration(ctx),
 	}, nil
 }
 
@@ -67,17 +66,28 @@ func (WorkService) ScheduleReminders(ctx context.Context, staff *WorkStaffSessio
 	rows := crmmodel.NewScheduleParticipantModel().Select(ctx, map[string]any{"staff_id": staff.ID})
 	reminders := make([]map[string]any, 0)
 	for _, participant := range rows {
-		if participant == nil || participant.WorkbenchReadAt != nil {
+		if participant == nil {
 			continue
 		}
 		event := crmmodel.NewScheduleEventModel().Find(ctx, map[string]any{
 			"id":     participant.ScheduleEventID,
 			"status": crmmodel.ScheduleStatusPending,
 		})
-		if event == nil || event.RemindAt.After(now) {
+		if event == nil {
 			continue
 		}
-		row := scheduleEventResult(ctx, event)
+		checkInDue := event.ScheduleType == crmmodel.ScheduleTypeMeeting &&
+			participant.CheckedInAt == nil && !event.StartAt.After(now)
+		reminderDue := participant.WorkbenchReadAt == nil && !event.RemindAt.After(now)
+		if !checkInDue && !reminderDue {
+			continue
+		}
+		row := scheduleEventResult(ctx, event, staff)
+		if checkInDue {
+			row["action_type"] = "check_in"
+		} else {
+			row["action_type"] = "reminder"
+		}
 		row["can_edit"] = canEditScheduleEvent(ctx, staff, event)
 		reminders = append(reminders, row)
 	}
@@ -263,28 +273,6 @@ func scheduleResourceOptions(ctx context.Context) []map[string]any {
 			"location": resource.Location,
 			"capacity": resource.Capacity,
 		})
-	}
-	return result
-}
-
-func customerFollowConfiguration(ctx context.Context) map[string]any {
-	binding, err := resolveCustomerFollowFieldBinding(ctx)
-	if err != nil {
-		return map[string]any{"ready": false, "message": err.Error()}
-	}
-	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{"id": binding.FieldID})
-	template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{"id": binding.TemplateID})
-	result := map[string]any{
-		"ready":               true,
-		"data_usage_field_id": binding.UsageFieldID,
-		"data_template_id":    binding.TemplateID,
-		"data_field_id":       binding.FieldID,
-	}
-	if field != nil {
-		result["field_name"] = field.Name
-	}
-	if template != nil {
-		result["template_name"] = template.Name
 	}
 	return result
 }

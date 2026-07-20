@@ -54,14 +54,6 @@ export type WorkFieldOption = {
   sort?: string | number;
 };
 
-export type WorkDisplayField = {
-  key?: string;
-  label?: string;
-  value?: unknown;
-  value_type?: string;
-  files?: UploadFileItem[];
-};
-
 export type WorkDataCompletenessTemplate = {
   template_id?: string | number;
   template_name?: string;
@@ -90,7 +82,10 @@ export type WorkFormField = {
   group_label?: string;
   required?: boolean;
   readonly?: boolean;
-  default_value?: string | number;
+  visible_when_field_id?: string | number;
+  visible_when_operator?: string;
+  visible_when_value?: string;
+  default_value?: string | number | boolean;
   options?: WorkFieldOption[];
   children?: WorkFormField[];
 };
@@ -146,6 +141,7 @@ export type WorkTask = {
   assignee_staff_id?: string | number;
   assignee_staff_name?: string;
   task_type?: string;
+  meeting_enabled?: boolean | string | number;
   product_options?: WorkProductOption[];
   selected_product_ids?: Array<string | number>;
   form_id?: string | number;
@@ -198,7 +194,6 @@ export type WorkCustomer = {
   data_values?: Record<string, unknown>;
   data_file_values?: Record<string, unknown>;
   data_value_labels?: Record<string, string>;
-  display_fields?: WorkDisplayField[];
   data_completeness?: WorkDataCompletenessTemplate[];
   source_lead?: WorkSourceLead;
   [key: string]: unknown;
@@ -249,7 +244,6 @@ export type WorkAsset = {
   data_values?: Record<string, unknown>;
   data_file_values?: Record<string, unknown>;
   data_value_labels?: Record<string, string>;
-  display_fields?: WorkDisplayField[];
   data_completeness?: WorkDataCompletenessTemplate[];
   customer_products?: WorkCustomerProduct[];
   flow?: WorkFlowDetail;
@@ -283,7 +277,6 @@ export type WorkCustomerProduct = {
   updated_at?: string;
   data_values?: Record<string, unknown>;
   data_value_labels?: Record<string, string>;
-  display_fields?: WorkDisplayField[];
   data_completeness?: WorkDataCompletenessTemplate[];
   [key: string]: unknown;
 };
@@ -468,7 +461,7 @@ export type WorkItem = {
   tasks: WorkTask[];
 };
 
-export type WorkCustomerMode = "all" | "pending" | "done";
+export type WorkCustomerMode = "all" | "pending" | "processed" | "done";
 export type WorkCustomerScope = "mine" | "all";
 
 export type WorkDetailField = {
@@ -504,12 +497,92 @@ export type WorkTaskFormField = {
   placeholder: string;
   required: boolean;
   readonly?: boolean;
+  visibleWhenFieldId?: string;
+  visibleWhenOperator?: string;
+  visibleWhenValue?: string;
   type: string;
   inputType?: "text" | "number" | "date" | "datetime-local";
   fullWidth?: boolean;
   options?: WorkCommonOption[];
   meta?: Record<string, unknown>;
 };
+
+export type WorkTaskFormFieldVisibilityRule = {
+  driverFieldId: string;
+  operator: string;
+  expectedValues: string[];
+};
+
+export function workTaskFormFieldVisibilityRule(
+  field: WorkTaskFormField,
+): WorkTaskFormFieldVisibilityRule | null {
+  const driverFieldId = positiveTextID(field.visibleWhenFieldId);
+  if (!driverFieldId) return null;
+  return {
+    driverFieldId,
+    operator: textValue(field.visibleWhenOperator) || "equals",
+    expectedValues: workTaskConditionExpectedValues(field.visibleWhenValue),
+  };
+}
+
+export function workTaskFormFieldVisible(
+  field: WorkTaskFormField,
+  values: Record<string, unknown>,
+  fieldMap: Record<string, string>,
+): boolean {
+  const rule = workTaskFormFieldVisibilityRule(field);
+  if (!rule) return true;
+  const driverRawKey = `data:${rule.driverFieldId}`;
+  const driverFormKey = Object.entries(fieldMap).find(
+    ([, rawKey]) => rawKey === driverRawKey,
+  )?.[0];
+  const actual = driverFormKey ? values[driverFormKey] : undefined;
+  if (rule.operator === "empty") return workTaskConditionValueEmpty(actual);
+  if (rule.operator === "not_empty") {
+    return !workTaskConditionValueEmpty(actual);
+  }
+  const matched = workTaskConditionValues(actual).some((value) =>
+    rule.expectedValues.includes(value),
+  );
+  if (rule.operator === "not_equals" || rule.operator === "not_in") {
+    return !matched;
+  }
+  return rule.operator === "equals" || rule.operator === "in"
+    ? matched
+    : false;
+}
+
+function workTaskConditionExpectedValues(value: unknown): string[] {
+  const text = textValue(value).trim();
+  if (!text) return [];
+  if (text.startsWith("[")) {
+    try {
+      const decoded: unknown = JSON.parse(text);
+      if (Array.isArray(decoded)) return workTaskConditionValues(decoded);
+    } catch {
+      // Fall through to comma-separated values.
+    }
+  }
+  return text
+    .split(/[\r\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function workTaskConditionValues(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => textValue(item).trim()).filter(Boolean);
+  }
+  const normalized = textValue(value).trim();
+  return normalized ? [normalized] : [];
+}
+
+function workTaskConditionValueEmpty(value: unknown): boolean {
+  if (value === null || value === undefined || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value).length === 0;
+  return textValue(value).trim() === "";
+}
 
 export type WorkTaskFormGroup = {
   id: string;
@@ -637,6 +710,10 @@ export const workCustomerModeConfig: Record<
   pending: {
     emptyTitle: "暂无待处理工作",
     emptyDescription: "当前没有需要处理的客户或资产任务",
+  },
+  processed: {
+    emptyTitle: "暂无已处理案件",
+    emptyDescription: "当前没有由你实际办理过的客户资产记录",
   },
   done: {
     emptyTitle: "暂无已结束业务",

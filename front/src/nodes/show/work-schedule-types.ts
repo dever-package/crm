@@ -1,4 +1,4 @@
-export type WorkScheduleType = "customer_follow" | "personal";
+export type WorkScheduleType = "customer_follow" | "meeting" | "personal";
 export type WorkScheduleStatus = "pending" | "completed" | "canceled";
 export type WorkScheduleView = "timeGridDay" | "timeGridWeek" | "dayGridMonth";
 
@@ -6,10 +6,12 @@ export type WorkScheduleEvent = {
   id?: string | number;
   schedule_type?: WorkScheduleType;
   customer_id?: string | number;
+  asset_id?: string | number;
   customer_name?: string;
   customer_phone?: string;
   owner_staff_id?: string | number;
   source_workflow_instance_id?: string | number;
+  source_task_id?: string | number;
   title?: string;
   remark?: string;
   start_at?: string;
@@ -19,7 +21,19 @@ export type WorkScheduleEvent = {
   source?: string;
   status?: WorkScheduleStatus;
   can_edit?: boolean;
+  can_check_in?: boolean;
+  checked_in_at?: string;
+  duration_minutes?: string | number;
+  action_type?: "reminder" | "check_in";
   participant_ids?: Array<string | number>;
+  participants?: Array<{
+    staff_id?: string | number;
+    staff_name?: string;
+    department_id?: string | number;
+    department_name?: string;
+    role?: string;
+    checked_in_at?: string;
+  }>;
   resource_ids?: Array<string | number>;
 };
 
@@ -56,12 +70,6 @@ export type WorkScheduleOptions = {
   staff?: WorkScheduleStaffOption[];
   resources?: WorkScheduleResourceOption[];
   reminders?: WorkScheduleReminderOption[];
-  config?: {
-    ready?: boolean;
-    message?: string;
-    template_name?: string;
-    field_name?: string;
-  };
 };
 
 export type WorkScheduleListResponse = {

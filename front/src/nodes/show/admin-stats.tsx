@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   ClipboardList,
   GitBranch,
   ListChecks,
@@ -142,6 +143,29 @@ type AdminFinanceSummary = {
   type_breakdown?: AdminFinanceTypeRow[];
 };
 
+type AdminFieldStatisticValue = {
+  value?: string;
+  count?: string | number;
+  percent?: string | number;
+};
+
+type AdminFieldStatistic = {
+  id?: string | number;
+  key?: string;
+  name?: string;
+  template_name?: string;
+  field_type?: string;
+  stat_type?: string;
+  count?: string | number;
+  sum?: string | number;
+  average?: string | number;
+  min?: string | number;
+  max?: string | number;
+  date_min?: string;
+  date_max?: string;
+  values?: AdminFieldStatisticValue[];
+};
+
 type AdminSummary = {
   metrics?: AdminMetric[];
   growth_trend?: AdminTrendPoint[];
@@ -154,6 +178,7 @@ type AdminSummary = {
   staff_ranking?: AdminStaffRow[];
   staff_output?: AdminStaffRow[];
   probe_summary?: AdminProbeSummary;
+  field_statistics?: AdminFieldStatistic[];
   filters?: {
     workflow_id?: string | number;
     department_id?: string | number;
@@ -223,19 +248,12 @@ const adminStatsModeTitles: Record<
   },
   finance: {
     title: "财务统计",
-    description: "基于财务用途字段自动生成的流水，统计收入、支出、净额和财务类型。",
+    description: "基于任务配置生成的财务流水，统计收入、支出、净额和财务类型。",
   },
   performance: {
     title: "绩效统计",
     description: "按人工任务完成、按时率、办理时长、当前积压和阶段流转查看人员产出。",
   },
-};
-
-const adminStatsFilterGridClass: Record<AdminStatsMode, string> = {
-  all: "xl:grid-cols-[repeat(5,minmax(0,1fr))_auto]",
-  business: "xl:grid-cols-[repeat(3,minmax(0,1fr))_auto]",
-  finance: "xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]",
-  performance: "xl:grid-cols-[repeat(5,minmax(0,1fr))_auto]",
 };
 
 let adminApiFreshSeq = 0;
@@ -267,61 +285,48 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
     loadSummary();
   }, [loadSummary]);
 
+  const pageHeader = (
+    <AdminStatsPageHeader
+      intro={intro}
+      generatedAt={summary?.generated_at}
+      loading={loading}
+      onRefresh={loadSummary}
+    />
+  );
+
   if (loading && !summary) {
     return (
-      <div className="rounded-md border bg-background px-6 py-20 shadow-sm">
-        <AdminStatsState
-          icon="loading"
-          title="正在汇总数据"
-          description="正在读取客户、资产、阶段任务和操作记录。"
-        />
+      <div className="grid gap-4">
+        {pageHeader}
+        <div className="rounded-md border bg-background px-6 py-16 shadow-sm">
+          <AdminStatsState
+            icon="loading"
+            title="正在汇总数据"
+            description="正在读取客户、资产、阶段任务和操作记录。"
+          />
+        </div>
       </div>
     );
   }
 
   if (!summary) {
     return (
-      <div className="rounded-md border bg-background px-6 py-20 shadow-sm">
-        <AdminStatsState
-          icon="empty"
-          title="暂无统计数据"
-          description="刷新后仍为空时，请先确认后台 API 权限和 CRM 数据。"
-        />
+      <div className="grid gap-4">
+        {pageHeader}
+        <div className="rounded-md border bg-background px-6 py-16 shadow-sm">
+          <AdminStatsState
+            icon="empty"
+            title="暂无统计数据"
+            description="刷新后仍为空时，请先确认后台 API 权限和 CRM 数据。"
+          />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="grid gap-4">
-      <section className="rounded-md border bg-background p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold leading-7">{intro.title}</h2>
-            <p className="text-sm leading-6 text-muted-foreground">
-              {intro.description}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">
-              更新时间：{formatWorkDate(summary.generated_at)}
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={loading}
-              onClick={loadSummary}
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              刷新
-            </Button>
-          </div>
-        </div>
-      </section>
+      {pageHeader}
 
       <AdminStatsFilterBar
         mode={mode}
@@ -383,6 +388,8 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
             <AdminNodeBacklog rows={summary.node_backlog || []} />
             <AdminProbeSummaryCard summary={summary.probe_summary} />
           </div>
+
+          <AdminFieldStatistics rows={summary.field_statistics || []} />
         </>
       ) : null}
 
@@ -391,7 +398,7 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
           {mode === "all" ? (
             <AdminSectionTitle
               title="财务统计"
-              description="基于财务用途字段自动生成的流水，统计收入、支出、净额和财务类型。"
+              description="基于任务配置生成的财务流水，统计收入、支出、净额和财务类型。"
             />
           ) : null}
           <AdminFinanceDashboard summary={summary.finance_summary} />
@@ -410,6 +417,50 @@ export function ShowCrmAdminStats({ item }: AdminStatsNodeProps = {}) {
         </>
       ) : null}
     </div>
+  );
+}
+
+function AdminStatsPageHeader({
+  intro,
+  generatedAt,
+  loading,
+  onRefresh,
+}: {
+  intro: { title: string; description: string };
+  generatedAt?: string;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <header className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+      <div className="min-w-0">
+        <h1 className="text-xl font-semibold leading-8">{intro.title}</h1>
+        <p className="text-sm leading-6 text-muted-foreground">
+          {intro.description}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        {generatedAt ? (
+          <span className="text-xs text-muted-foreground">
+            更新时间：{formatWorkDate(generatedAt)}
+          </span>
+        ) : null}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={loading}
+          onClick={onRefresh}
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          刷新
+        </Button>
+      </div>
+    </header>
   );
 }
 
@@ -495,12 +546,10 @@ function AdminStatsFilterBar({
       textValue(option.department_id) === value.departmentId,
   );
   return (
-    <section className="rounded-md border bg-background p-4 shadow-sm">
-      <div
-        className={`grid gap-3 md:grid-cols-2 ${adminStatsFilterGridClass[mode]}`}
-      >
+    <section className="border-y bg-muted/10 py-3">
+      <div className="flex flex-wrap items-end gap-3">
         {showWorkflow ? (
-          <AdminFilterField label="流程">
+          <AdminFilterField label="流程" className="basis-[220px]">
             <Select
               value={selectedWorkflow || (allowAllWorkflows ? "__all__" : "")}
               onValueChange={(rawValue) =>
@@ -574,21 +623,21 @@ function AdminStatsFilterBar({
             </Select>
           </AdminFilterField>
         ) : null}
-        <AdminFilterField label="开始日期">
+        <AdminFilterField label="开始日期" className="basis-[170px]">
           <Input
             type="date"
             value={value.dateFrom}
             onChange={(event) => onChange({ ...value, dateFrom: event.target.value })}
           />
         </AdminFilterField>
-        <AdminFilterField label="结束日期">
+        <AdminFilterField label="结束日期" className="basis-[170px]">
           <Input
             type="date"
             value={value.dateTo}
             onChange={(event) => onChange({ ...value, dateTo: event.target.value })}
           />
         </AdminFilterField>
-        <div className="flex items-end gap-2">
+        <div className="flex shrink-0 items-end gap-2">
           <Button type="button" disabled={loading} onClick={onSubmit}>
             查询
           </Button>
@@ -601,9 +650,19 @@ function AdminStatsFilterBar({
   );
 }
 
-function AdminFilterField({ label, children }: { label: string; children: ReactNode }) {
+function AdminFilterField({
+  label,
+  children,
+  className = "",
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="grid min-w-0 gap-1.5 text-sm font-medium">
+    <div
+      className={`grid min-w-[160px] flex-1 basis-[160px] gap-1.5 text-sm font-medium ${className}`}
+    >
       <span>{label}</span>
       {children}
     </div>
@@ -736,6 +795,97 @@ function AdminFinanceDashboard({ summary }: { summary?: AdminFinanceSummary }) {
       </div>
     </div>
   );
+}
+
+function AdminFieldStatistics({ rows }: { rows: AdminFieldStatistic[] }) {
+  return (
+    <section className="rounded-md border bg-background p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold leading-6">字段统计</h3>
+          <p className="text-sm leading-6 text-muted-foreground">
+            汇总筛选日期内，任务已配置字段的最新有效值。
+          </p>
+        </div>
+        <BarChart3 className="h-5 w-5 shrink-0 text-muted-foreground/70" />
+      </div>
+      <div className="mt-5 overflow-x-auto rounded-md border">
+        {rows.length === 0 ? (
+          <AdminEmptyText>暂无任务统计字段或有效数据</AdminEmptyText>
+        ) : (
+          <table className="w-full min-w-[760px] text-sm">
+            <thead className="bg-muted/50 text-left text-muted-foreground">
+              <tr>
+                <th className="px-4 py-3 font-medium">字段</th>
+                <th className="px-4 py-3 font-medium">统计类型</th>
+                <th className="px-4 py-3 font-medium">有效记录</th>
+                <th className="px-4 py-3 font-medium">汇总结果</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {rows.map((row) => (
+                <tr key={textValue(row.id || row.key || row.name)}>
+                  <td className="px-4 py-3 align-top">
+                    <div className="font-medium">{displayText(row.name)}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {[textValue(row.template_name), textValue(row.key)]
+                        .filter(Boolean)
+                        .join(" / ")}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    {adminFieldStatTypeName(row.stat_type)}
+                  </td>
+                  <td className="px-4 py-3 align-top">{formatNumber(row.count)}</td>
+                  <td className="px-4 py-3 align-top text-muted-foreground">
+                    {adminFieldStatisticSummary(row)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function adminFieldStatTypeName(statType?: string): string {
+  switch (textValue(statType)) {
+    case "metric":
+      return "数值";
+    case "amount":
+    case "finance":
+      return "金额";
+    case "time":
+      return "时间";
+    case "status":
+      return "状态";
+    case "dimension":
+      return "分类";
+    default:
+      return "文本";
+  }
+}
+
+function adminFieldStatisticSummary(row: AdminFieldStatistic): string {
+  const statType = textValue(row.stat_type);
+  if (statType === "metric" || statType === "amount" || statType === "finance") {
+    const unit = statType === "amount" || statType === "finance" ? " 元" : "";
+    return `合计 ${formatNumber(row.sum)}${unit}，平均 ${formatNumber(row.average)}${unit}，范围 ${formatNumber(row.min)} - ${formatNumber(row.max)}${unit}`;
+  }
+  if (statType === "time") {
+    if (!row.date_min || !row.date_max) return "暂无有效时间";
+    return `${formatWorkDate(row.date_min)} 至 ${formatWorkDate(row.date_max)}`;
+  }
+  const values = row.values || [];
+  if (values.length === 0) return "暂无有效分布";
+  return values
+    .map(
+      (value) =>
+        `${displayText(value.value)} ${formatNumber(value.count)}（${formatPercent(value.percent)}）`,
+    )
+    .join("；");
 }
 
 function AdminFinanceTypeBreakdown({ rows }: { rows: AdminFinanceTypeRow[] }) {

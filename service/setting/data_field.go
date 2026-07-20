@@ -64,6 +64,7 @@ func normalizeCrmDataFieldRecord(c *server.Context, record map[string]any, parti
 	}
 	normalizeCrmDataFieldParent(ctx, record, existing, partial)
 	normalizeCrmDataFieldOptionSet(ctx, record, existing, partial, optionSource)
+	normalizeCrmDataFieldCapabilities(ctx, record, existing, partial)
 	ensureCrmDataFieldKey(ctx, record, existing, partial, reservedKeys)
 	validateCrmDataFieldKey(ctx, record, existing, partial)
 	reserveCrmDataFieldKey(reservedKeys, effectiveCrmDataFieldKey(record, existing))
@@ -71,12 +72,39 @@ func normalizeCrmDataFieldRecord(c *server.Context, record map[string]any, parti
 	normalizeCrmDataFieldOptions(ctx, record, existing, partial)
 	defaultCrmInt(record, "parent_field_id", 0, partial)
 	defaultCrmInt(record, "option_set_id", 0, partial)
+	defaultCrmInt(record, "finance_type_id", 0, partial)
+	defaultCrmBool(record, "stat_enabled", false, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
 	delete(record, "option_source")
 	delete(record, "parent_field_key")
 	delete(record, "data_template_key_prefix")
 	return record
+}
+
+func normalizeCrmDataFieldCapabilities(ctx context.Context, record map[string]any, existing *crmmodel.DataField, partial bool) {
+	fieldType := effectiveCrmDataFieldType(record, existing)
+	unsupported := fieldType == "group" || fieldType == "attachment"
+	fieldTypeChanged := shouldNormalizeCrmField(record, "field_type", partial)
+	if unsupported && (fieldTypeChanged || !partial) {
+		record["finance_type_id"] = uint64(0)
+		record["stat_enabled"] = false
+		return
+	}
+
+	if shouldNormalizeCrmField(record, "finance_type_id", partial) {
+		financeTypeID := util.ToUint64(record["finance_type_id"])
+		if financeTypeID > 0 && crmmodel.NewFinanceTypeModel().Find(ctx, map[string]any{
+			"id":     financeTypeID,
+			"status": crmmodel.StatusEnabled,
+		}) == nil {
+			panicCrmField("form.finance_type_id", "财务类型不存在或已停用。")
+		}
+		record["finance_type_id"] = financeTypeID
+	}
+	if shouldNormalizeCrmField(record, "stat_enabled", partial) {
+		record["stat_enabled"] = configBool(record["stat_enabled"])
+	}
 }
 
 func (CrmHook) ProviderBuildDataFieldForm(c *server.Context, params []any) any {

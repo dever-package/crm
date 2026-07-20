@@ -51,37 +51,13 @@
         "meta": {
           "formLayout": "horizontal"
         }
-      },
-      {
-        "type": "form-number",
-        "name": "排序",
-        "value": "form.sort",
-        "mode": "form",
-        "meta": {
-          "formLayout": "horizontal",
-          "min": 0,
-          "step": 10
-        }
-      },
-      {
-        "type": "form-switch",
-        "name": "启用",
-        "value": "form.status",
-        "mode": "form",
-        "meta": {
-          "formLayout": "horizontal",
-          "trueValue": 1,
-          "falseValue": 2
-        }
       }
     ]
   },
   "data": {
     "form": {
       "_fields": [
-        "name",
-        "sort",
-        "status"
+        "name"
       ],
       "id": "",
       "name": "",

@@ -18,6 +18,8 @@ import {
   setWorkStoreValue,
   textValue,
   workStoreValue,
+  workTaskFieldMapPath,
+  workTaskFormFieldVisible,
   workTaskFormDataPath,
   workTaskValidationErrorsPath,
   type WorkStoreLike,
@@ -90,6 +92,11 @@ function WorkTaskField({
     workTaskValidationErrorsPath,
     emptyWorkTaskRecord,
   );
+  const fieldMap = useWorkTaskStoreValue<Record<string, string>>(
+    store,
+    workTaskFieldMapPath,
+    emptyWorkTaskRecord,
+  );
   const value = formValues[field.formKey];
   const errorKey = `workTaskForm.${field.formKey}`;
   const error = taskErrors[errorKey] || errors[errorKey];
@@ -110,6 +117,8 @@ function WorkTaskField({
   );
   const renderer =
     taskFieldRenderers[field.type] || taskFieldRenderers["form-input"];
+
+  if (!workTaskFormFieldVisible(field, formValues, fieldMap)) return null;
 
   return (
     <div

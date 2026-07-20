@@ -13,18 +13,28 @@ func executeWorkTask(ctx context.Context, staff *WorkStaffSession, payload map[s
 		return nil, err
 	}
 	values := workActionValues(payload)
+	var result map[string]any
 	switch task.TaskType {
 	case crmmodel.TaskTypeTodo:
-		return completeSimpleTodo(ctx, staff, todo, task, values)
+		result, err = completeSimpleTodo(ctx, staff, todo, task, values)
 	case crmmodel.TaskTypeForm:
-		return saveOrCompleteFormTodo(ctx, staff, todo, task, values)
+		result, err = saveOrCompleteFormTodo(ctx, staff, todo, task, values)
 	case crmmodel.TaskTypeApproval:
-		return completeApprovalTodo(ctx, staff, todo, task, values)
+		result, err = completeApprovalTodo(ctx, staff, todo, task, values)
 	case crmmodel.TaskTypeProduct:
-		return completeProductTodo(ctx, staff, todo, task, values)
+		result, err = completeProductTodo(ctx, staff, todo, task, values)
 	case crmmodel.TaskTypeRule:
 		return nil, fmt.Errorf("自动核验任务不能手工完成")
 	default:
 		return nil, fmt.Errorf("不支持的任务类型")
 	}
+	if err != nil || workSubmitIsProgress(values) || inputText(result["result_value"]) == "rejected" || task.CompleteTargetTaskID == 0 {
+		return result, err
+	}
+	routedTodo, activated, err := activateRoutedWorkflowTask(ctx, todo, task.CompleteTargetTaskID, false)
+	if err != nil {
+		return nil, err
+	}
+	attachRoutedTaskResult(result, routedTodo, activated)
+	return result, nil
 }

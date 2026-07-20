@@ -10,8 +10,9 @@ import (
 )
 
 type workflowCustomerTarget struct {
-	instance *crmmodel.WorkflowInstance
-	updated  time.Time
+	instance  *crmmodel.WorkflowInstance
+	updated   time.Time
+	processed *workProcessedOperation
 }
 
 func workflowCustomerList(
@@ -32,18 +33,33 @@ func workflowCustomerList(
 		"workflow_id": workflow.ID,
 	}, map[string]any{"order": "updated_at desc,id desc"})
 	visibleInstanceIDs := workVisibleWorkflowInstanceIDs(ctx, staff, instances, false)
+	processedByAsset := map[string]workProcessedOperation{}
+	for _, operation := range processedWorkOperations(ctx, staff, workflow.ID) {
+		if operation.AssetID == 0 {
+			continue
+		}
+		assetKey := fmt.Sprintf("%d:%d", operation.CustomerID, operation.AssetID)
+		if _, exists := processedByAsset[assetKey]; !exists {
+			processedByAsset[assetKey] = operation
+		}
+	}
 	latestTargetsByAsset := map[string]workflowCustomerTarget{}
 	modeCounts := map[string]map[string]bool{
-		workCustomerModeAll:     {},
-		workCustomerModePending: {},
-		workCustomerModeDone:    {},
+		workCustomerModeAll:       {},
+		workCustomerModePending:   {},
+		workCustomerModeProcessed: {},
+		workCustomerModeDone:      {},
 	}
 	for _, instance := range instances {
-		if instance == nil || instance.CustomerID == 0 || instance.AssetID == 0 ||
-			!visibleInstanceIDs[instance.ID] {
+		if instance == nil || instance.CustomerID == 0 || instance.AssetID == 0 {
 			continue
 		}
 		assetKey := fmt.Sprintf("%d:%d", instance.CustomerID, instance.AssetID)
+		if !visibleInstanceIDs[instance.ID] {
+			if _, processed := processedByAsset[assetKey]; !processed {
+				continue
+			}
+		}
 		if _, exists := latestTargetsByAsset[assetKey]; exists {
 			continue
 		}
@@ -58,12 +74,22 @@ func workflowCustomerList(
 		} else {
 			modeCounts[workCustomerModeDone][assetKey] = true
 		}
-		if !workflowInstanceMatchesMode(target.instance, mode) {
+		operation, processed := processedByAsset[assetKey]
+		if processed {
+			modeCounts[workCustomerModeProcessed][assetKey] = true
+		}
+		if mode == workCustomerModeProcessed {
+			if !processed {
+				continue
+			}
+			target.processed = &operation
+			target.updated = operation.CreatedAt
+		} else if !workflowInstanceMatchesMode(target.instance, mode) {
 			continue
 		}
 		targets = append(targets, target)
 	}
-	if isWorkPersonalQuickFilter(quickFilter) {
+	if mode != workCustomerModeProcessed && isWorkPersonalQuickFilter(quickFilter) {
 		targets = workflowCustomerPersonalQuickFilterTargets(ctx, staff, instances, mode, quickFilter)
 	}
 	sort.SliceStable(targets, func(i, j int) bool {
@@ -106,9 +132,10 @@ func workflowCustomerList(
 		"page":      page,
 		"page_size": pageSize,
 		"mode_counts": map[string]int{
-			workCustomerModeAll:     len(modeCounts[workCustomerModeAll]),
-			workCustomerModePending: len(modeCounts[workCustomerModePending]),
-			workCustomerModeDone:    len(modeCounts[workCustomerModeDone]),
+			workCustomerModeAll:       len(modeCounts[workCustomerModeAll]),
+			workCustomerModePending:   len(modeCounts[workCustomerModePending]),
+			workCustomerModeProcessed: len(modeCounts[workCustomerModeProcessed]),
+			workCustomerModeDone:      len(modeCounts[workCustomerModeDone]),
 		},
 		"stage_options": workStageOptions(ctx, workflow.ID),
 		"scope":         scope,
@@ -279,6 +306,8 @@ func workflowInstanceMatchesMode(instance *crmmodel.WorkflowInstance, mode strin
 		return true
 	case workCustomerModeDone:
 		return instance.Status != crmmodel.ProgressStatusActive
+	case workCustomerModeProcessed:
+		return true
 	default:
 		return instance.Status == crmmodel.ProgressStatusActive
 	}
@@ -349,7 +378,10 @@ func workflowCustomerRowsWithDetail(
 		}
 		asset["asset_status_name"] = builder.assetStatusName(inputUint64(asset["asset_status_id"]))
 		builder.attachStageFields(asset, instance)
-		if includeTasks {
+		if target.processed != nil {
+			attachProcessedOperation(asset, *target.processed)
+		}
+		if includeTasks && target.processed == nil {
 			asset["row_tasks"] = workflowInstanceTodoRows(ctx, staff, instance)
 		}
 		if includeDetail {

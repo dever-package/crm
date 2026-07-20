@@ -91,19 +91,21 @@
         }
       },
       {
-        "type": "show-button",
-        "name": "系统用途",
+        "type": "show-crm-export-button",
+        "name": "导出字段",
         "className": "shrink-0",
         "meta": {
           "variant": "outline",
           "size": "sm",
-          "icon": "sliders-horizontal"
+          "icon": "download",
+          "path": "/crm/data_template/list"
         },
         "action": {
           "click": {
-            "type": "modal",
-            "key": "dialog.dataUsage",
-            "value": true
+            "type": "export",
+            "source": "service",
+            "exportKey": "field_dictionary",
+            "use": "crm.setting.CrmHook.BuildFieldExport"
           }
         }
       }
@@ -282,17 +284,6 @@
           "size": "3xl",
           "bodyClassName": "py-2"
         }
-      },
-      {
-        "type": "feedback-modal",
-        "meta": {
-          "stateKey": "dialog.dataUsage",
-          "pageRoute": "/crm/data_usage/list",
-          "title": "系统用途",
-          "assistant": false,
-          "size": "4xl",
-          "bodyClassName": "py-2"
-        }
       }
     ]
   },
@@ -316,8 +307,7 @@
     "dialog": {
       "edit": false,
       "create": false,
-      "optionSet": false,
-      "dataUsage": false
+      "optionSet": false
     }
   },
   "action": {}

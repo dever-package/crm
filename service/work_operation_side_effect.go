@@ -2,107 +2,105 @@ package service
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"time"
 
 	crmmodel "github.com/dever-package/crm/model"
 )
 
-func syncWorkFinanceLedgers(ctx context.Context, staff *WorkStaffSession, completion workOperationCompletion) {
-	defer recoverWorkSideEffect("finance_ledger", completion)
-	if staff == nil || staff.ID == 0 || completion.task == nil || completion.formInput == nil || completion.operationID == 0 {
-		return
-	}
-	changedAt := workOperationCreatedAt(ctx, completion.operationID)
-	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.customerDataRecords, 0, changedAt)
-	syncWorkFinanceLedgerRecords(ctx, staff, completion, completion.formInput.assetDataRecords, completion.ownership.AssetID, changedAt)
-}
+const workFinanceDataFieldPrefix = "field:"
 
-func syncWorkFinanceLedgerRecords(ctx context.Context, staff *WorkStaffSession, completion workOperationCompletion, records map[uint64]map[string]any, assetID uint64, changedAt time.Time) {
-	if completion.ownership.CustomerID == 0 || len(records) == 0 {
-		return
-	}
-	model := crmmodel.NewFinanceLedgerModel()
-	for templateID, record := range records {
-		if templateID == 0 || len(record) == 0 {
-			continue
-		}
-		for fieldIDText, value := range record {
-			if emptyWorkFieldValue(value) {
-				continue
-			}
-			field, usageField := workFinanceDataField(ctx, templateID, inputUint64(fieldIDText))
-			if field == nil || usageField == nil {
-				continue
-			}
-			existing := model.Find(ctx, map[string]any{
-				"workflow_instance_id": completion.ownership.WorkflowInstanceID,
-				"operation_log_id":     completion.operationID,
-				"data_field_id":        field.ID,
-				"source":               crmmodel.FinanceLedgerSourceForm,
-			})
-			if existing != nil {
-				continue
-			}
-			financeType := workFinanceType(ctx, usageField.FinanceTypeID)
-			if financeType == nil {
-				continue
-			}
-			data := workFinanceLedgerRecord(completion, staff, assetID, field, financeType, value, changedAt)
-			model.Insert(ctx, data)
-		}
-	}
-}
-
-func workFinanceDataField(ctx context.Context, templateID uint64, fieldID uint64) (*crmmodel.DataField, *crmmodel.DataUsageField) {
-	if templateID == 0 || fieldID == 0 {
-		return nil, nil
-	}
-	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-		"id":               fieldID,
-		"data_template_id": templateID,
-		"status":           crmmodel.StatusEnabled,
-	})
-	if field == nil || field.FieldType == "group" {
-		return nil, nil
-	}
-	usageField := workDataUsageFieldByType(ctx, field.ID, crmmodel.DataUsageTypeFinance)
-	if usageField == nil || usageField.FinanceTypeID == 0 {
-		return nil, nil
-	}
-	return field, usageField
-}
-
-func workFinanceType(ctx context.Context, financeTypeID uint64) *crmmodel.FinanceType {
-	if financeTypeID == 0 {
+func syncWorkDataFieldFinanceLedgers(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	ownership workDataOwnership,
+	taskID uint64,
+	operationID uint64,
+	formInput *workFormInput,
+) error {
+	if operationID == 0 || formInput == nil {
 		return nil
 	}
-	return crmmodel.NewFinanceTypeModel().Find(ctx, map[string]any{
-		"id":     financeTypeID,
-		"status": crmmodel.StatusEnabled,
-	})
+	fields := workSubmittedDataFields(ctx, formInput)
+	financeTypes := map[uint64]*crmmodel.FinanceType{}
+	changedAt := workOperationCreatedAt(ctx, operationID)
+	staffID, departmentID := workFinanceOperator(ctx, staff, operationID)
+	model := crmmodel.NewFinanceLedgerModel()
+
+	for _, field := range fields {
+		if field == nil || field.FinanceTypeID == 0 || field.FieldType == "group" || field.FieldType == "attachment" {
+			continue
+		}
+		value, valueOwnership, submitted := workSubmittedDataFieldValue(formInput, ownership, field)
+		if !submitted || emptyWorkFieldValue(value) {
+			continue
+		}
+		if valueOwnership.CustomerID == 0 {
+			return fmt.Errorf("%s财务字段缺少客户", field.Name)
+		}
+		financeType, loaded := financeTypes[field.FinanceTypeID]
+		if !loaded {
+			financeType = crmmodel.NewFinanceTypeModel().Find(ctx, map[string]any{
+				"id":     field.FinanceTypeID,
+				"status": crmmodel.StatusEnabled,
+			})
+			financeTypes[field.FinanceTypeID] = financeType
+		}
+		if financeType == nil {
+			return fmt.Errorf("%s配置的财务类型不存在或已停用", field.Name)
+		}
+		amount := numericValue(value)
+		if amount <= 0 {
+			return fmt.Errorf("%s必须大于 0", field.Name)
+		}
+		sourceKey := workFinanceDataFieldKey(field.ID)
+		if model.Find(ctx, map[string]any{
+			"workflow_instance_id": valueOwnership.WorkflowInstanceID,
+			"operation_log_id":     operationID,
+			"finance_source_key":   sourceKey,
+			"source":               crmmodel.FinanceLedgerSourceForm,
+		}) != nil {
+			continue
+		}
+		ledgerID := uint64(model.Insert(ctx, map[string]any{
+			"customer_id":          valueOwnership.CustomerID,
+			"asset_id":             valueOwnership.AssetID,
+			"workflow_instance_id": valueOwnership.WorkflowInstanceID,
+			"customer_product_id":  valueOwnership.CustomerProductID,
+			"task_id":              taskID,
+			"operation_log_id":     operationID,
+			"data_field_id":        field.ID,
+			"finance_source_key":   sourceKey,
+			"finance_type_id":      financeType.ID,
+			"finance_type_code":    financeType.Code,
+			"finance_type_name":    financeType.Name,
+			"direction":            financeType.Direction,
+			"amount":               amount,
+			"raw_value":            inputText(value),
+			"staff_id":             staffID,
+			"department_id":        departmentID,
+			"source":               crmmodel.FinanceLedgerSourceForm,
+			"created_at":           changedAt,
+		}))
+		if ledgerID == 0 {
+			return fmt.Errorf("%s财务流水保存失败", field.Name)
+		}
+	}
+	return nil
 }
 
-func workFinanceLedgerRecord(completion workOperationCompletion, staff *WorkStaffSession, assetID uint64, field *crmmodel.DataField, financeType *crmmodel.FinanceType, value any, changedAt time.Time) map[string]any {
-	return map[string]any{
-		"customer_id":          completion.ownership.CustomerID,
-		"asset_id":             assetID,
-		"workflow_instance_id": completion.ownership.WorkflowInstanceID,
-		"customer_product_id":  completion.ownership.CustomerProductID,
-		"task_id":              completion.task.ID,
-		"operation_log_id":     completion.operationID,
-		"data_field_id":        field.ID,
-		"finance_type_id":      financeType.ID,
-		"finance_type_code":    financeType.Code,
-		"finance_type_name":    financeType.Name,
-		"direction":            financeType.Direction,
-		"amount":               numericValue(value),
-		"raw_value":            inputText(value),
-		"staff_id":             staff.ID,
-		"department_id":        staff.DepartmentID,
-		"source":               crmmodel.FinanceLedgerSourceForm,
-		"created_at":           changedAt,
+func workFinanceOperator(ctx context.Context, staff *WorkStaffSession, operationID uint64) (uint64, uint64) {
+	if staff != nil && staff.ID > 0 {
+		return staff.ID, staff.DepartmentID
 	}
+	if operation := crmmodel.NewOperationLogModel().Find(ctx, map[string]any{"id": operationID}); operation != nil {
+		return operation.OperatorStaffID, operation.OperatorDepartmentID
+	}
+	return 0, 0
+}
+
+func workFinanceDataFieldKey(dataFieldID uint64) string {
+	return fmt.Sprintf("%s%d", workFinanceDataFieldPrefix, dataFieldID)
 }
 
 func workOperationCreatedAt(ctx context.Context, operationID uint64) time.Time {
@@ -112,26 +110,4 @@ func workOperationCreatedAt(ctx context.Context, operationID uint64) time.Time {
 		}
 	}
 	return time.Now()
-}
-
-func recoverWorkSideEffect(name string, completion workOperationCompletion) {
-	if recovered := recover(); recovered != nil {
-		log.Printf(
-			"crm work side effect %s failed: customer_id=%d asset_id=%d task_id=%d operation_log_id=%d todo_id=%d error=%v",
-			name,
-			completion.ownership.CustomerID,
-			completion.ownership.AssetID,
-			workCompletionTaskID(completion),
-			completion.operationID,
-			completion.todoID,
-			recovered,
-		)
-	}
-}
-
-func workCompletionTaskID(completion workOperationCompletion) uint64 {
-	if completion.task == nil {
-		return 0
-	}
-	return completion.task.ID
 }

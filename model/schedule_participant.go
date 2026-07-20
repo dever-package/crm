@@ -11,6 +11,7 @@ type ScheduleParticipant struct {
 	ScheduleEventID uint64     `dorm:"type:bigint;not null;comment:日程"`
 	StaffID         uint64     `dorm:"type:bigint;not null;comment:参与人员"`
 	Role            string     `dorm:"type:varchar(32);not null;default:'participant';comment:参与角色"`
+	CheckedInAt     *time.Time `dorm:"null;comment:签到时间"`
 	WorkbenchReadAt *time.Time `dorm:"null;comment:工作台已读时间"`
 	FeishuSentAt    *time.Time `dorm:"null;comment:飞书发送时间"`
 	FeishuClaimedAt *time.Time `dorm:"null;comment:飞书发送占用时间"`

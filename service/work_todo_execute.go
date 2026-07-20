@@ -6,17 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shemic/dever/orm"
+
 	crmmodel "github.com/dever-package/crm/model"
 )
-
-type workOperationCompletion struct {
-	ownership   workDataOwnership
-	operationID uint64
-	task        *crmmodel.Task
-	formInput   *workFormInput
-	resultValue string
-	todoID      uint64
-}
 
 func pendingTodoTaskForStaff(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (*crmmodel.WorkTodo, *crmmodel.Task, error) {
 	if staff == nil || staff.ID == 0 {
@@ -128,7 +121,7 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 	if err != nil {
 		return nil, err
 	}
-	operationSnapshot, hasFormChanges := buildWorkFormOperationSnapshot(ctx, todo, formInput)
+	operationSnapshot, hasFormChanges := buildWorkFormOperationSnapshot(ctx, todo, task, formInput, values)
 	if err := saveWorkFormInput(ctx, todo.LeadID, todo.CustomerID, todo.AssetID, formInput); err != nil {
 		return nil, err
 	}
@@ -137,8 +130,14 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 	if progressOnly {
 		resultValue = workResultProgress
 		if resultText == "" {
-			resultText = "已保存进度"
+			if task.MeetingEnabled {
+				resultText = "已保存预约"
+			} else {
+				resultText = "已保存进度"
+			}
 		}
+	} else if task.MeetingEnabled && resultText == "" {
+		resultText = "已确认客户到访"
 	}
 	operationContent := resultText
 	if !hasFormChanges && operationContent == "" {
@@ -149,6 +148,7 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 		return nil, fmt.Errorf("任务操作记录创建失败")
 	}
 	ownership := workDataOwnership{
+		LeadID:             todo.LeadID,
 		CustomerID:         todo.CustomerID,
 		AssetID:            todo.AssetID,
 		WorkflowInstanceID: todo.WorkflowInstanceID,
@@ -157,14 +157,22 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 	if err := saveWorkFormDataRecords(ctx, ownership, task.ID, operationID, formInput); err != nil {
 		return nil, err
 	}
-	syncWorkFinanceLedgers(ctx, staff, workOperationCompletion{
-		ownership:   ownership,
-		operationID: operationID,
-		task:        task,
-		formInput:   formInput,
-		resultValue: resultValue,
-		todoID:      todo.ID,
-	})
+	if task.MeetingEnabled {
+		if err := syncWorkMeetingFromTaskForm(ctx, staff, todo, task, values, operationID); err != nil {
+			return nil, err
+		}
+	}
+	if !progressOnly {
+		if err := confirmWorkMeetingArrival(ctx, staff, todo, task, values); err != nil {
+			return nil, err
+		}
+		if err := syncWorkCustomerFollowFromTaskForm(ctx, staff, todo, task, values, operationID); err != nil {
+			return nil, err
+		}
+		if err := syncWorkDataFieldFinanceLedgers(ctx, staff, ownership, task.ID, operationID, formInput); err != nil {
+			return nil, err
+		}
+	}
 	if progressOnly {
 		crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
 			"id":     todo.ID,
@@ -201,26 +209,44 @@ func completeApprovalTodo(ctx context.Context, staff *WorkStaffSession, todo *cr
 	opinion := firstText(values, "opinion", "reason", "remark", "content")
 	switch decision {
 	case "approved", "approve", "pass", "passed":
-		operationID := recordWorkTaskOperation(ctx, staff, todo, task, "approved", opinion, values, true)
-		if operationID == 0 {
-			return nil, fmt.Errorf("审核记录创建失败")
-		}
-		result := opinion
-		if result == "" {
-			result = "审核通过"
-		}
-		if err := completeWorkTodo(ctx, todo, result); err != nil {
-			return nil, err
-		}
-		return workTodoExecutionResult(todo, operationID, "approved", false), nil
 	case "rejected", "reject":
 		if opinion == "" {
 			return nil, fmt.Errorf("请填写驳回原因")
 		}
-		operationID := recordWorkTaskOperation(ctx, staff, todo, task, "rejected", opinion, values, false)
-		if operationID == 0 {
-			return nil, fmt.Errorf("审核记录创建失败")
+	default:
+		return nil, fmt.Errorf("请选择通过或驳回")
+	}
+
+	var executionResult map[string]any
+	err := orm.Transaction(ctx, func(txCtx context.Context) error {
+		if decision == "rejected" || decision == "reject" {
+			var err error
+			executionResult, err = rejectApprovalTodo(txCtx, staff, todo, task, values, opinion)
+			return err
 		}
+		var err error
+		executionResult, err = approveApprovalTodo(txCtx, staff, todo, task, values, opinion)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return executionResult, nil
+}
+
+func rejectApprovalTodo(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	todo *crmmodel.WorkTodo,
+	task *crmmodel.Task,
+	values map[string]any,
+	opinion string,
+) (map[string]any, error) {
+	operationID := recordWorkTaskOperation(ctx, staff, todo, task, "rejected", opinion, values, task.RejectTargetTaskID > 0)
+	if operationID == 0 {
+		return nil, fmt.Errorf("审核记录创建失败")
+	}
+	if task.RejectTargetTaskID == 0 {
 		crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
 			"id":     todo.ID,
 			"status": crmmodel.WorkTodoStatusPending,
@@ -229,9 +255,82 @@ func completeApprovalTodo(ctx context.Context, staff *WorkStaffSession, todo *cr
 			"updated_at": time.Now(),
 		})
 		return workTodoExecutionResult(todo, operationID, "rejected", false), nil
-	default:
-		return nil, fmt.Errorf("请选择通过或驳回")
 	}
+	if err := completeWorkTodo(ctx, todo, "审核驳回："+opinion); err != nil {
+		return nil, err
+	}
+	routedTodo, activated, err := activateRoutedWorkflowTask(ctx, todo, task.RejectTargetTaskID, true)
+	if err != nil {
+		return nil, err
+	}
+	result := workTodoExecutionResult(todo, operationID, "rejected", false)
+	attachRoutedTaskResult(result, routedTodo, activated)
+	return result, nil
+}
+
+func approveApprovalTodo(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	todo *crmmodel.WorkTodo,
+	task *crmmodel.Task,
+	values map[string]any,
+	opinion string,
+) (map[string]any, error) {
+	operationSnapshot := copyMap(values)
+	var formInput *workFormInput
+	if task.FormID > 0 {
+		var err error
+		formInput, err = collectWorkFormInput(ctx, task, values)
+		if err != nil {
+			return nil, err
+		}
+		operationSnapshot, _ = buildWorkFormOperationSnapshot(ctx, todo, task, formInput, values)
+		operationSnapshot["approval_result"] = "approved"
+		operationSnapshot["opinion"] = opinion
+		if err := saveWorkFormInput(ctx, todo.LeadID, todo.CustomerID, todo.AssetID, formInput); err != nil {
+			return nil, err
+		}
+	}
+
+	operationID := recordWorkTaskOperation(ctx, staff, todo, task, "approved", opinion, operationSnapshot, true)
+	if operationID == 0 {
+		return nil, fmt.Errorf("审核记录创建失败")
+	}
+	if err := saveApprovalFormData(ctx, staff, todo, task, operationID, formInput); err != nil {
+		return nil, err
+	}
+	resultText := opinion
+	if resultText == "" {
+		resultText = "审核通过"
+	}
+	if err := completeWorkTodo(ctx, todo, resultText); err != nil {
+		return nil, err
+	}
+	return workTodoExecutionResult(todo, operationID, "approved", false), nil
+}
+
+func saveApprovalFormData(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	todo *crmmodel.WorkTodo,
+	task *crmmodel.Task,
+	operationID uint64,
+	formInput *workFormInput,
+) error {
+	if formInput == nil {
+		return nil
+	}
+	ownership := workDataOwnership{
+		LeadID:             todo.LeadID,
+		CustomerID:         todo.CustomerID,
+		AssetID:            todo.AssetID,
+		WorkflowInstanceID: todo.WorkflowInstanceID,
+		CustomerProductID:  todo.CustomerProductID,
+	}
+	if err := saveWorkFormDataRecords(ctx, ownership, task.ID, operationID, formInput); err != nil {
+		return err
+	}
+	return syncWorkDataFieldFinanceLedgers(ctx, staff, ownership, task.ID, operationID, formInput)
 }
 
 func completeWorkTodo(ctx context.Context, todo *crmmodel.WorkTodo, result string) error {
@@ -401,6 +500,16 @@ func applyTaskRuleOutputs(ctx context.Context, todo *crmmodel.WorkTodo, task *cr
 		return err
 	}
 	if err := saveWorkFormDataRecords(ctx, workDataOwnership{
+		LeadID:             todo.LeadID,
+		CustomerID:         todo.CustomerID,
+		AssetID:            todo.AssetID,
+		WorkflowInstanceID: todo.WorkflowInstanceID,
+		CustomerProductID:  todo.CustomerProductID,
+	}, task.ID, operationID, formInput); err != nil {
+		return err
+	}
+	if err := syncWorkDataFieldFinanceLedgers(ctx, nil, workDataOwnership{
+		LeadID:             todo.LeadID,
 		CustomerID:         todo.CustomerID,
 		AssetID:            todo.AssetID,
 		WorkflowInstanceID: todo.WorkflowInstanceID,
@@ -449,6 +558,7 @@ func workRuleInput(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.
 			"customer_id": todo.CustomerID,
 		}))
 		asset["fields"] = workAssetFieldValues(ctx, todo.CustomerID, todo.AssetID)
+		asset["finance"] = workAssetFinanceRuleValues(ctx, todo.AssetID)
 	}
 	workflowName := ""
 	if workflow := crmmodel.NewWorkflowModel().Find(ctx, map[string]any{"id": todo.WorkflowID}); workflow != nil {
@@ -478,6 +588,28 @@ func workRuleInput(ctx context.Context, todo *crmmodel.WorkTodo, task *crmmodel.
 			"asset":                asset,
 		},
 	}
+}
+
+func workAssetFinanceRuleValues(ctx context.Context, assetID uint64) map[string]any {
+	result := map[string]any{}
+	if assetID == 0 {
+		return result
+	}
+	for _, ledger := range crmmodel.NewFinanceLedgerModel().Select(ctx, map[string]any{"asset_id": assetID}) {
+		if ledger == nil {
+			continue
+		}
+		code := strings.TrimSpace(ledger.FinanceTypeCode)
+		if code == "" {
+			code = fmt.Sprintf("finance_type_%d", ledger.FinanceTypeID)
+		}
+		current := mapFromAny(result[code])
+		current["amount"] = numericValue(current["amount"]) + ledger.Amount
+		current["count"] = inputInt(current["count"]) + 1
+		current["direction"] = ledger.Direction
+		result[code] = current
+	}
+	return result
 }
 
 func workLeadRuleFieldValues(ctx context.Context, lead *crmmodel.Lead) map[string]any {

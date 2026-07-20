@@ -15,6 +15,7 @@ type FinanceLedger struct {
 	TaskID             uint64    `dorm:"type:bigint;not null;default:0;comment:任务"`
 	OperationLogID     uint64    `dorm:"type:bigint;not null;default:0;comment:操作记录"`
 	DataFieldID        uint64    `dorm:"type:bigint;not null;default:0;comment:数据字段"`
+	FinanceSourceKey   string    `dorm:"type:varchar(96);not null;default:'';comment:财务来源唯一键"`
 	FinanceTypeID      uint64    `dorm:"type:bigint;not null;default:0;comment:财务类型"`
 	FinanceTypeCode    string    `dorm:"type:varchar(64);not null;default:'';comment:财务类型编码"`
 	FinanceTypeName    string    `dorm:"type:varchar(128);not null;default:'';comment:财务类型名称"`
@@ -29,17 +30,18 @@ type FinanceLedger struct {
 }
 
 type FinanceLedgerIndex struct {
-	OperationField struct{} `unique:"workflow_instance_id,operation_log_id,data_field_id,source"`
-	CustomerTime   struct{} `index:"customer_id,created_at,id"`
-	AssetTime      struct{} `index:"asset_id,created_at,id"`
-	WorkflowTime   struct{} `index:"workflow_instance_id,created_at,id"`
-	ProductTime    struct{} `index:"customer_product_id,created_at,id"`
-	FinanceTime    struct{} `index:"finance_type_id,created_at,id"`
-	FieldTime      struct{} `index:"data_field_id,created_at,id"`
-	TaskTime       struct{} `index:"task_id,created_at,id"`
-	StaffTime      struct{} `index:"staff_id,created_at,id"`
-	DepartmentTime struct{} `index:"department_id,created_at,id"`
-	CreatedTime    struct{} `index:"created_at,id"`
+	OperationSource struct{} `unique:"workflow_instance_id,operation_log_id,finance_source_key,source"`
+	CustomerTime    struct{} `index:"customer_id,created_at,id"`
+	AssetTime       struct{} `index:"asset_id,created_at,id"`
+	WorkflowTime    struct{} `index:"workflow_instance_id,created_at,id"`
+	ProductTime     struct{} `index:"customer_product_id,created_at,id"`
+	FinanceTime     struct{} `index:"finance_type_id,created_at,id"`
+	FieldTime       struct{} `index:"data_field_id,created_at,id"`
+	SourceKeyTime   struct{} `index:"finance_source_key,created_at,id"`
+	TaskTime        struct{} `index:"task_id,created_at,id"`
+	StaffTime       struct{} `index:"staff_id,created_at,id"`
+	DepartmentTime  struct{} `index:"department_id,created_at,id"`
+	CreatedTime     struct{} `index:"created_at,id"`
 }
 
 func NewFinanceLedgerModel() *orm.Model[FinanceLedger] {

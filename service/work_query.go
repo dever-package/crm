@@ -114,10 +114,11 @@ func workTodoTaskMap(ctx context.Context, staff *WorkStaffSession, todo *crmmode
 	task["assignee_staff_name"] = staffName
 	task["can_operate"] = todo.Status == crmmodel.WorkTodoStatusPending && canOperateWorkTodo(staff, todo)
 	task["unassigned"] = todo.AssigneeStaffID == 0
-	if withForm && inputText(task["task_type"]) == crmmodel.TaskTypeForm {
+	taskType := inputText(task["task_type"])
+	if withForm && (taskType == crmmodel.TaskTypeForm || taskType == crmmodel.TaskTypeApproval) {
 		attachWorkTaskForm(ctx, task)
 	}
-	if inputText(task["task_type"]) == crmmodel.TaskTypeProduct {
+	if taskType == crmmodel.TaskTypeProduct {
 		task["product_options"] = workEnabledProductOptions(ctx)
 		task["selected_product_ids"] = workSelectedProductIDs(ctx, todo.WorkflowInstanceID)
 	}

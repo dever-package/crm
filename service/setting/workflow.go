@@ -23,6 +23,11 @@ var simpleTaskAssigneeModes = map[string]bool{
 	crmmodel.TaskAssigneeManual: true,
 }
 
+var taskActivationModes = map[string]bool{
+	crmmodel.TaskActivationStage: true,
+	crmmodel.TaskActivationRoute: true,
+}
+
 var stageAssignmentModes = map[string]bool{
 	crmmodel.StageAssignmentAuto:   true,
 	crmmodel.StageAssignmentManual: true,
@@ -115,6 +120,7 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	trimCrmStringField(record, "name", partial)
 	trimCrmStringField(record, "task_type", partial)
 	trimCrmStringField(record, "assignee_mode", partial)
+	trimCrmStringField(record, "activation_mode", partial)
 	validateConfigName(record, partial, "任务名称不能为空。")
 
 	ctx := contextFromServer(c)
@@ -136,8 +142,14 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	validateTaskWorkflowSubject(ctx, stage.WorkflowID, taskType, util.ToUint64(effective["form_id"]))
 	normalizeSimpleTaskTarget(ctx, record, effective, partial, taskType, taskEnabled)
 	normalizeSimpleTaskAssignee(ctx, record, effective, partial, taskEnabled, stage)
+	normalizeTaskActivation(ctx, record, effective, partial, taskType, taskEnabled, stage)
+	normalizeTaskSystemControls(record, effective, partial, taskType)
 
 	defaultCrmBool(record, "required", true, partial)
+	defaultCrmBool(record, "meeting_enabled", false, partial)
+	defaultCrmBool(record, "meeting_arrival_required", false, partial)
+	defaultCrmBool(record, "customer_follow_enabled", false, partial)
+	defaultCrmBool(record, "include_in_meeting", false, partial)
 	defaultCrmInt(record, "due_days", 0, partial)
 	if shouldNormalizeCrmField(record, "due_days", partial) && util.ToIntDefault(record["due_days"], 0) < 0 {
 		panicCrmField("form.due_days", "办理期限不能小于 0 天。")
@@ -155,7 +167,7 @@ func validateTaskWorkflowSubject(ctx context.Context, workflowID uint64, taskTyp
 	if workflow.SubjectType == crmmodel.WorkflowSubjectLead && taskType == crmmodel.TaskTypeProduct {
 		panicCrmField("form.task_type", "线索流程不能配置确认产品任务；请在线索转客户后的客户资产流程中确认产品。")
 	}
-	if taskType != crmmodel.TaskTypeForm || formID == 0 {
+	if (taskType != crmmodel.TaskTypeForm && taskType != crmmodel.TaskTypeApproval) || formID == 0 {
 		return
 	}
 	fields := crmmodel.NewFormFieldModel().Select(ctx, map[string]any{
@@ -272,11 +284,12 @@ func validateWorkflowCanEnable(ctx context.Context, workflowID uint64) {
 
 func validateStageCanEnable(ctx context.Context, stageID uint64) {
 	if stageID == 0 || crmmodel.NewTaskModel().Count(ctx, map[string]any{
-		"stage_id": stageID,
-		"required": true,
-		"status":   crmmodel.StatusEnabled,
+		"stage_id":        stageID,
+		"required":        true,
+		"activation_mode": crmmodel.TaskActivationStage,
+		"status":          crmmodel.StatusEnabled,
 	}) == 0 {
-		panicCrmField("form.status", "阶段至少包含一个已启用的必做任务后才能启用。")
+		panicCrmField("form.status", "阶段至少包含一个进入阶段时创建的已启用必做任务后才能启用。")
 	}
 }
 
@@ -335,20 +348,32 @@ func firstEnabledStageForWorkflowSetting(ctx context.Context, workflowID uint64)
 
 func effectiveTaskConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
 	effective := map[string]any{
-		"task_type":     crmmodel.TaskTypeTodo,
-		"assignee_mode": crmmodel.TaskAssigneeStage,
-		"status":        crmmodel.StatusEnabled,
+		"task_type":                crmmodel.TaskTypeTodo,
+		"assignee_mode":            crmmodel.TaskAssigneeStage,
+		"activation_mode":          crmmodel.TaskActivationStage,
+		"meeting_enabled":          false,
+		"meeting_arrival_required": false,
+		"customer_follow_enabled":  false,
+		"status":                   crmmodel.StatusEnabled,
 	}
 	if partial {
 		if task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); task != nil {
 			effective = map[string]any{
-				"stage_id":               task.StageID,
-				"task_type":              task.TaskType,
-				"assignee_mode":          task.AssigneeMode,
-				"assignee_department_id": task.AssigneeDepartmentID,
-				"form_id":                task.FormID,
-				"script_id":              task.ScriptID,
-				"status":                 task.Status,
+				"stage_id":                 task.StageID,
+				"task_type":                task.TaskType,
+				"assignee_mode":            task.AssigneeMode,
+				"assignee_department_id":   task.AssigneeDepartmentID,
+				"form_id":                  task.FormID,
+				"script_id":                task.ScriptID,
+				"activation_mode":          task.ActivationMode,
+				"condition_script_id":      task.ConditionScriptID,
+				"reject_target_task_id":    task.RejectTargetTaskID,
+				"complete_target_task_id":  task.CompleteTargetTaskID,
+				"meeting_enabled":          task.MeetingEnabled,
+				"meeting_arrival_required": task.MeetingArrivalRequired,
+				"customer_follow_enabled":  task.CustomerFollowEnabled,
+				"include_in_meeting":       task.IncludeInMeeting,
+				"status":                   task.Status,
 			}
 		}
 	}
@@ -367,7 +392,110 @@ func effectiveTaskConfig(ctx context.Context, record map[string]any, partial boo
 			record["assignee_mode"] = crmmodel.TaskAssigneeStage
 		}
 	}
+	if util.ToStringTrimmed(effective["activation_mode"]) == "" {
+		effective["activation_mode"] = crmmodel.TaskActivationStage
+		if shouldNormalizeCrmField(record, "activation_mode", partial) {
+			record["activation_mode"] = crmmodel.TaskActivationStage
+		}
+	}
 	return effective
+}
+
+func normalizeTaskActivation(
+	ctx context.Context,
+	record map[string]any,
+	effective map[string]any,
+	partial bool,
+	taskType string,
+	validateTarget bool,
+	stage *crmmodel.Stage,
+) {
+	activationMode := util.ToStringTrimmed(effective["activation_mode"])
+	if !taskActivationModes[activationMode] {
+		panicCrmField("form.activation_mode", "任务激活方式无效。")
+	}
+	if shouldNormalizeCrmField(record, "activation_mode", partial) {
+		record["activation_mode"] = activationMode
+	}
+	currentTaskID := util.ToUint64(record["id"])
+	if currentTaskID > 0 && activationMode != crmmodel.TaskActivationRoute &&
+		(crmmodel.NewTaskModel().Count(ctx, map[string]any{"reject_target_task_id": currentTaskID}) > 0 ||
+			crmmodel.NewTaskModel().Count(ctx, map[string]any{"complete_target_task_id": currentTaskID}) > 0) {
+		panicCrmField("form.activation_mode", "该任务正在被流转配置使用，必须保留“由其他任务触发”。")
+	}
+
+	conditionScriptID := util.ToUint64(effective["condition_script_id"])
+	if validateTarget && conditionScriptID > 0 && crmmodel.NewRuleScriptModel().Find(ctx, map[string]any{
+		"id":     conditionScriptID,
+		"status": crmmodel.StatusEnabled,
+	}) == nil {
+		panicCrmField("form.condition_script_id", "适用条件必须选择已启用的规则。")
+	}
+	if shouldNormalizeCrmField(record, "condition_script_id", partial) {
+		record["condition_script_id"] = conditionScriptID
+	}
+
+	if taskType != crmmodel.TaskTypeApproval {
+		if shouldNormalizeCrmField(record, "reject_target_task_id", partial) || !partial {
+			record["reject_target_task_id"] = uint64(0)
+		}
+	} else {
+		normalizeTaskRouteTarget(ctx, record, effective, partial, validateTarget, stage, currentTaskID, "reject_target_task_id", "驳回目标任务")
+	}
+	normalizeTaskRouteTarget(ctx, record, effective, partial, validateTarget, stage, currentTaskID, "complete_target_task_id", "完成目标任务")
+}
+
+func normalizeTaskRouteTarget(
+	ctx context.Context,
+	record map[string]any,
+	effective map[string]any,
+	partial bool,
+	validateTarget bool,
+	stage *crmmodel.Stage,
+	currentTaskID uint64,
+	field string,
+	label string,
+) {
+	targetTaskID := util.ToUint64(effective[field])
+	if targetTaskID > 0 && targetTaskID == currentTaskID {
+		panicCrmField("form."+field, label+"不能选择当前任务。")
+	}
+	if validateTarget && targetTaskID > 0 {
+		target := crmmodel.NewTaskModel().Find(ctx, map[string]any{
+			"id":     targetTaskID,
+			"status": crmmodel.StatusEnabled,
+		})
+		if target == nil || stage == nil || target.StageID != stage.ID {
+			panicCrmField("form."+field, label+"必须选择当前阶段内的已启用任务。")
+		}
+		if target.ActivationMode != crmmodel.TaskActivationRoute {
+			panicCrmField("form."+field, label+"必须选择“由其他任务触发”的任务。")
+		}
+	}
+	if shouldNormalizeCrmField(record, field, partial) {
+		record[field] = targetTaskID
+	}
+}
+
+func normalizeTaskSystemControls(record map[string]any, effective map[string]any, partial bool, taskType string) {
+	isFormTask := taskType == crmmodel.TaskTypeForm
+	normalizeTaskFormSwitch(record, effective, partial, isFormTask, "meeting_enabled")
+	normalizeTaskMeetingArrival(record, effective, partial, isFormTask)
+	normalizeTaskFormSwitch(record, effective, partial, isFormTask, "customer_follow_enabled")
+}
+
+func normalizeTaskMeetingArrival(record map[string]any, effective map[string]any, partial bool, isFormTask bool) {
+	if !partial || shouldNormalizeCrmField(record, "meeting_enabled", partial) || shouldNormalizeCrmField(record, "task_type", partial) {
+		record["meeting_arrival_required"] = isFormTask && configBool(effective["meeting_enabled"])
+	}
+}
+
+func normalizeTaskFormSwitch(record map[string]any, effective map[string]any, partial bool, isFormTask bool, field string) {
+	enabled := isFormTask && configBool(effective[field])
+	if shouldNormalizeCrmField(record, field, partial) ||
+		(!isFormTask && (!partial || shouldNormalizeCrmField(record, "task_type", partial))) {
+		record[field] = enabled
+	}
 }
 
 func normalizeSimpleTaskTarget(ctx context.Context, record map[string]any, effective map[string]any, partial bool, taskType string, validateTarget bool) {
@@ -378,6 +506,13 @@ func normalizeSimpleTaskTarget(ctx context.Context, record map[string]any, effec
 	case crmmodel.TaskTypeForm:
 		if validateTarget && (formID == 0 || crmmodel.NewFormModel().Find(ctx, map[string]any{"id": formID, "status": crmmodel.StatusEnabled}) == nil) {
 			panicCrmField("form.form_id", "填写资料任务必须选择已启用的资料表单。")
+		}
+		if shouldWrite || shouldNormalizeCrmField(record, "script_id", partial) {
+			record["script_id"] = uint64(0)
+		}
+	case crmmodel.TaskTypeApproval:
+		if validateTarget && formID > 0 && crmmodel.NewFormModel().Find(ctx, map[string]any{"id": formID, "status": crmmodel.StatusEnabled}) == nil {
+			panicCrmField("form.form_id", "审核任务选择的资料表单不存在或未启用。")
 		}
 		if shouldWrite || shouldNormalizeCrmField(record, "script_id", partial) {
 			record["script_id"] = uint64(0)
@@ -471,11 +606,16 @@ func (CrmHook) ProviderBeforeDeleteTask(c *server.Context, params []any) any {
 	if id == 0 {
 		panicCrmField("form.id", "任务不存在。")
 	}
-	if crmmodel.NewWorkTodoModel().Count(contextFromServer(c), map[string]any{
+	ctx := contextFromServer(c)
+	if crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{
 		"task_id": id,
 		"status":  crmmodel.WorkTodoStatusPending,
 	}) > 0 {
 		panicCrmField("form.id", "任务存在未完成待办，不能删除；可以先停用。")
+	}
+	if crmmodel.NewTaskModel().Count(ctx, map[string]any{"reject_target_task_id": id}) > 0 ||
+		crmmodel.NewTaskModel().Count(ctx, map[string]any{"complete_target_task_id": id}) > 0 {
+		panicCrmField("form.id", "任务正在被其他任务的流转配置使用，不能删除；可以先取消关联。")
 	}
 	return id
 }

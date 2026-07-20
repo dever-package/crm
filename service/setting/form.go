@@ -53,6 +53,15 @@ type collectFieldOption struct {
 	Name string
 }
 
+var formFieldVisibleOperators = map[string]bool{
+	crmmodel.FormFieldVisibleEquals:    true,
+	crmmodel.FormFieldVisibleNotEquals: true,
+	crmmodel.FormFieldVisibleIn:        true,
+	crmmodel.FormFieldVisibleNotIn:     true,
+	crmmodel.FormFieldVisibleEmpty:     true,
+	crmmodel.FormFieldVisibleNotEmpty:  true,
+}
+
 func (CrmHook) ProviderBeforeSaveForm(c *server.Context, params []any) any {
 	record := cloneCrmRecord(params)
 	if len(record) == 0 {
@@ -230,8 +239,92 @@ func normalizeFormFieldRecord(c *server.Context, record map[string]any, partial 
 			record["readonly"] = false
 		}
 	}
+	normalizeFormFieldVisibility(contextFromServer(c), record, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
+}
+
+func normalizeFormFieldVisibility(ctx context.Context, record map[string]any, partial bool) {
+	if partial && !hasAnyCrmField(record, "visible_when_field_id", "visible_when_operator", "visible_when_value") {
+		return
+	}
+	current := crmmodel.NewFormFieldModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])})
+	formID := util.ToUint64(record["form_id"])
+	dataFieldID := util.ToUint64(record["data_field_id"])
+	driverFieldID := util.ToUint64(record["visible_when_field_id"])
+	operator := util.ToStringTrimmed(record["visible_when_operator"])
+	value := util.ToStringTrimmed(record["visible_when_value"])
+	if current != nil {
+		if formID == 0 {
+			formID = current.FormID
+		}
+		if dataFieldID == 0 {
+			dataFieldID = current.DataFieldID
+		}
+		if _, exists := record["visible_when_field_id"]; !exists {
+			driverFieldID = current.VisibleWhenFieldID
+		}
+		if _, exists := record["visible_when_operator"]; !exists {
+			operator = current.VisibleWhenOperator
+		}
+		if _, exists := record["visible_when_value"]; !exists {
+			value = current.VisibleWhenValue
+		}
+	}
+	if driverFieldID == 0 {
+		record["visible_when_field_id"] = uint64(0)
+		record["visible_when_operator"] = ""
+		record["visible_when_value"] = ""
+		return
+	}
+	if formID == 0 || !formContainsDataField(ctx, formID, driverFieldID) {
+		panicCrmField("form.visible_when_field_id", "显示条件字段必须属于当前资料模板。")
+	}
+	if dataFieldID > 0 && dataFieldID == driverFieldID {
+		panicCrmField("form.visible_when_field_id", "字段不能以自身作为显示条件。")
+	}
+	if crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
+		"id":     driverFieldID,
+		"status": crmmodel.StatusEnabled,
+	}) == nil {
+		panicCrmField("form.visible_when_field_id", "显示条件字段不存在或已停用。")
+	}
+	if operator == "" {
+		operator = crmmodel.FormFieldVisibleEquals
+	}
+	if !formFieldVisibleOperators[operator] {
+		panicCrmField("form.visible_when_operator", "显示条件操作符无效。")
+	}
+	if operator != crmmodel.FormFieldVisibleEmpty && operator != crmmodel.FormFieldVisibleNotEmpty && value == "" {
+		panicCrmField("form.visible_when_value", "请填写显示条件值。")
+	}
+	record["visible_when_field_id"] = driverFieldID
+	record["visible_when_operator"] = operator
+	record["visible_when_value"] = value
+}
+
+func formContainsDataField(ctx context.Context, formID uint64, dataFieldID uint64) bool {
+	if formID == 0 || dataFieldID == 0 {
+		return false
+	}
+	for _, field := range crmmodel.NewFormFieldModel().Select(ctx, map[string]any{
+		"form_id": formID,
+		"status":  crmmodel.StatusEnabled,
+	}) {
+		if field != nil && field.DataFieldID == dataFieldID {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyCrmField(record map[string]any, fields ...string) bool {
+	for _, field := range fields {
+		if _, exists := record[field]; exists {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeFormFieldPath(record map[string]any, partial bool) {

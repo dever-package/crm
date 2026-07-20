@@ -10,12 +10,55 @@ import (
 
 const workFormChangeSnapshotType = "form_changes"
 
-func buildWorkFormOperationSnapshot(ctx context.Context, todo *crmmodel.WorkTodo, formInput *workFormInput) (map[string]any, bool) {
+func buildWorkFormOperationSnapshot(
+	ctx context.Context,
+	todo *crmmodel.WorkTodo,
+	task *crmmodel.Task,
+	formInput *workFormInput,
+	values map[string]any,
+) (map[string]any, bool) {
 	changes := workFormInputChanges(ctx, todo, formInput)
+	appendWorkTaskSystemChanges(&changes, ctx, todo, task, values)
 	return map[string]any{
 		"snapshot_type": workFormChangeSnapshotType,
 		"changes":       changes,
 	}, len(changes) > 0
+}
+
+func appendWorkTaskSystemChanges(
+	changes *[]map[string]any,
+	ctx context.Context,
+	todo *crmmodel.WorkTodo,
+	task *crmmodel.Task,
+	values map[string]any,
+) {
+	if task == nil {
+		return
+	}
+	if task.CustomerFollowEnabled {
+		before := any(nil)
+		if todo != nil {
+			if event := findPendingCustomerFollowEvent(ctx, todo.CustomerID); event != nil {
+				before = event.StartAt.In(scheduleLocation()).Format(customerFollowTimeLayout)
+			}
+		}
+		appendWorkFormChange(changes, workCustomerFollowKey, before, values[workCustomerFollowKey])
+	}
+	if task.MeetingEnabled {
+		beforeValues := workMeetingEventValues(ctx, findWorkMeetingEvent(ctx, todo.WorkflowInstanceID, task.ID))
+		for _, key := range []string{
+			workMeetingStartFieldKey,
+			workMeetingDurationFieldKey,
+			workMeetingResourceFieldKey,
+		} {
+			if value, exists := values[key]; exists && !emptyWorkFieldValue(value) {
+				appendWorkFormChange(changes, key, beforeValues[key], normalizeWorkMeetingAuditValue(key, value))
+			}
+		}
+		if booleanFromAny(values[workMeetingArrivalFieldKey]) {
+			appendWorkFormChange(changes, workMeetingArrivalFieldKey, beforeValues[workMeetingArrivalFieldKey], true)
+		}
+	}
 }
 
 func workFormInputChanges(ctx context.Context, todo *crmmodel.WorkTodo, formInput *workFormInput) []map[string]any {

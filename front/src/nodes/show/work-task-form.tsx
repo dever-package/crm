@@ -446,6 +446,11 @@ export function normalizeWorkTaskFormFields(
       placeholder: textValue(field["placeholder"]),
       required: Boolean(field["required"]),
       readonly: Boolean(field["readonly"]),
+      visibleWhenFieldId:
+        textValue(field["visibleWhenFieldId"]) || undefined,
+      visibleWhenOperator:
+        textValue(field["visibleWhenOperator"]) || undefined,
+      visibleWhenValue: textValue(field["visibleWhenValue"]) || undefined,
       type: textValue(field["type"]) || "form-input",
       inputType: normalizeWorkTaskInputType(field["inputType"]),
       fullWidth: Boolean(field["fullWidth"]),

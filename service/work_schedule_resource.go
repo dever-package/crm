@@ -42,7 +42,7 @@ func syncScheduleResources(ctx context.Context, event *crmmodel.ScheduleEvent, r
 			currentID = booking.ID
 		}
 		if err := ValidateResourceBookingTime(ctx, currentID, resourceID, event.StartAt, event.EndAt); err != nil {
-			return fmt.Errorf("%s：%w", resource.Name, err)
+			return err
 		}
 	}
 	now := time.Now()
@@ -60,8 +60,8 @@ func syncScheduleResources(ctx context.Context, event *crmmodel.ScheduleEvent, r
 		data := map[string]any{
 			"schedule_event_id":    event.ID,
 			"customer_id":          event.CustomerID,
-			"asset_id":             uint64(0),
-			"task_id":              uint64(0),
+			"asset_id":             event.AssetID,
+			"task_id":              event.SourceTaskID,
 			"operation_log_id":     event.OperationLogID,
 			"stage_code":           "",
 			"booking_status":       crmmodel.ResourceBookingStatusReserved,
@@ -99,7 +99,7 @@ func ValidateResourceBookingTime(ctx context.Context, currentID uint64, resource
 			continue
 		}
 		if startAt.Before(booking.EndAt) && endAt.After(booking.StartAt) {
-			return fmt.Errorf("该资源在所选时间已被预定")
+			return fmt.Errorf("会议室该时间段预约已满，请协调其他会议室或时间。")
 		}
 	}
 	return nil

@@ -45,6 +45,8 @@ import {
   workRefreshEvent,
   workStoreValue,
   workTaskFieldMapPath,
+  workTaskFormFieldVisible,
+  workTaskFormFieldVisibilityRule,
   workTaskActiveGroupPath,
   workTaskFormDataPath,
   workTaskFormFieldsPath,
@@ -226,8 +228,23 @@ function workTaskNeedsCompleteAction(task: WorkTask): boolean {
   return !workTaskIsRule(task);
 }
 
+function workTaskFlagEnabled(value: unknown): boolean {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
+
+function workTaskHasMeeting(task: WorkTask): boolean {
+  return workTaskFlagEnabled(task.meeting_enabled);
+}
+
+function workTaskRequiresArrivalConfirmation(task: WorkTask): boolean {
+  return workTaskHasMeeting(task);
+}
+
 function workTaskShouldRenderFields(task: WorkTask): boolean {
-  return workTaskIsForm(task) && (task.form?.fields || []).length > 0;
+  return (
+    (workTaskIsForm(task) || workTaskIsApproval(task)) &&
+    (task.form?.fields || []).length > 0
+  );
 }
 
 function workTaskButtonLabel(task: WorkTask): string {
@@ -244,6 +261,9 @@ function workTaskSubmitSuccessMessage(
   task: WorkTask,
   mode: "complete" | "progress",
 ): string {
+  if (workTaskRequiresArrivalConfirmation(task)) {
+    return mode === "progress" ? "预约已保存" : "客户到访已确认";
+  }
   if (mode === "progress") return "进度已保存";
   if (workTaskIsApproval(task)) return "审核结果已提交";
   if (workTaskIsProduct(task)) return "产品已确认";
@@ -370,13 +390,19 @@ function workCustomerModeFromNode(
   item?: WorkNodeProps["item"],
 ): WorkCustomerMode {
   const urlMode = textValue(currentWorkURLParams().get("mode"));
-  if (urlMode === "all" || urlMode === "done" || urlMode === "pending") {
+  if (
+    urlMode === "all" ||
+    urlMode === "done" ||
+    urlMode === "pending" ||
+    urlMode === "processed"
+  ) {
     return urlMode;
   }
   const configured = textValue(item?.meta?.mode || item?.meta?.customerMode);
   if (configured === "all") return "all";
   if (configured === "done") return "done";
   if (configured === "pending") return "pending";
+  if (configured === "processed") return "processed";
   const pathname = textValue(window.location.pathname);
   return pathname.endsWith("/work/done") || pathname.includes("/work/done/")
     ? "done"
@@ -639,7 +665,7 @@ function buildWorkTaskFormState(
   }
   const mergedTabs = mergeWorkTaskTabs(tabs);
   addWorkTaskTabsNode(nodes, mergedTabs);
-  addWorkTaskDateNodes(nodes, mergedTabs);
+  addWorkTaskDateNodes(nodes, mergedTabs, fieldMap);
 
   const fields = nodes.flatMap(workTaskNodeFormFields);
   const layout = workTaskLayoutMode(nodes);
@@ -974,10 +1000,12 @@ function addWorkTaskTabsNode(
 function addWorkTaskDateNodes(
   nodes: WorkTaskFormNode[],
   tabs: WorkTaskFormGroup[],
+  fieldMap: Record<string, string>,
 ) {
   for (const tab of tabs) {
     for (const field of tab.fields) {
       if (field.type !== "form-date") continue;
+      const visibility = workTaskDateVisibility(field, fieldMap);
       nodes.push({
         id: `work-task-date-${field.formKey}`,
         type: "form-date",
@@ -997,6 +1025,12 @@ function addWorkTaskDateNodes(
               ? "datetime-local"
               : "date",
           readonly: field.readonly || undefined,
+          showWhen:
+            visibility.conditions.length > 0
+              ? visibility.conditions
+              : undefined,
+          showCondition:
+            visibility.conditions.length > 0 ? visibility.mode : undefined,
           hiddenWhen: [
             {
               path: workTaskActiveGroupPath,
@@ -1008,6 +1042,48 @@ function addWorkTaskDateNodes(
       });
     }
   }
+}
+
+function workTaskDateVisibility(
+  field: WorkTaskFormField,
+  fieldMap: Record<string, string>,
+): {
+  conditions: Array<Record<string, unknown>>;
+  mode: "all" | "any";
+} {
+  const rule = workTaskFormFieldVisibilityRule(field);
+  if (!rule) return { conditions: [], mode: "all" };
+  const driverFormKey = Object.entries(fieldMap).find(
+    ([, rawKey]) => rawKey === `data:${rule.driverFieldId}`,
+  )?.[0];
+  if (!driverFormKey) return { conditions: [], mode: "all" };
+  const path = `${workTaskFormDataPath}.${driverFormKey}`;
+  if (rule.operator === "empty" || rule.operator === "not_empty") {
+    return {
+      conditions: [
+        {
+          path,
+          operator: rule.operator === "empty" ? "empty" : "notEmpty",
+        },
+      ],
+      mode: "all",
+    };
+  }
+  const values =
+    rule.operator === "equals" || rule.operator === "not_equals"
+      ? rule.expectedValues.slice(0, 1)
+      : rule.expectedValues;
+  return {
+    conditions: values.map((value) => ({
+      path,
+      operator:
+        rule.operator === "not_equals" || rule.operator === "not_in"
+          ? "notEquals"
+          : "equals",
+      value,
+    })),
+    mode: rule.operator === "in" ? "any" : "all",
+  };
 }
 
 function mergeWorkTaskTabs(tabs: WorkTaskFormGroup[]): WorkTaskFormGroup[] {
@@ -1090,6 +1166,11 @@ function workTaskGroupField(
     placeholder: `${renderConfig.placeholderPrefix}${label}`,
     required: Boolean(field.required),
     readonly: Boolean(field.readonly),
+    visibleWhenFieldId:
+      positiveTextID(field.visible_when_field_id) || undefined,
+    visibleWhenOperator:
+      textValue(field.visible_when_operator) || undefined,
+    visibleWhenValue: textValue(field.visible_when_value) || undefined,
     type: renderConfig.type,
     inputType: renderConfig.inputType,
     fullWidth: renderConfig.fullWidth,
@@ -1126,6 +1207,14 @@ function workTaskFieldRenderConfig(
         trueValue: true,
         falseValue: false,
       },
+    };
+  }
+
+  if (fieldType === "public_resource") {
+    return {
+      type: "form-select",
+      placeholderPrefix: "请选择",
+      options,
     };
   }
 
@@ -1272,6 +1361,24 @@ function openWorkDetail(
   setWorkDetailTarget(store, customer, asset);
   setWorkModalOpen(store, "dialog.workDetail", false);
   setWorkModalOpen(store, "drawer.workDetail", true);
+}
+
+export async function openWorkCustomerDetailDrawer(
+  store: WorkStoreLike | undefined,
+  customerID: string,
+  assetID = "",
+  workflowInstanceID = "",
+): Promise<boolean> {
+  const detail = await refreshWorkDetailTarget(
+    store,
+    customerID,
+    assetID,
+    workflowInstanceID,
+  );
+  if (!detail?.customer) return false;
+  setWorkModalOpen(store, "dialog.workDetail", false);
+  setWorkModalOpen(store, "drawer.workDetail", true);
+  return true;
 }
 
 type WorkDetailTargetResponse = {
@@ -1522,6 +1629,12 @@ const workTopFilterOptions: Array<{
   quickFilter: WorkQuickFilter;
 }> = [
   { key: "pending", label: "待处理", mode: "pending", quickFilter: "all" },
+  {
+    key: "processed",
+    label: "已处理",
+    mode: "processed",
+    quickFilter: "all",
+  },
   { key: "all", label: "全部", mode: "all", quickFilter: "all" },
   { key: "done", label: "已结束", mode: "done", quickFilter: "all" },
 ];
@@ -1533,6 +1646,7 @@ function workTopFilterKey(mode: WorkCustomerMode): string {
 function emptyWorkCustomerModeCounts(): WorkCustomerModeCounts {
   return {
     pending: 0,
+    processed: 0,
     done: 0,
     all: 0,
   };
@@ -2596,6 +2710,10 @@ function workCustomerListRowView(item: WorkItem): WorkCustomerListRowView {
     ownerName: displayText(ownerName),
     stageDays: workPositiveNumber(target.stage_days),
     lastOperatedAt: textValue(target.last_operated_at),
+    processedTaskName: textValue(target.processed_task_name),
+    processedResult: textValue(target.processed_result),
+    processedContent: textValue(target.processed_content),
+    processedAt: textValue(target.processed_at),
     flow,
     tasks,
   };
@@ -2701,14 +2819,7 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
     async (customerID: string, assetID: string) => {
       if (!customerID) return;
       try {
-        const params = new URLSearchParams({ customer_id: customerID });
-        if (assetID) params.set("asset_id", assetID);
-        const payload = await workApi<WorkDetailTargetResponse>(
-          `/crm/work/customer_detail?${params.toString()}`,
-        );
-        if (payload.customer) {
-          openWorkDetail(payload.customer, store, payload.asset || undefined);
-        }
+        await openWorkCustomerDetailDrawer(store, customerID, assetID);
       } catch (error) {
         toast.error(errorMessage(error, "客户详情加载失败"));
       }
@@ -2739,6 +2850,7 @@ export function ShowCrmWorkCustomerTable({ item, store }: WorkNodeProps) {
       if (
         detail.mode === "all" ||
         detail.mode === "pending" ||
+        detail.mode === "processed" ||
         detail.mode === "done"
       ) {
         setMode(detail.mode);
@@ -2831,7 +2943,7 @@ function WorkCustomerListHeader({
         onChange={onModeChange}
       />
       <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-        {canDispatch ? (
+        {canDispatch && mode !== "processed" ? (
           <WorkCustomerScopeToggle scope={scope} onChange={onScopeChange} />
         ) : null}
         <ShowCrmWorkRefreshButton />
@@ -3741,6 +3853,9 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const canSaveProgress = task ? workTaskAllowsProgress(task) : false;
   const canCompleteDirectly = task ? workTaskNeedsCompleteAction(task) : false;
+  const requiresArrivalConfirmation = task
+    ? workTaskRequiresArrivalConfirmation(task)
+    : false;
   const canAIFill = task ? workTaskCanAIFill(task) : false;
   const aiHeaderTarget = useWorkFeedbackModalHeaderTarget(
     contentRef,
@@ -3766,6 +3881,10 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
       if (
         !validateCurrentWorkTaskForm(store, {
           allowMissingRequired: mode === "progress",
+          requireMeetingReservation:
+            mode === "progress" && Boolean(task && workTaskHasMeeting(task)),
+          requireMeetingArrival:
+            mode === "complete" && requiresArrivalConfirmation,
         })
       ) {
         focusFirstWorkTaskFormError(store);
@@ -3773,7 +3892,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
       }
       return true;
     },
-    [store],
+    [requiresArrivalConfirmation, store, task],
   );
 
   const submit = useCallback(
@@ -3951,14 +4070,14 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
         onClick={() => void submit("progress")}
         disabled={submitting || aiFilling || hasUploadingFiles}
       >
-        保存进度
+        {requiresArrivalConfirmation ? "保存预约" : "保存进度"}
       </Button>
       <Button
         type="button"
         onClick={requestComplete}
         disabled={submitting || aiFilling || hasUploadingFiles}
       >
-        确认完成
+        {requiresArrivalConfirmation ? "确认到访" : "确认完成"}
       </Button>
     </>
   ) : canCompleteDirectly ? (
@@ -3995,7 +4114,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
         flow={taskFlow}
         open={ownerDialogOpen}
         title="分配下一阶段负责人"
-        confirmLabel="确认完成"
+        confirmLabel={requiresArrivalConfirmation ? "确认到访" : "确认完成"}
         target="next_stage"
         defaultToCurrentOwner={false}
         onConfirmSelection={(staffID) => submit("complete", staffID, true)}
@@ -4004,9 +4123,13 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
       <ConfirmDialog
         open={completeConfirmOpen}
         onOpenChange={(open) => !submitting && setCompleteConfirmOpen(open)}
-        title="确认完成"
-        desc="确认完成当前任务吗？确认后将提交当前填写内容。"
-        confirmText="确认完成"
+        title={requiresArrivalConfirmation ? "确认客户到访" : "确认完成"}
+        desc={
+          requiresArrivalConfirmation
+            ? "确认客户已经到访吗？确认后流程将进入下一环节。"
+            : "确认完成当前任务吗？确认后将提交当前填写内容。"
+        }
+        confirmText={requiresArrivalConfirmation ? "确认到访" : "确认完成"}
         isLoading={submitting}
         handleConfirm={() => void confirmComplete()}
         className="sm:max-w-md"
@@ -4035,24 +4158,55 @@ function workTaskHasPendingUploads(store: StoreLike | undefined): boolean {
   ).some(Boolean);
 }
 
+const workMeetingReservationRawKeys = new Set([
+  "meeting:start_at",
+  "meeting:duration_minutes",
+  "meeting:resource_id",
+]);
+const workMeetingArrivalRawKey = "meeting:customer_arrived";
+
 function validateCurrentWorkTaskForm(
   store: StoreLike | undefined,
-  options: { allowMissingRequired?: boolean } = {},
+  options: {
+    allowMissingRequired?: boolean;
+    requireMeetingReservation?: boolean;
+    requireMeetingArrival?: boolean;
+  } = {},
 ): boolean {
-  if (options.allowMissingRequired) return true;
+  if (options.allowMissingRequired) {
+    return options.requireMeetingReservation
+      ? validateCurrentWorkTaskDomainRules(store, {
+          requiredRawKeys: workMeetingReservationRawKeys,
+        })
+      : true;
+  }
   const validateForm = currentWorkStoreState(store)?.validateForm;
   const hostFormValid =
-    typeof validateForm === "function" ? validateForm() : true;
-  const taskFormValid = validateCurrentWorkTaskDomainRules(store);
+    currentWorkTaskRejectsApproval(store) || typeof validateForm !== "function"
+      ? true
+      : validateForm();
+  const taskFormValid = validateCurrentWorkTaskDomainRules(store, {
+    requireMeetingArrival: options.requireMeetingArrival,
+  });
   return hostFormValid && taskFormValid;
 }
 
 function validateCurrentWorkTaskDomainRules(
   store: StoreLike | undefined,
+  options: {
+    requiredRawKeys?: Set<string>;
+    requireMeetingArrival?: boolean;
+  } = {},
 ): boolean {
-  const requiredErrors = currentWorkTaskRequiredErrors(store);
-  if (Object.keys(requiredErrors).length > 0) {
-    setCurrentWorkTaskFormErrors(store, requiredErrors);
+  const errors = currentWorkTaskRequiredErrors(
+    store,
+    options.requiredRawKeys,
+  );
+  if (options.requireMeetingArrival) {
+    Object.assign(errors, currentWorkTaskMeetingArrivalErrors(store));
+  }
+  if (Object.keys(errors).length > 0) {
+    setCurrentWorkTaskFormErrors(store, errors);
     return false;
   }
   return true;
@@ -4060,6 +4214,7 @@ function validateCurrentWorkTaskDomainRules(
 
 function currentWorkTaskRequiredErrors(
   store: StoreLike | undefined,
+  requiredRawKeys?: Set<string>,
 ): Record<string, string> {
   const fields = workStoreValue<WorkTaskFormField[]>(
     store,
@@ -4071,13 +4226,88 @@ function currentWorkTaskRequiredErrors(
     workTaskFormDataPath,
     {},
   );
+  const fieldMap = workStoreValue<Record<string, string>>(
+    store,
+    workTaskFieldMapPath,
+    {},
+  );
+  const rejectsApproval = currentWorkTaskRejectsApproval(store);
   const errors: Record<string, string> = {};
   for (const field of fields) {
     if (!field.required) continue;
+    if (
+      requiredRawKeys &&
+      !requiredRawKeys.has(fieldMap[field.formKey] || "")
+    ) {
+      continue;
+    }
+    if (!workTaskFormFieldVisible(field, values, fieldMap)) continue;
+    if (
+      rejectsApproval &&
+      !workTaskApprovalActionField(fieldMap[field.formKey])
+    ) {
+      continue;
+    }
     if (!workTaskFormValueEmpty(values[field.formKey])) continue;
     errors[`workTaskForm.${field.formKey}`] = `${field.label}不能为空。`;
   }
   return errors;
+}
+
+function currentWorkTaskMeetingArrivalErrors(
+  store: StoreLike | undefined,
+): Record<string, string> {
+  const values = workStoreValue<Record<string, unknown>>(
+    store,
+    workTaskFormDataPath,
+    {},
+  );
+  const fieldMap = workStoreValue<Record<string, string>>(
+    store,
+    workTaskFieldMapPath,
+    {},
+  );
+  const arrivalField = Object.entries(fieldMap).find(
+    ([, rawKey]) => rawKey === workMeetingArrivalRawKey,
+  );
+  if (!arrivalField || workTaskFlagEnabled(values[arrivalField[0]])) {
+    return {};
+  }
+  return {
+    [`workTaskForm.${arrivalField[0]}`]: "请确认客户已到访。",
+  };
+}
+
+function currentWorkTaskRejectsApproval(
+  store: StoreLike | undefined,
+): boolean {
+  const task = workStoreValue<WorkTask | null>(
+    store,
+    "data.actionTarget.workTask",
+    null,
+  );
+  if (!task || !workTaskIsApproval(task)) return false;
+
+  const values = workStoreValue<Record<string, unknown>>(
+    store,
+    workTaskFormDataPath,
+    {},
+  );
+  const fieldMap = workStoreValue<Record<string, string>>(
+    store,
+    workTaskFieldMapPath,
+    {},
+  );
+  const decisionField = Object.entries(fieldMap).find(
+    ([, rawKey]) => rawKey === "approval_result",
+  );
+  return decisionField
+    ? textValue(values[decisionField[0]]) === "rejected"
+    : false;
+}
+
+function workTaskApprovalActionField(rawKey: string | undefined): boolean {
+  return rawKey === "approval_result" || rawKey === "opinion";
 }
 
 function collectWorkTaskSubmitValues(
@@ -4093,8 +4323,20 @@ function collectWorkTaskSubmitValues(
     workTaskFieldMapPath,
     {},
   );
+  const fields = workStoreValue<WorkTaskFormField[]>(
+    store,
+    workTaskFormFieldsPath,
+    [],
+  );
+  const fieldsByFormKey = new Map(
+    fields.map((field) => [field.formKey, field]),
+  );
   return Object.entries(fieldMap).reduce<Record<string, unknown>>(
     (values, [formKey, rawKey]) => {
+      const field = fieldsByFormKey.get(formKey);
+      if (field && !workTaskFormFieldVisible(field, formValues, fieldMap)) {
+        return values;
+      }
       values[rawKey] = formValues[formKey];
       return values;
     },
@@ -4143,7 +4385,7 @@ function workAIFillShouldApply(value: unknown): boolean {
 }
 
 function workTaskCanAIFill(task: WorkTask): boolean {
-  if (!workTaskShouldRenderFields(task)) return false;
+  if (!workTaskIsForm(task) || !workTaskShouldRenderFields(task)) return false;
   return (task.form?.fields || []).some(
     (field) => !workTaskFieldIsUpload(field),
   );

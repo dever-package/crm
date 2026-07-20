@@ -27,6 +27,11 @@ const (
 )
 
 const (
+	TaskActivationStage = "stage"
+	TaskActivationRoute = "route"
+)
+
+const (
 	StageAssignmentAuto   = "auto"
 	StageAssignmentManual = "manual"
 )
@@ -83,14 +88,8 @@ const (
 )
 
 const (
-	DataUsageTypeStat             = "stat"
-	DataUsageTypeFinance          = "finance"
-	DataUsageTypeDisplay          = "display"
-	DataUsageTypeCustomerFollowAt = "customer_follow_at"
-)
-
-const (
 	ScheduleTypeCustomerFollow = "customer_follow"
+	ScheduleTypeMeeting        = "meeting"
 	ScheduleTypePersonal       = "personal"
 )
 
@@ -114,22 +113,6 @@ const (
 )
 
 const (
-	DataUsageValueTypeText      = "text"
-	DataUsageValueTypeNumber    = "number"
-	DataUsageValueTypeAmount    = "amount"
-	DataUsageValueTypeTime      = "time"
-	DataUsageValueTypeStatus    = "status"
-	DataUsageValueTypeDimension = "dimension"
-)
-
-const (
-	DataUsageAggregateCount = "count"
-	DataUsageAggregateSum   = "sum"
-	DataUsageAggregateAvg   = "avg"
-	DataUsageAggregateGroup = "group"
-)
-
-const (
 	DataFieldStatTypeDimension = "dimension"
 	DataFieldStatTypeMetric    = "metric"
 	DataFieldStatTypeAmount    = "amount"
@@ -142,6 +125,15 @@ const (
 const (
 	FinanceDirectionIncome  = "income"
 	FinanceDirectionExpense = "expense"
+)
+
+const (
+	FormFieldVisibleEquals    = "equals"
+	FormFieldVisibleNotEquals = "not_equals"
+	FormFieldVisibleIn        = "in"
+	FormFieldVisibleNotIn     = "not_in"
+	FormFieldVisibleEmpty     = "empty"
+	FormFieldVisibleNotEmpty  = "not_empty"
 )
 
 const (
@@ -204,15 +196,9 @@ var dataFieldStatTypeOptions = []map[string]any{
 	{"id": DataFieldStatTypeText, "value": "文本"},
 }
 
-var dataUsageTypeOptions = []map[string]any{
-	{"id": DataUsageTypeStat, "value": "统计"},
-	{"id": DataUsageTypeFinance, "value": "财务"},
-	{"id": DataUsageTypeDisplay, "value": "展示"},
-	{"id": DataUsageTypeCustomerFollowAt, "value": "客户下次跟进时间"},
-}
-
 var scheduleTypeOptions = []map[string]any{
 	{"id": ScheduleTypeCustomerFollow, "value": "客户跟进"},
+	{"id": ScheduleTypeMeeting, "value": "案件会议"},
 	{"id": ScheduleTypePersonal, "value": "个人日程"},
 }
 
@@ -223,7 +209,7 @@ var scheduleStatusOptions = []map[string]any{
 }
 
 var scheduleSourceOptions = []map[string]any{
-	{"id": ScheduleSourceWorkForm, "value": "签约表单"},
+	{"id": ScheduleSourceWorkForm, "value": "流程表单"},
 	{"id": ScheduleSourceCalendar, "value": "工作台日历"},
 }
 
@@ -243,23 +229,6 @@ func ScheduleReminderOptions() []map[string]any {
 	return result
 }
 
-var dataUsageValueTypeOptions = []map[string]any{
-	{"id": DataUsageValueTypeText, "value": "文本"},
-	{"id": DataUsageValueTypeNumber, "value": "数字"},
-	{"id": DataUsageValueTypeAmount, "value": "金额"},
-	{"id": DataUsageValueTypeTime, "value": "时间"},
-	{"id": DataUsageValueTypeStatus, "value": "状态"},
-	{"id": DataUsageValueTypeDimension, "value": "维度"},
-}
-
-var dataUsageAggregateTypeOptions = []map[string]any{
-	{"id": "", "value": "不聚合"},
-	{"id": DataUsageAggregateCount, "value": "计数"},
-	{"id": DataUsageAggregateSum, "value": "求和"},
-	{"id": DataUsageAggregateAvg, "value": "平均"},
-	{"id": DataUsageAggregateGroup, "value": "分组"},
-}
-
 var financeDirectionOptions = []map[string]any{
 	{"id": FinanceDirectionIncome, "value": "收入"},
 	{"id": FinanceDirectionExpense, "value": "支出"},
@@ -268,6 +237,15 @@ var financeDirectionOptions = []map[string]any{
 var financeLedgerSourceOptions = []map[string]any{
 	{"id": FinanceLedgerSourceForm, "value": "表单"},
 	{"id": FinanceLedgerSourceReverse, "value": "冲正"},
+}
+
+var formFieldVisibleOperatorOptions = []map[string]any{
+	{"id": FormFieldVisibleEquals, "value": "等于"},
+	{"id": FormFieldVisibleNotEquals, "value": "不等于"},
+	{"id": FormFieldVisibleIn, "value": "属于任一值"},
+	{"id": FormFieldVisibleNotIn, "value": "不属于任一值"},
+	{"id": FormFieldVisibleEmpty, "value": "为空"},
+	{"id": FormFieldVisibleNotEmpty, "value": "不为空"},
 }
 
 var statEventTypeOptions = []map[string]any{
@@ -287,6 +265,11 @@ var taskAssigneeModeOptions = []map[string]any{
 	{"id": TaskAssigneeStage, "value": "跟随阶段负责人"},
 	{"id": TaskAssigneeAuto, "value": "自动分配到部门"},
 	{"id": TaskAssigneeManual, "value": "由当前负责人手动分配"},
+}
+
+var taskActivationModeOptions = []map[string]any{
+	{"id": TaskActivationStage, "value": "进入阶段时创建"},
+	{"id": TaskActivationRoute, "value": "由其他任务触发"},
 }
 
 var stageAssignmentModeOptions = []map[string]any{
@@ -567,16 +550,16 @@ var formFieldDataFieldRelation = orm.Relation{
 	OptionKeys: []string{"name", "field_type"},
 }
 
+var formFieldVisibleWhenFieldRelation = orm.Relation{
+	Field:      "visible_when_field_id",
+	Option:     "crm.NewDataFieldModel",
+	OptionKeys: []string{"name", "field_key", "field_type"},
+}
+
 var dataRecordRelation = orm.Relation{
 	Field:      "data_record_id",
 	Option:     "crm.NewDataRecordModel",
 	OptionKeys: []string{"summary", "status"},
-}
-
-var dataUsageFieldIDRelation = orm.Relation{
-	Field:      "data_usage_field_id",
-	Option:     "crm.NewDataUsageFieldModel",
-	OptionKeys: []string{"usage_id", "data_template_id", "data_field_id", "display_name"},
 }
 
 var scheduleEventRelation = orm.Relation{

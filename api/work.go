@@ -38,6 +38,15 @@ func (Work) GetMe(c *server.Context) error {
 	return crmJSON(c, data, err)
 }
 
+func (Work) PostChangePassword(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.ChangePassword(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
 func (Work) GetNavigation(c *server.Context) error {
 	data, err := workService.Navigation(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
 	return crmJSON(c, data, err)
@@ -224,6 +233,15 @@ func (Work) PostReadScheduleReminder(c *server.Context) error {
 		return c.Error(err)
 	}
 	data, err := workService.ReadScheduleReminder(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostCheckInSchedule(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.CheckInSchedule(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
 	return crmJSON(c, data, err)
 }
 

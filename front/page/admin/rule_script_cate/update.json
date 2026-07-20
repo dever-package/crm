@@ -51,28 +51,14 @@
         "meta": {
           "formLayout": "horizontal"
         }
-      },
-      {
-        "type": "form-radio",
-        "value": "form.status",
-        "mode": "form",
-        "option": "option.status",
-        "meta": {
-          "formLayout": "horizontal"
-        }
-      },
-      {
-        "type": "form-number",
-        "value": "form.sort",
-        "mode": "form",
-        "meta": {
-          "formLayout": "horizontal"
-        }
       }
     ]
   },
   "data": {
     "form": {
+      "_fields": [
+        "name"
+      ],
       "id": "",
       "name": "",
       "status": 1,

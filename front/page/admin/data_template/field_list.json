@@ -56,6 +56,8 @@
                 "field_key": "",
                 "field_type": "text",
                 "default_value": "",
+                "finance_type_id": "",
+                "stat_enabled": false,
                 "option_source": "custom",
                 "option_set_id": "",
                 "children": [],
@@ -79,6 +81,7 @@
         "value": "parent.data.form.fields",
         "meta": {
           "rowKey": "id",
+          "pageSizePath": "parent.data.form.fields.length",
           "columns": [
             {
               "name": "字段名称",
@@ -271,6 +274,8 @@
       "field_key": "",
       "field_type": "text",
       "default_value": "",
+      "finance_type_id": "",
+      "stat_enabled": false,
       "option_source": "custom",
       "option_set_id": "",
       "children": [],

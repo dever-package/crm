@@ -187,14 +187,15 @@ func adminSummaryBusiness(ctx context.Context, query AdminSummaryQuery, rangeVal
 	funnelRows := adminSummaryStageFunnel(events, stages, query.WorkflowID, rangeValue)
 
 	return map[string]any{
-		"metrics":         adminSummaryBusinessMetrics(instances, activeInstances, pendingTodos, rangeValue),
-		"growth_trend":    trendRows,
-		"execution_trend": trendRows,
-		"funnel":          funnelRows,
-		"pipeline_funnel": funnelRows,
-		"node_backlog":    adminSummaryNodeBacklog(ctx, activeInstances, stages, pendingTodos),
-		"task_breakdown":  adminSummaryTaskBreakdown(pendingTodos, taskByID),
-		"probe_summary":   adminSummaryProbeSummary(ctx, assets, query.WorkflowID),
+		"metrics":          adminSummaryBusinessMetrics(instances, activeInstances, pendingTodos, rangeValue),
+		"growth_trend":     trendRows,
+		"execution_trend":  trendRows,
+		"funnel":           funnelRows,
+		"pipeline_funnel":  funnelRows,
+		"node_backlog":     adminSummaryNodeBacklog(ctx, activeInstances, stages, pendingTodos),
+		"task_breakdown":   adminSummaryTaskBreakdown(pendingTodos, taskByID),
+		"probe_summary":    adminSummaryProbeSummary(ctx, assets, query.WorkflowID),
+		"field_statistics": adminSummaryFieldStatistics(ctx, query, rangeValue),
 	}
 }
 

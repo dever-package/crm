@@ -25,19 +25,19 @@ func SyncExistingCustomerFollowSchedules(ctx context.Context, apply bool) (Custo
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	binding, err := resolveCustomerFollowFieldBinding(ctx)
+	templateID, fieldID, err := legacyCustomerFollowField(ctx)
 	if err != nil {
 		return CustomerFollowScheduleSyncResult{}, err
 	}
 	result := CustomerFollowScheduleSyncResult{
 		Applied:    apply,
-		TemplateID: binding.TemplateID,
-		FieldID:    binding.FieldID,
+		TemplateID: templateID,
+		FieldID:    fieldID,
 	}
 	run := func(runCtx context.Context) error {
 		seenCustomers := map[uint64]bool{}
 		records := crmmodel.NewDataRecordModel().Select(runCtx, map[string]any{
-			"data_template_id":     binding.TemplateID,
+			"data_template_id":     templateID,
 			"asset_id":             uint64(0),
 			"workflow_instance_id": uint64(0),
 			"customer_product_id":  uint64(0),
@@ -49,7 +49,7 @@ func SyncExistingCustomerFollowSchedules(ctx context.Context, apply bool) (Custo
 			}
 			seenCustomers[record.CustomerID] = true
 			result.ScannedCustomers++
-			value, exists := customerFollowSubmittedValue(mapFromAny(record.RecordJSON), binding.FieldID)
+			value, exists := mapFromAny(record.RecordJSON)[fmt.Sprintf("%d", fieldID)]
 			if !exists || emptyWorkFieldValue(value) {
 				result.SkippedEmpty++
 				continue
@@ -104,14 +104,11 @@ func SyncExistingCustomerFollowSchedules(ctx context.Context, apply bool) (Custo
 				OperatorStaffID:          ownerStaffID,
 				OperatorDepartmentID:     ownerDepartmentID,
 				SourceWorkflowInstanceID: workflowInstanceID,
-				DataRecordID:             record.ID,
-				Binding:                  binding,
 				Title:                    customerFollowDefaultTitle(runCtx, record.CustomerID),
 				StartAt:                  startAt,
 				EndAt:                    endAt,
 				ReminderMinutes:          reminderMinutes,
 				Source:                   crmmodel.ScheduleSourceWorkForm,
-				WriteCustomerTime:        false,
 				SkipOperation:            true,
 			}); arrangeErr != nil {
 				return arrangeErr
@@ -125,4 +122,26 @@ func SyncExistingCustomerFollowSchedules(ctx context.Context, apply bool) (Custo
 	}
 	err = orm.Transaction(ctx, run)
 	return result, err
+}
+
+func legacyCustomerFollowField(ctx context.Context) (uint64, uint64, error) {
+	fields := crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
+		"field_key":  "next_follow_at",
+		"field_type": "datetime",
+		"status":     crmmodel.StatusEnabled,
+	})
+	for _, field := range fields {
+		if field == nil {
+			continue
+		}
+		template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{
+			"id":      field.DataTemplateID,
+			"cate_id": crmmodel.CustomerDataTemplateCateID,
+			"status":  crmmodel.StatusEnabled,
+		})
+		if template != nil {
+			return template.ID, field.ID, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("未找到旧版客户下次跟进时间字段")
 }

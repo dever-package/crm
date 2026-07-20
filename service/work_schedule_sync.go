@@ -13,67 +13,81 @@ const (
 	defaultScheduleDuration        = 30 * time.Minute
 	defaultScheduleReminderMinutes = crmmodel.ScheduleReminder30Min
 	customerFollowTimeLayout       = "2006-01-02 15:04:05"
+	workCustomerFollowKey          = "follow_up:start_at"
 )
 
-type customerFollowFieldBinding struct {
-	UsageID      uint64
-	UsageFieldID uint64
-	TemplateID   uint64
-	FieldID      uint64
+func workCustomerFollowFormFields() []map[string]any {
+	return []map[string]any{
+		{
+			"id":          workCustomerFollowKey,
+			"field_key":   workCustomerFollowKey,
+			"field_type":  "datetime",
+			"name":        "下次跟进时间",
+			"required":    false,
+			"readonly":    false,
+			"group_key":   "system_customer_follow",
+			"group_label": "客户跟进",
+			"sort":        10,
+		},
+	}
 }
 
-func resolveCustomerFollowFieldBinding(ctx context.Context) (*customerFollowFieldBinding, error) {
-	bindings := workDataUsageFieldsByType(ctx, crmmodel.DataUsageTypeCustomerFollowAt)
-	if len(bindings) == 0 {
-		return nil, fmt.Errorf("请先在系统用途中绑定客户下次跟进时间字段")
+func syncWorkCustomerFollowFromTaskForm(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	todo *crmmodel.WorkTodo,
+	task *crmmodel.Task,
+	values map[string]any,
+	operationID uint64,
+) error {
+	if task == nil || !task.CustomerFollowEnabled {
+		return nil
 	}
-	if len(bindings) != 1 || bindings[0] == nil {
-		return nil, fmt.Errorf("客户下次跟进时间只能绑定一个启用字段")
+	if staff == nil || staff.ID == 0 || todo == nil || todo.CustomerID == 0 {
+		return fmt.Errorf("客户跟进缺少任务、客户或办理人员")
 	}
-	usageField := bindings[0]
-	field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-		"id":     usageField.DataFieldID,
-		"status": crmmodel.StatusEnabled,
-	})
-	if field == nil || field.FieldType != "datetime" {
-		return nil, fmt.Errorf("客户下次跟进时间必须绑定启用的日期时间字段")
-	}
-	template := crmmodel.NewDataTemplateModel().Find(ctx, map[string]any{
-		"id":     field.DataTemplateID,
-		"status": crmmodel.StatusEnabled,
-	})
-	if template == nil || template.CateID != crmmodel.CustomerDataTemplateCateID {
-		return nil, fmt.Errorf("客户下次跟进时间必须绑定客户信息模板字段")
-	}
-	return &customerFollowFieldBinding{
-		UsageID:      usageField.UsageID,
-		UsageFieldID: usageField.ID,
-		TemplateID:   template.ID,
-		FieldID:      field.ID,
-	}, nil
-}
-
-func customerFollowBindingForTemplate(ctx context.Context, templateID uint64) (*customerFollowFieldBinding, error) {
-	bindings := workDataUsageFieldsByType(ctx, crmmodel.DataUsageTypeCustomerFollowAt)
-	if len(bindings) == 0 {
-		return nil, nil
-	}
-	binding, err := resolveCustomerFollowFieldBinding(ctx)
+	startAt, err := parseScheduleTime(values[workCustomerFollowKey])
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("下次跟进时间无效：%w", err)
 	}
-	if binding.TemplateID != templateID {
-		return nil, nil
+	existing := findPendingCustomerFollowEvent(ctx, todo.CustomerID)
+	if startAt.IsZero() {
+		if existing == nil {
+			return nil
+		}
+		return cancelScheduleEvent(ctx, existing, staff.ID, staff.DepartmentID, "任务已清空下次跟进时间")
 	}
-	return binding, nil
-}
-
-func customerFollowSubmittedValue(record map[string]any, fieldID uint64) (any, bool) {
-	if fieldID == 0 || len(record) == 0 {
-		return nil, false
+	ownerStaffID, _ := customerFollowOperator(ctx, workDataOwnership{
+		CustomerID:         todo.CustomerID,
+		AssetID:            todo.AssetID,
+		WorkflowInstanceID: todo.WorkflowInstanceID,
+		CustomerProductID:  todo.CustomerProductID,
+	}, operationID)
+	if ownerStaffID == 0 {
+		ownerStaffID = staff.ID
 	}
-	value, exists := record[fmt.Sprintf("%d", fieldID)]
-	return value, exists
+	endAt := startAt.Add(defaultScheduleDuration)
+	reminderMinutes := defaultScheduleReminderMinutes
+	if existing != nil {
+		if duration := existing.EndAt.Sub(existing.StartAt); duration > 0 {
+			endAt = startAt.Add(duration)
+		}
+		reminderMinutes = existing.ReminderMinutes
+	}
+	_, err = arrangeCustomerFollow(ctx, scheduleArrangeInput{
+		CustomerID:               todo.CustomerID,
+		OwnerStaffID:             ownerStaffID,
+		OperatorStaffID:          staff.ID,
+		OperatorDepartmentID:     staff.DepartmentID,
+		SourceWorkflowInstanceID: todo.WorkflowInstanceID,
+		Title:                    customerFollowDefaultTitle(ctx, todo.CustomerID),
+		StartAt:                  startAt,
+		EndAt:                    endAt,
+		ReminderMinutes:          reminderMinutes,
+		Source:                   crmmodel.ScheduleSourceWorkForm,
+		TaskID:                   task.ID,
+	})
+	return err
 }
 
 func parseScheduleTime(value any) (time.Time, error) {
@@ -136,87 +150,6 @@ func validScheduleReminderMinutes(value int) bool {
 
 func scheduleReminderAt(startAt time.Time, reminderMinutes int) time.Time {
 	return startAt.Add(-time.Duration(reminderMinutes) * time.Minute)
-}
-
-func customerFollowDataRecord(ctx context.Context, binding *customerFollowFieldBinding, customerID uint64, recordID uint64) *crmmodel.DataRecord {
-	if binding == nil || customerID == 0 {
-		return nil
-	}
-	model := crmmodel.NewDataRecordModel()
-	if recordID > 0 {
-		if record := model.Find(ctx, map[string]any{
-			"id":               recordID,
-			"customer_id":      customerID,
-			"data_template_id": binding.TemplateID,
-			"status":           crmmodel.StatusEnabled,
-		}); record != nil {
-			return record
-		}
-	}
-	return model.Find(ctx, workDataRecordOwnershipFilter(workDataOwnership{CustomerID: customerID}, binding.TemplateID))
-}
-
-func writeCustomerFollowTime(
-	ctx context.Context,
-	binding *customerFollowFieldBinding,
-	customerID uint64,
-	recordID uint64,
-	startAt time.Time,
-	taskID uint64,
-	operationID uint64,
-) (uint64, error) {
-	if binding == nil || customerID == 0 {
-		return 0, fmt.Errorf("客户跟进字段或客户不能为空")
-	}
-	if crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": customerID}) == nil {
-		return 0, fmt.Errorf("客户不存在")
-	}
-	now := time.Now()
-	fieldKey := fmt.Sprintf("%d", binding.FieldID)
-	value := customerFollowTimeValue(startAt)
-	model := crmmodel.NewDataRecordModel()
-	record := customerFollowDataRecord(ctx, binding, customerID, recordID)
-	data := map[string]any{
-		"customer_id":          customerID,
-		"asset_id":             uint64(0),
-		"workflow_instance_id": uint64(0),
-		"customer_product_id":  uint64(0),
-		"data_template_id":     binding.TemplateID,
-		"task_id":              taskID,
-		"operation_log_id":     operationID,
-		"summary":              "",
-		"status":               crmmodel.StatusEnabled,
-		"sort":                 100,
-		"updated_at":           now,
-	}
-	values := map[string]any{}
-	if record != nil {
-		values = mapFromAny(record.RecordJSON)
-	}
-	values[fieldKey] = value
-	data["record_json"] = jsonText(values)
-	if record != nil {
-		if model.Update(ctx, map[string]any{"id": record.ID}, data) == 0 {
-			return 0, fmt.Errorf("客户跟进时间更新失败")
-		}
-		recordID = record.ID
-	} else {
-		data["created_at"] = now
-		recordID = uint64(model.Insert(ctx, data))
-		if recordID == 0 {
-			return 0, fmt.Errorf("客户跟进资料创建失败")
-		}
-	}
-	syncWorkStatFieldValues(
-		ctx,
-		workDataOwnership{CustomerID: customerID},
-		binding.TemplateID,
-		taskID,
-		operationID,
-		map[string]any{fieldKey: value},
-		now,
-	)
-	return recordID, nil
 }
 
 func customerFollowOperator(ctx context.Context, ownership workDataOwnership, operationID uint64) (uint64, uint64) {

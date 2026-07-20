@@ -26,6 +26,10 @@
         "type": "main",
         "className": "p-0",
         "children": {
+          "tabs-row": {
+            "type": "container",
+            "className": "mb-4"
+          },
           "dialog-shell": {
             "type": "container",
             "className": "w-full"
@@ -35,6 +39,29 @@
     }
   },
   "nodes": {
+    "tabs-row": [
+      {
+        "type": "nav-tab",
+        "meta": {
+          "target": "state.currentTab",
+          "variant": "line",
+          "tabs": [
+            {
+              "label": "基础信息",
+              "value": "basic"
+            },
+            {
+              "label": "流程控制",
+              "value": "flow"
+            },
+            {
+              "label": "业务能力",
+              "value": "capability"
+            }
+          ]
+        }
+      }
+    ],
     "dialog-shell": [
       {
         "type": "form-input",
@@ -48,7 +75,8 @@
           }
         ],
         "meta": {
-          "formLayout": "horizontal"
+          "formLayout": "horizontal",
+          "tab": "basic"
         }
       },
       {
@@ -64,9 +92,12 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "tab": "basic",
           "clearOnChange": [
             "form.form_id",
-            "form.script_id"
+            "form.script_id",
+            "form.meeting_enabled",
+            "form.customer_follow_enabled"
           ]
         }
       },
@@ -89,11 +120,18 @@
         },
         "meta": {
           "formLayout": "horizontal",
+          "tab": "basic",
+          "hiddenCondition": "all",
           "hiddenWhen": [
             {
               "path": "form.task_type",
               "operator": "notEquals",
               "value": "form"
+            },
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "approval"
             }
           ]
         }
@@ -117,6 +155,7 @@
         },
         "meta": {
           "formLayout": "horizontal",
+          "tab": "basic",
           "hiddenWhen": [
             {
               "path": "form.task_type",
@@ -133,6 +172,7 @@
         "mode": "form",
         "meta": {
           "formLayout": "horizontal",
+          "tab": "basic",
           "trueValue": true,
           "falseValue": false
         }
@@ -150,6 +190,7 @@
         ],
         "meta": {
           "formLayout": "horizontal",
+          "tab": "basic",
           "clearOnChange": [
             "form.assignee_department_id"
           ]
@@ -174,6 +215,7 @@
         },
         "meta": {
           "formLayout": "horizontal",
+          "tab": "basic",
           "hiddenWhen": [
             {
               "path": "form.assignee_mode",
@@ -190,30 +232,151 @@
         "mode": "form",
         "meta": {
           "formLayout": "horizontal",
+          "tab": "basic",
           "min": 0,
           "step": 1
         }
       },
       {
-        "type": "form-number",
-        "name": "排序",
-        "value": "form.sort",
+        "type": "form-radio",
+        "name": "创建方式",
+        "value": "form.activation_mode",
         "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "请选择任务创建方式。"
+          }
+        ],
         "meta": {
           "formLayout": "horizontal",
-          "min": 0,
-          "step": 10
+          "tab": "flow"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "适用条件",
+        "value": "form.condition_script_id",
+        "placeholder": "不选则全部创建",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewRuleScriptModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": 1
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "flow"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "驳回后回到",
+        "value": "form.reject_target_task_id",
+        "placeholder": "不选则保留当前审核",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewTaskModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": 1
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "flow",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "approval"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "完成后触发",
+        "value": "form.complete_target_task_id",
+        "placeholder": "不选则正常推进",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewTaskModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": 1
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "flow"
         }
       },
       {
         "type": "form-switch",
-        "name": "启用",
-        "value": "form.status",
+        "name": "预约会议",
+        "value": "form.meeting_enabled",
         "mode": "form",
         "meta": {
           "formLayout": "horizontal",
-          "trueValue": 1,
-          "falseValue": 2
+          "tab": "capability",
+          "trueValue": true,
+          "falseValue": false,
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "form"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-switch",
+        "name": "下次跟进",
+        "value": "form.customer_follow_enabled",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "capability",
+          "trueValue": true,
+          "falseValue": false,
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "form"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-switch",
+        "name": "负责人参会",
+        "value": "form.include_in_meeting",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "capability",
+          "trueValue": true,
+          "falseValue": false
         }
       }
     ]
@@ -229,9 +392,14 @@
         "assignee_department_id",
         "form_id",
         "script_id",
-        "due_days",
-        "sort",
-        "status"
+        "activation_mode",
+        "condition_script_id",
+        "reject_target_task_id",
+        "complete_target_task_id",
+        "meeting_enabled",
+        "customer_follow_enabled",
+        "include_in_meeting",
+        "due_days"
       ],
       "stage_id": "",
       "name": "",
@@ -241,12 +409,21 @@
       "assignee_department_id": "",
       "form_id": "",
       "script_id": "",
+      "activation_mode": "stage",
+      "condition_script_id": "",
+      "reject_target_task_id": "",
+      "complete_target_task_id": "",
+      "meeting_enabled": false,
+      "customer_follow_enabled": false,
+      "include_in_meeting": false,
       "due_days": 0,
       "sort": 100,
       "status": 1
     }
   },
-  "state": {},
+  "state": {
+    "currentTab": "basic"
+  },
   "action": {
     "submit": {
       "type": "save",

@@ -8,6 +8,7 @@ import (
 
 type StatFieldValue struct {
 	ID                 uint64    `dorm:"primaryKey;autoIncrement;comment:统计字段值ID"`
+	LeadID             uint64    `dorm:"type:bigint;not null;default:0;comment:线索"`
 	CustomerID         uint64    `dorm:"type:bigint;not null;comment:客户"`
 	AssetID            uint64    `dorm:"type:bigint;not null;default:0;comment:客户资产"`
 	WorkflowInstanceID uint64    `dorm:"type:bigint;not null;default:0;comment:流程实例"`
@@ -33,7 +34,8 @@ type StatFieldValue struct {
 }
 
 type StatFieldValueIndex struct {
-	OwnerDataField struct{} `unique:"customer_id,asset_id,workflow_instance_id,data_field_id"`
+	OwnerDataField struct{} `unique:"lead_id,customer_id,asset_id,workflow_instance_id,data_field_id"`
+	LeadTime       struct{} `index:"lead_id,updated_at,id"`
 	OwnerField     struct{} `index:"customer_id,asset_id,workflow_instance_id,field_key"`
 	CustomerTime   struct{} `index:"customer_id,updated_at,id"`
 	AssetTime      struct{} `index:"asset_id,updated_at,id"`
@@ -62,6 +64,7 @@ func NewStatFieldValueModel() *orm.Model[StatFieldValue] {
 			"status": statusOptions,
 		},
 		Relations: []orm.Relation{
+			leadRelation,
 			customerRelation,
 			assetRelation,
 			workflowInstanceRelation,

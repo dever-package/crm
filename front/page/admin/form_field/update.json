@@ -81,6 +81,72 @@
           "controlClassName": "min-w-[9.5rem]",
           "service": "crm.setting.OptionService.LoadFormFieldCascaderOptions"
         }
+      },
+      {
+        "type": "form-select",
+        "name": "显示条件字段",
+        "value": "form.visible_when_field_id",
+        "placeholder": "不选择则始终显示",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewDataFieldModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 500,
+          "searchFields": [
+            "name",
+            "field_key"
+          ],
+          "filters": {
+            "status": 1
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "显示条件",
+        "value": "form.visible_when_operator",
+        "placeholder": "请选择显示条件",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "hiddenWhen": [
+            {
+              "path": "form.visible_when_field_id",
+              "operator": "empty"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-input",
+        "name": "条件值",
+        "value": "form.visible_when_value",
+        "placeholder": "多个值可用英文逗号分隔",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.visible_when_field_id",
+              "operator": "empty"
+            },
+            {
+              "path": "form.visible_when_operator",
+              "operator": "equals",
+              "value": "empty"
+            },
+            {
+              "path": "form.visible_when_operator",
+              "operator": "equals",
+              "value": "not_empty"
+            }
+          ]
+        }
       }
     ]
   },
@@ -91,6 +157,9 @@
         "field_path",
         "required",
         "name",
+        "visible_when_field_id",
+        "visible_when_operator",
+        "visible_when_value",
         "sort"
       ],
       "service": "crm.setting.CrmHook.BuildFormFieldForm",
@@ -99,6 +168,9 @@
       "field_path": [],
       "required": true,
       "name": "",
+      "visible_when_field_id": "",
+      "visible_when_operator": "equals",
+      "visible_when_value": "",
       "sort": 100
     }
   },

@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import {
   ClipboardList,
-  Ellipsis,
   Eye,
   RefreshCw,
   ShieldCheck,
@@ -13,6 +12,7 @@ import { Button } from "@/components/ui/button";
 
 import {
   displayText,
+  formatWorkDate,
   type WorkCustomerMode,
   type WorkCustomerScope,
   type WorkFlowDetail,
@@ -47,6 +47,10 @@ export type WorkCustomerListRowView = {
   ownerName: string;
   stageDays: number;
   lastOperatedAt: string;
+  processedTaskName: string;
+  processedResult: string;
+  processedContent: string;
+  processedAt: string;
   flow: WorkFlowDetail | null;
   tasks: WorkCustomerListTaskView[];
 };
@@ -77,6 +81,7 @@ type WorkCustomerListViewProps = {
 const modeOptions: Array<{ value: WorkCustomerMode; label: string }> = [
   { value: "all", label: "全部" },
   { value: "pending", label: "待处理" },
+  { value: "processed", label: "已处理" },
   { value: "done", label: "已结束" },
 ];
 
@@ -117,7 +122,7 @@ export function WorkCustomerListView({
           onChange={onModeChange}
         />
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          {canDispatch ? (
+          {canDispatch && mode !== "processed" ? (
             <WorkCustomerScopeToggle scope={scope} onChange={onScopeChange} />
           ) : null}
           <Button
@@ -138,6 +143,7 @@ export function WorkCustomerListView({
         <div className="md:hidden">
           <WorkCustomerMobileList
             rows={rows}
+            mode={mode}
             loading={initialLoading}
             emptyTitle={emptyTitle}
             emptyDescription={emptyDescription}
@@ -161,7 +167,9 @@ export function WorkCustomerListView({
                 <WorkCustomerTableHead>客户</WorkCustomerTableHead>
                 <WorkCustomerTableHead>房产/资产</WorkCustomerTableHead>
                 <WorkCustomerTableHead>流程阶段</WorkCustomerTableHead>
-                <WorkCustomerTableHead>当前待办</WorkCustomerTableHead>
+                <WorkCustomerTableHead>
+                  {mode === "processed" ? "最近处理" : "当前待办"}
+                </WorkCustomerTableHead>
                 <WorkCustomerTableHead className="text-right">
                   操作
                 </WorkCustomerTableHead>
@@ -184,6 +192,7 @@ export function WorkCustomerListView({
                   <WorkCustomerTableRow
                     key={row.id}
                     row={row}
+                    mode={mode}
                     onOpenDetail={onOpenDetail}
                     onOpenTask={onOpenTask}
                     onOpenReassign={(row) => setReassignFlow(row.flow)}
@@ -265,30 +274,11 @@ function WorkCustomerListStyles() {
         border-bottom: 0;
       }
 
-      .crm-customer-task-menu {
-        width: 224px;
-      }
-
-      .crm-customer-task-menu-trigger::-webkit-details-marker {
-        display: none;
-      }
-
       .crm-customer-two-line {
         display: -webkit-box;
         overflow: hidden;
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 2;
-      }
-
-      @media (max-width: 767px) {
-        .crm-customer-task-menu-trigger {
-          height: 2.75rem;
-          width: 2.75rem;
-        }
-
-        .crm-customer-task-menu {
-          top: 3rem;
-        }
       }
     `}</style>
   );
@@ -395,11 +385,13 @@ function WorkCustomerTableState({
 
 function WorkCustomerTableRow({
   row,
+  mode,
   onOpenDetail,
   onOpenTask,
   onOpenReassign,
 }: {
   row: WorkCustomerListRowView;
+  mode: WorkCustomerMode;
   onOpenDetail: (row: WorkCustomerListRowView) => void;
   onOpenTask: (
     row: WorkCustomerListRowView,
@@ -471,6 +463,8 @@ function WorkCustomerTableRow({
       </td>
       <td className="px-3 py-3">
         <WorkCustomerTaskSummary
+          row={row}
+          mode={mode}
           primaryTask={summaryTask}
           ruleTask={ruleTask}
           total={row.tasks.length}
@@ -484,6 +478,7 @@ function WorkCustomerTableRow({
           onOpenDetail={onOpenDetail}
           onOpenTask={onOpenTask}
           onOpenReassign={onOpenReassign}
+          allowReassign={mode !== "processed"}
         />
       </td>
     </tr>
@@ -491,14 +486,32 @@ function WorkCustomerTableRow({
 }
 
 function WorkCustomerTaskSummary({
+  row,
+  mode,
   primaryTask,
   ruleTask,
   total,
 }: {
+  row: WorkCustomerListRowView;
+  mode: WorkCustomerMode;
   primaryTask?: WorkCustomerListTaskView;
   ruleTask?: WorkCustomerListTaskView;
   total: number;
 }) {
+  if (mode === "processed" && row.processedTaskName) {
+    return (
+      <div className="min-w-0">
+        <div className="crm-customer-two-line font-medium text-foreground">
+          {row.processedTaskName}
+        </div>
+        <div className="mt-1 crm-customer-two-line text-xs text-muted-foreground">
+          {displayText(row.processedContent || row.processedResult, "已完成")}
+          <span className="mx-1.5">·</span>
+          {formatWorkDate(row.processedAt)}
+        </div>
+      </div>
+    );
+  }
   if (primaryTask) {
     return (
       <div className="min-w-0">
@@ -538,55 +551,12 @@ function workCustomerTaskGroups(row: WorkCustomerListRowView) {
   };
 }
 
-function WorkCustomerTaskMenu({
-  row,
-  tasks,
-  onOpenTask,
-}: {
-  row: WorkCustomerListRowView;
-  tasks: WorkCustomerListTaskView[];
-  onOpenTask: (
-    row: WorkCustomerListRowView,
-    task: WorkCustomerListTaskView,
-  ) => void;
-}) {
-  if (tasks.length === 0) return null;
-  return (
-    <details className="relative">
-      <summary
-        className="crm-customer-task-menu-trigger inline-flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        aria-label={`还有 ${tasks.length} 项任务`}
-        title={`还有 ${tasks.length} 项任务`}
-      >
-        <Ellipsis className="h-4 w-4" />
-      </summary>
-      <div className="crm-customer-task-menu absolute right-0 top-10 z-50 overflow-hidden rounded-md border border-border bg-background p-1 shadow-lg">
-        {tasks.map((task) => (
-          <Button
-            type="button"
-            key={task.key}
-            variant="ghost"
-            className="h-auto w-full min-w-0 flex-col items-stretch gap-0 px-3 py-2 text-left text-sm font-normal"
-            onClick={() => onOpenTask(row, task)}
-          >
-            <span className="block truncate font-medium">{task.label}</span>
-            {task.result ? (
-              <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                {task.result}
-              </span>
-            ) : null}
-          </Button>
-        ))}
-      </div>
-    </details>
-  );
-}
-
 function WorkCustomerRowActions({
   row,
   primaryTask,
   extraTasks,
   mobile = false,
+  allowReassign = true,
   onOpenDetail,
   onOpenTask,
   onOpenReassign,
@@ -595,6 +565,7 @@ function WorkCustomerRowActions({
   primaryTask?: WorkCustomerListTaskView;
   extraTasks: WorkCustomerListTaskView[];
   mobile?: boolean;
+  allowReassign?: boolean;
   onOpenDetail: (row: WorkCustomerListRowView) => void;
   onOpenTask: (
     row: WorkCustomerListRowView,
@@ -602,11 +573,12 @@ function WorkCustomerRowActions({
   ) => void;
   onOpenReassign: (row: WorkCustomerListRowView) => void;
 }) {
-  const canReassign = Boolean(row.flow?.can_change_owner);
-  const primaryClassName = mobile
-    ? "min-h-11 min-w-0 flex-1 px-3"
+  const canReassign = allowReassign && Boolean(row.flow?.can_change_owner);
+  const taskButtons = primaryTask ? [primaryTask, ...extraTasks] : extraTasks;
+  const taskClassName = mobile
+    ? "min-h-11 min-w-[8.5rem] flex-1 px-3"
     : "min-w-0 max-w-[9rem]";
-  const mobileDetailClassName = primaryTask
+  const mobileDetailClassName = taskButtons.length > 0
     ? "min-h-11 shrink-0 px-3"
     : canReassign
       ? "min-h-11 min-w-0 flex-1 px-3"
@@ -615,22 +587,23 @@ function WorkCustomerRowActions({
 
   return (
     <div
-      className={`flex items-center justify-end gap-1.5 ${mobile ? "w-full" : "flex-wrap"}`}
+      className={`crm-customer-row-actions flex flex-wrap items-center justify-end gap-1.5 ${mobile ? "w-full" : ""}`}
       onClick={(event) => event.stopPropagation()}
     >
-      {primaryTask ? (
+      {taskButtons.map((task) => (
         <Button
           type="button"
+          key={task.key}
           variant="outline"
           size="sm"
-          className={primaryClassName}
-          title={primaryTask.label}
-          onClick={() => onOpenTask(row, primaryTask)}
+          className={taskClassName}
+          title={task.label}
+          onClick={() => onOpenTask(row, task)}
         >
           <ClipboardList className="h-4 w-4 shrink-0" />
-          <span className="min-w-0 truncate">{primaryTask.label}</span>
+          <span className="min-w-0 truncate">{task.label}</span>
         </Button>
-      ) : null}
+      ))}
       {canReassign ? (
         <Button
           type="button"
@@ -653,17 +626,13 @@ function WorkCustomerRowActions({
         <Eye className="h-4 w-4" />
         详情
       </Button>
-      <WorkCustomerTaskMenu
-        row={row}
-        tasks={extraTasks}
-        onOpenTask={onOpenTask}
-      />
     </div>
   );
 }
 
 function WorkCustomerMobileList({
   rows,
+  mode,
   loading,
   emptyTitle,
   emptyDescription,
@@ -672,6 +641,7 @@ function WorkCustomerMobileList({
   onOpenReassign,
 }: {
   rows: WorkCustomerListRowView[];
+  mode: WorkCustomerMode;
   loading: boolean;
   emptyTitle: string;
   emptyDescription: string;
@@ -737,13 +707,24 @@ function WorkCustomerMobileList({
                 </div>
               ) : null}
               <div className="mt-2">
-                <span className="mr-2 text-xs text-muted-foreground">当前待办</span>
+                <span className="mr-2 text-xs text-muted-foreground">
+                  {mode === "processed" ? "最近处理" : "当前待办"}
+                </span>
                 <span className="text-foreground">
-                  {primaryTask?.label ||
+                  {mode === "processed"
+                    ? row.processedTaskName || "暂无处理记录"
+                    : primaryTask?.label ||
                     summaryTask?.label ||
                     ruleTask?.label ||
                     "暂无待办"}
                 </span>
+                {mode === "processed" ? (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {displayText(row.processedContent || row.processedResult, "已完成")}
+                    <span className="mx-1.5">·</span>
+                    {formatWorkDate(row.processedAt)}
+                  </div>
+                ) : null}
               </div>
             </button>
             <WorkCustomerRowActions
@@ -754,6 +735,7 @@ function WorkCustomerMobileList({
               onOpenDetail={onOpenDetail}
               onOpenTask={onOpenTask}
               onOpenReassign={onOpenReassign}
+              allowReassign={mode !== "processed"}
             />
           </article>
         );

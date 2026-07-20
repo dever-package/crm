@@ -16,8 +16,6 @@ type scheduleArrangeInput struct {
 	OperatorStaffID          uint64
 	OperatorDepartmentID     uint64
 	SourceWorkflowInstanceID uint64
-	DataRecordID             uint64
-	Binding                  *customerFollowFieldBinding
 	Title                    string
 	Remark                   string
 	StartAt                  time.Time
@@ -28,7 +26,6 @@ type scheduleArrangeInput struct {
 	ResourceIDs              []uint64
 	ReplaceParticipants      bool
 	ReplaceResources         bool
-	WriteCustomerTime        bool
 	SkipOperation            bool
 	TaskID                   uint64
 }
@@ -65,10 +62,6 @@ func (WorkService) ScheduleCalendar(ctx context.Context, staff *WorkStaffSession
 			if existingEvent != nil && !canEditScheduleEvent(txCtx, staff, existingEvent) {
 				return fmt.Errorf("无权修改该客户跟进日程")
 			}
-			binding, bindErr := resolveCustomerFollowFieldBinding(txCtx)
-			if bindErr != nil {
-				return bindErr
-			}
 			instance := currentWorkTargetInstance(txCtx, staff, customerID, 0)
 			fallbackOwnerStaffID := staff.ID
 			workflowInstanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId")
@@ -94,7 +87,6 @@ func (WorkService) ScheduleCalendar(ctx context.Context, staff *WorkStaffSession
 				OperatorStaffID:          staff.ID,
 				OperatorDepartmentID:     staff.DepartmentID,
 				SourceWorkflowInstanceID: workflowInstanceID,
-				Binding:                  binding,
 				Title:                    firstText(payload, "title"),
 				Remark:                   firstText(payload, "remark"),
 				StartAt:                  startAt,
@@ -105,7 +97,6 @@ func (WorkService) ScheduleCalendar(ctx context.Context, staff *WorkStaffSession
 				ResourceIDs:              resourceIDs,
 				ReplaceParticipants:      participantsProvided,
 				ReplaceResources:         resourcesProvided,
-				WriteCustomerTime:        true,
 			})
 			return scheduleErr
 		default:
@@ -141,10 +132,6 @@ func (WorkService) RescheduleCalendar(ctx context.Context, staff *WorkStaffSessi
 			return fmt.Errorf("日程不存在或状态已变化")
 		}
 		if current.ScheduleType == crmmodel.ScheduleTypeCustomerFollow {
-			binding, bindErr := resolveCustomerFollowFieldBinding(txCtx)
-			if bindErr != nil {
-				return bindErr
-			}
 			var arrangeErr error
 			updated, arrangeErr = arrangeCustomerFollow(txCtx, scheduleArrangeInput{
 				CustomerID:               current.CustomerID,
@@ -152,15 +139,12 @@ func (WorkService) RescheduleCalendar(ctx context.Context, staff *WorkStaffSessi
 				OperatorStaffID:          staff.ID,
 				OperatorDepartmentID:     staff.DepartmentID,
 				SourceWorkflowInstanceID: current.SourceWorkflowInstanceID,
-				DataRecordID:             current.DataRecordID,
-				Binding:                  binding,
 				Title:                    current.Title,
 				Remark:                   current.Remark,
 				StartAt:                  startAt,
 				EndAt:                    endAt,
 				ReminderMinutes:          reminderMinutes,
 				Source:                   crmmodel.ScheduleSourceCalendar,
-				WriteCustomerTime:        true,
 			})
 			return arrangeErr
 		}
@@ -191,14 +175,7 @@ func (WorkService) CompleteCalendar(ctx context.Context, staff *WorkStaffSession
 		}
 		now := time.Now()
 		if event.ScheduleType == crmmodel.ScheduleTypeCustomerFollow {
-			binding, bindErr := resolveCustomerFollowFieldBinding(txCtx)
-			if bindErr != nil {
-				return bindErr
-			}
-			operationID := recordCustomerScheduleOperation(txCtx, event, staff.ID, staff.DepartmentID, "completed", event.StartAt, time.Time{}, firstText(payload, "remark"))
-			if _, writeErr := writeCustomerFollowTime(txCtx, binding, event.CustomerID, event.DataRecordID, time.Time{}, 0, operationID); writeErr != nil {
-				return writeErr
-			}
+			recordCustomerScheduleOperation(txCtx, event, staff.ID, staff.DepartmentID, "completed", event.StartAt, time.Time{}, firstText(payload, "remark"))
 		}
 		if crmmodel.NewScheduleEventModel().Update(txCtx, map[string]any{"id": event.ID, "status": crmmodel.ScheduleStatusPending}, map[string]any{
 			"pending_customer_key": nil,
@@ -220,10 +197,6 @@ func (WorkService) CompleteCalendar(ctx context.Context, staff *WorkStaffSession
 		if event.ScheduleType != crmmodel.ScheduleTypeCustomerFollow {
 			return fmt.Errorf("只有客户跟进日程可以完成并安排下一次")
 		}
-		binding, bindErr := resolveCustomerFollowFieldBinding(txCtx)
-		if bindErr != nil {
-			return bindErr
-		}
 		participantIDs := scheduleParticipantIDs(txCtx, event.ID)
 		nextEvent, arrangeErr := arrangeCustomerFollow(txCtx, scheduleArrangeInput{
 			CustomerID:               event.CustomerID,
@@ -231,8 +204,6 @@ func (WorkService) CompleteCalendar(ctx context.Context, staff *WorkStaffSession
 			OperatorStaffID:          staff.ID,
 			OperatorDepartmentID:     staff.DepartmentID,
 			SourceWorkflowInstanceID: event.SourceWorkflowInstanceID,
-			DataRecordID:             event.DataRecordID,
-			Binding:                  binding,
 			Title:                    event.Title,
 			Remark:                   firstText(payload, "next_remark", "nextRemark"),
 			StartAt:                  nextStart,
@@ -241,7 +212,6 @@ func (WorkService) CompleteCalendar(ctx context.Context, staff *WorkStaffSession
 			Source:                   crmmodel.ScheduleSourceCalendar,
 			ParticipantIDs:           participantIDs,
 			ReplaceParticipants:      true,
-			WriteCustomerTime:        true,
 		})
 		if arrangeErr != nil {
 			return arrangeErr
@@ -265,7 +235,7 @@ func (WorkService) CancelCalendar(ctx context.Context, staff *WorkStaffSession, 
 		if !canEditScheduleEvent(txCtx, staff, event) {
 			return fmt.Errorf("无权取消该日程")
 		}
-		return cancelScheduleEvent(txCtx, event, staff.ID, staff.DepartmentID, firstText(payload, "remark"), true)
+		return cancelScheduleEvent(txCtx, event, staff.ID, staff.DepartmentID, firstText(payload, "remark"))
 	})
 	if err != nil {
 		return nil, err
@@ -274,8 +244,8 @@ func (WorkService) CancelCalendar(ctx context.Context, staff *WorkStaffSession, 
 }
 
 func arrangeCustomerFollow(ctx context.Context, input scheduleArrangeInput) (*crmmodel.ScheduleEvent, error) {
-	if input.Binding == nil || input.CustomerID == 0 || input.OwnerStaffID == 0 {
-		return nil, fmt.Errorf("客户、负责人和跟进字段不能为空")
+	if input.CustomerID == 0 || input.OwnerStaffID == 0 {
+		return nil, fmt.Errorf("客户和负责人不能为空")
 	}
 	if err := validateSchedulePeriod(input.StartAt, input.EndAt); err != nil {
 		return nil, err
@@ -302,9 +272,7 @@ func arrangeCustomerFollow(ctx context.Context, input scheduleArrangeInput) (*cr
 			"pending_customer_key":        customerFollowPendingKey(input.CustomerID),
 			"owner_staff_id":              input.OwnerStaffID,
 			"source_workflow_instance_id": preferredUint64(input.SourceWorkflowInstanceID, event.SourceWorkflowInstanceID),
-			"data_usage_field_id":         input.Binding.UsageFieldID,
-			"data_record_id":              preferredUint64(input.DataRecordID, event.DataRecordID),
-			"data_field_id":               input.Binding.FieldID,
+			"source_task_id":              preferredUint64(input.TaskID, event.SourceTaskID),
 			"title":                       input.Title,
 			"remark":                      input.Remark,
 			"start_at":                    input.StartAt,
@@ -326,9 +294,7 @@ func arrangeCustomerFollow(ctx context.Context, input scheduleArrangeInput) (*cr
 			"owner_staff_id":              input.OwnerStaffID,
 			"created_by_staff_id":         preferredUint64(input.OperatorStaffID, input.OwnerStaffID),
 			"source_workflow_instance_id": input.SourceWorkflowInstanceID,
-			"data_usage_field_id":         input.Binding.UsageFieldID,
-			"data_record_id":              input.DataRecordID,
-			"data_field_id":               input.Binding.FieldID,
+			"source_task_id":              input.TaskID,
 			"operation_log_id":            uint64(0),
 			"title":                       input.Title,
 			"remark":                      input.Remark,
@@ -360,16 +326,6 @@ func arrangeCustomerFollow(ctx context.Context, input scheduleArrangeInput) (*cr
 		if event.OperationLogID == 0 && operationID > 0 {
 			model.Update(ctx, map[string]any{"id": event.ID}, map[string]any{"operation_log_id": operationID, "updated_at": now})
 			event.OperationLogID = operationID
-		}
-	}
-	if input.WriteCustomerTime {
-		recordID, err := writeCustomerFollowTime(ctx, input.Binding, input.CustomerID, input.DataRecordID, input.StartAt, input.TaskID, operationID)
-		if err != nil {
-			return nil, err
-		}
-		if recordID != event.DataRecordID {
-			model.Update(ctx, map[string]any{"id": event.ID}, map[string]any{"data_record_id": recordID, "updated_at": now})
-			event.DataRecordID = recordID
 		}
 	}
 	if err := syncScheduleParticipants(ctx, event.ID, input.OwnerStaffID, input.ParticipantIDs, input.ReplaceParticipants, reminderChanged); err != nil {
@@ -473,22 +429,13 @@ func reschedulePersonalEvent(ctx context.Context, event *crmmodel.ScheduleEvent,
 	return syncScheduleResources(ctx, event, nil, false, staff.DepartmentID)
 }
 
-func cancelScheduleEvent(ctx context.Context, event *crmmodel.ScheduleEvent, operatorStaffID uint64, operatorDepartmentID uint64, remark string, clearCustomerTime bool) error {
+func cancelScheduleEvent(ctx context.Context, event *crmmodel.ScheduleEvent, operatorStaffID uint64, operatorDepartmentID uint64, remark string) error {
 	if event == nil || event.Status != crmmodel.ScheduleStatusPending {
 		return fmt.Errorf("日程不存在或已处理")
 	}
 	now := time.Now()
 	if event.ScheduleType == crmmodel.ScheduleTypeCustomerFollow {
-		binding, err := resolveCustomerFollowFieldBinding(ctx)
-		if err != nil {
-			return err
-		}
-		operationID := recordCustomerScheduleOperation(ctx, event, operatorStaffID, operatorDepartmentID, "canceled", event.StartAt, time.Time{}, remark)
-		if clearCustomerTime {
-			if _, err := writeCustomerFollowTime(ctx, binding, event.CustomerID, event.DataRecordID, time.Time{}, 0, operationID); err != nil {
-				return err
-			}
-		}
+		recordCustomerScheduleOperation(ctx, event, operatorStaffID, operatorDepartmentID, "canceled", event.StartAt, time.Time{}, remark)
 	}
 	if crmmodel.NewScheduleEventModel().Update(ctx, map[string]any{"id": event.ID, "status": crmmodel.ScheduleStatusPending}, map[string]any{
 		"pending_customer_key": nil,
@@ -500,66 +447,6 @@ func cancelScheduleEvent(ctx context.Context, event *crmmodel.ScheduleEvent, ope
 	}
 	cancelScheduleResources(ctx, event.ID, now)
 	return nil
-}
-
-func syncCustomerFollowFromForm(
-	ctx context.Context,
-	ownership workDataOwnership,
-	recordID uint64,
-	templateID uint64,
-	taskID uint64,
-	operationID uint64,
-	record map[string]any,
-) error {
-	binding, err := customerFollowBindingForTemplate(ctx, templateID)
-	if err != nil || binding == nil {
-		return err
-	}
-	value, submitted := customerFollowSubmittedValue(record, binding.FieldID)
-	if !submitted {
-		return nil
-	}
-	ownerStaffID, ownerDepartmentID := customerFollowOperator(ctx, ownership, operationID)
-	if ownerStaffID == 0 {
-		return fmt.Errorf("无法确定客户跟进日程负责人")
-	}
-	startAt, err := parseScheduleTime(value)
-	if err != nil {
-		return err
-	}
-	existing := findPendingCustomerFollowEvent(ctx, ownership.CustomerID)
-	if startAt.IsZero() {
-		if existing == nil {
-			return nil
-		}
-		return cancelScheduleEvent(ctx, existing, ownerStaffID, ownerDepartmentID, "表单已清空下次跟进时间", false)
-	}
-	endAt := startAt.Add(defaultScheduleDuration)
-	reminderMinutes := defaultScheduleReminderMinutes
-	if existing != nil {
-		duration := existing.EndAt.Sub(existing.StartAt)
-		if duration > 0 {
-			endAt = startAt.Add(duration)
-		}
-		reminderMinutes = existing.ReminderMinutes
-	}
-	_, err = arrangeCustomerFollow(ctx, scheduleArrangeInput{
-		CustomerID:               ownership.CustomerID,
-		OwnerStaffID:             ownerStaffID,
-		OperatorStaffID:          ownerStaffID,
-		OperatorDepartmentID:     ownerDepartmentID,
-		SourceWorkflowInstanceID: ownership.WorkflowInstanceID,
-		DataRecordID:             recordID,
-		Binding:                  binding,
-		Title:                    customerFollowDefaultTitle(ctx, ownership.CustomerID),
-		StartAt:                  startAt,
-		EndAt:                    endAt,
-		ReminderMinutes:          reminderMinutes,
-		Source:                   crmmodel.ScheduleSourceWorkForm,
-		WriteCustomerTime:        false,
-		TaskID:                   taskID,
-	})
-	return err
 }
 
 func findPendingCustomerFollowEvent(ctx context.Context, customerID uint64) *crmmodel.ScheduleEvent {
@@ -691,6 +578,9 @@ func canEditScheduleEvent(ctx context.Context, staff *WorkStaffSession, event *c
 	if staff == nil || staff.ID == 0 || event == nil {
 		return false
 	}
+	if event.ScheduleType == crmmodel.ScheduleTypeMeeting {
+		return false
+	}
 	if staff.CanDispatch || event.OwnerStaffID == staff.ID || event.CreatedByStaffID == staff.ID {
 		return true
 	}
@@ -728,9 +618,7 @@ func applyScheduleEventUpdates(event *crmmodel.ScheduleEvent, updates map[string
 	}
 	event.OwnerStaffID = inputUint64(updates["owner_staff_id"])
 	event.SourceWorkflowInstanceID = inputUint64(updates["source_workflow_instance_id"])
-	event.DataUsageFieldID = inputUint64(updates["data_usage_field_id"])
-	event.DataRecordID = inputUint64(updates["data_record_id"])
-	event.DataFieldID = inputUint64(updates["data_field_id"])
+	event.SourceTaskID = inputUint64(updates["source_task_id"])
 	event.Title = inputText(updates["title"])
 	event.Remark = inputText(updates["remark"])
 	event.StartAt = workTimeValue(updates["start_at"])
@@ -740,30 +628,68 @@ func applyScheduleEventUpdates(event *crmmodel.ScheduleEvent, updates map[string
 	event.Source = inputText(updates["source"])
 }
 
-func scheduleEventResult(ctx context.Context, event *crmmodel.ScheduleEvent) map[string]any {
+func scheduleEventResult(ctx context.Context, event *crmmodel.ScheduleEvent, sessions ...*WorkStaffSession) map[string]any {
 	if event == nil {
 		return map[string]any{}
 	}
 	result := map[string]any{
-		"id":                          event.ID,
-		"schedule_type":               event.ScheduleType,
-		"customer_id":                 event.CustomerID,
-		"owner_staff_id":              event.OwnerStaffID,
-		"source_workflow_instance_id": event.SourceWorkflowInstanceID,
-		"title":                       event.Title,
-		"remark":                      event.Remark,
-		"start_at":                    event.StartAt,
-		"end_at":                      event.EndAt,
-		"reminder_minutes":            event.ReminderMinutes,
-		"remind_at":                   event.RemindAt,
-		"source":                      event.Source,
-		"status":                      event.Status,
-		"participant_ids":             scheduleParticipantIDs(ctx, event.ID),
-		"resource_ids":                scheduleResourceIDs(ctx, event.ID),
+		"id":                           event.ID,
+		"schedule_type":                event.ScheduleType,
+		"customer_id":                  event.CustomerID,
+		"asset_id":                     event.AssetID,
+		"owner_staff_id":               event.OwnerStaffID,
+		"source_workflow_instance_id":  event.SourceWorkflowInstanceID,
+		"source_task_id":               event.SourceTaskID,
+		"title":                        event.Title,
+		"remark":                       event.Remark,
+		"start_at":                     event.StartAt,
+		"end_at":                       event.EndAt,
+		"reminder_minutes":             event.ReminderMinutes,
+		"remind_at":                    event.RemindAt,
+		"source":                       event.Source,
+		"status":                       event.Status,
+		"customer_arrived":             event.CustomerArrivedAt != nil,
+		"customer_arrived_at":          event.CustomerArrivedAt,
+		"customer_arrived_by_staff_id": event.CustomerArrivedByStaffID,
+		"duration_minutes":             int(event.EndAt.Sub(event.StartAt).Minutes()),
+		"participant_ids":              scheduleParticipantIDs(ctx, event.ID),
+		"participants":                 scheduleParticipantResults(ctx, event.ID),
+		"resource_ids":                 scheduleResourceIDs(ctx, event.ID),
+	}
+	if event.CustomerArrivedByStaffID > 0 {
+		if arrivedBy := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": event.CustomerArrivedByStaffID}); arrivedBy != nil {
+			result["customer_arrived_by_staff_name"] = arrivedBy.Name
+		}
+	}
+	staff := firstWorkScheduleSession(sessions)
+	if staff == nil {
+		staff = CurrentWorkStaff(ctx)
+	}
+	if staff != nil && staff.ID > 0 {
+		participant := crmmodel.NewScheduleParticipantModel().Find(ctx, map[string]any{
+			"schedule_event_id": event.ID,
+			"staff_id":          staff.ID,
+		})
+		if participant != nil {
+			result["is_participant"] = true
+			result["checked_in_at"] = participant.CheckedInAt
+			result["can_check_in"] = event.ScheduleType == crmmodel.ScheduleTypeMeeting &&
+				event.Status == crmmodel.ScheduleStatusPending &&
+				participant.CheckedInAt == nil && !time.Now().Before(event.StartAt)
+		}
 	}
 	if customer := crmmodel.NewCustomerModel().Find(ctx, map[string]any{"id": event.CustomerID}); customer != nil {
 		result["customer_name"] = customer.Name
 		result["customer_phone"] = customer.Phone
 	}
 	return result
+}
+
+func firstWorkScheduleSession(sessions []*WorkStaffSession) *WorkStaffSession {
+	for _, staff := range sessions {
+		if staff != nil && staff.ID > 0 {
+			return staff
+		}
+	}
+	return nil
 }

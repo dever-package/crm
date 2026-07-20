@@ -156,6 +156,19 @@ export function ShowCrmWorkSchedule({ store }: WorkNodeProps = {}) {
 
   const openReminder = async (event: WorkScheduleEvent) => {
     setReminderOpen(false);
+    if (event.action_type === "check_in") {
+      try {
+        await workApi("/crm/work/check_in_schedule", {
+          method: "POST",
+          body: JSON.stringify({ schedule_event_id: textValue(event.id) }),
+        });
+        toast.success("会议签到成功");
+        await refresh();
+      } catch (error) {
+        toast.error(errorMessage(error, "会议签到失败"));
+      }
+      return;
+    }
     openEvent(event);
     try {
       await workApi("/crm/work/read_schedule_reminder", {
@@ -209,7 +222,7 @@ export function ShowCrmWorkSchedule({ store }: WorkNodeProps = {}) {
             {reminderOpen ? (
               <div className="crm-schedule-reminder-panel">
                 <div className="crm-schedule-reminder-title">
-                  <strong>到期提醒</strong>
+                  <strong>待办提醒</strong>
                   <span>{reminders.length}项</span>
                 </div>
                 {reminders.length ? (
@@ -222,12 +235,16 @@ export function ShowCrmWorkSchedule({ store }: WorkNodeProps = {}) {
                       >
                         <strong>{textValue(event.title) || "未命名日程"}</strong>
                         <span>{scheduleTimeLabel(event.start_at)}</span>
-                        {event.customer_name ? <small>{event.customer_name}</small> : null}
+                        <small>
+                          {event.action_type === "check_in"
+                            ? "点击签到"
+                            : event.customer_name || "查看日程"}
+                        </small>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <p>当前没有到期提醒</p>
+                  <p>当前没有待办提醒</p>
                 )}
               </div>
             ) : null}

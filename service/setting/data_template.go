@@ -157,6 +157,8 @@ func dataFieldChildFormRows(ctx context.Context, group *crmmodel.DataField) []ma
 			"field_key":        child.FieldKey,
 			"field_type":       child.FieldType,
 			"default_value":    child.DefaultValue,
+			"finance_type_id":  child.FinanceTypeID,
+			"stat_enabled":     child.StatEnabled,
 			"sort":             child.Sort,
 			"status":           child.Status,
 		}

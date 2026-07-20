@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -373,6 +372,7 @@ func currentWorkTargetInstance(ctx context.Context, staff *WorkStaffSession, cus
 }
 
 type workDataOwnership struct {
+	LeadID             uint64
 	CustomerID         uint64
 	AssetID            uint64
 	WorkflowInstanceID uint64
@@ -415,167 +415,8 @@ func saveWorkDataRecord(ctx context.Context, ownership workDataOwnership, templa
 		}
 		data["record_json"] = jsonText(merged)
 		model.Update(ctx, map[string]any{"id": existing.ID}, data)
-		syncWorkStatFieldValues(ctx, ownership, templateID, taskID, operationID, record, now)
 		return existing.ID
 	}
 	data["created_at"] = now
-	recordID := uint64(model.Insert(ctx, data))
-	syncWorkStatFieldValues(ctx, ownership, templateID, taskID, operationID, record, now)
-	return recordID
-}
-
-func syncWorkStatFieldValues(ctx context.Context, ownership workDataOwnership, templateID uint64, taskID uint64, operationID uint64, record map[string]any, changedAt time.Time) {
-	defer func() { _ = recover() }()
-	if ownership.CustomerID == 0 || templateID == 0 || len(record) == 0 {
-		return
-	}
-	model := crmmodel.NewStatFieldValueModel()
-	for fieldIDText, value := range record {
-		fieldID := inputUint64(fieldIDText)
-		if fieldID == 0 {
-			continue
-		}
-		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-			"id":               fieldID,
-			"data_template_id": templateID,
-			"status":           crmmodel.StatusEnabled,
-		})
-		if field == nil || field.FieldType == "group" || strings.TrimSpace(field.FieldKey) == "" {
-			continue
-		}
-		usageField := workDataUsageFieldByType(ctx, field.ID, crmmodel.DataUsageTypeStat)
-		if usageField == nil {
-			continue
-		}
-		data := workStatFieldValueRecord(
-			ownership,
-			templateID,
-			taskID,
-			operationID,
-			field,
-			usageField,
-			workDataUsageByID(ctx, usageField.UsageID),
-			value,
-			changedAt,
-		)
-		existing := model.Find(ctx, map[string]any{
-			"customer_id":          ownership.CustomerID,
-			"asset_id":             ownership.AssetID,
-			"workflow_instance_id": ownership.WorkflowInstanceID,
-			"customer_product_id":  ownership.CustomerProductID,
-			"data_field_id":        field.ID,
-		})
-		if existing != nil {
-			model.Update(ctx, map[string]any{"id": existing.ID}, data)
-			continue
-		}
-		data["created_at"] = changedAt
-		model.Insert(ctx, data)
-	}
-}
-
-func workStatFieldValueRecord(
-	ownership workDataOwnership,
-	templateID uint64,
-	taskID uint64,
-	operationID uint64,
-	field *crmmodel.DataField,
-	usageField *crmmodel.DataUsageField,
-	usage *crmmodel.DataUsage,
-	value any,
-	changedAt time.Time,
-) map[string]any {
-	valueText := inputText(value)
-	if emptyWorkFieldValue(value) {
-		valueText = ""
-	}
-	valueType := normalizeWorkStatType(usageField.ValueType)
-	displayName := field.Name
-	if strings.TrimSpace(usageField.DisplayName) != "" {
-		displayName = strings.TrimSpace(usageField.DisplayName)
-	}
-	statGroup := ""
-	if usage != nil {
-		statGroup = usage.Name
-	}
-	return map[string]any{
-		"customer_id":          ownership.CustomerID,
-		"asset_id":             ownership.AssetID,
-		"workflow_instance_id": ownership.WorkflowInstanceID,
-		"customer_product_id":  ownership.CustomerProductID,
-		"data_template_id":     templateID,
-		"data_field_id":        field.ID,
-		"field_key":            field.FieldKey,
-		"field_name":           displayName,
-		"field_type":           field.FieldType,
-		"stat_type":            valueType,
-		"stat_group":           statGroup,
-		"value_text":           valueText,
-		"value_number":         workStatNumberValue(field, valueType, value),
-		"value_date":           workStatDateValue(field, valueType, value),
-		"value_bool":           booleanFromAny(value),
-		"value_json":           workStatJSONValue(value),
-		"source":               crmmodel.StatValueSourceForm,
-		"task_id":              taskID,
-		"operation_log_id":     operationID,
-		"status":               crmmodel.StatusEnabled,
-		"updated_at":           changedAt,
-	}
-}
-
-func normalizeWorkStatType(statType string) string {
-	switch strings.TrimSpace(statType) {
-	case crmmodel.DataFieldStatTypeMetric,
-		crmmodel.DataUsageValueTypeNumber,
-		crmmodel.DataUsageValueTypeAmount,
-		crmmodel.DataFieldStatTypeFinance,
-		crmmodel.DataUsageValueTypeTime,
-		crmmodel.DataUsageValueTypeStatus,
-		crmmodel.DataUsageValueTypeText:
-		return strings.TrimSpace(statType)
-	default:
-		return crmmodel.DataFieldStatTypeDimension
-	}
-}
-
-func workStatNumberValue(field *crmmodel.DataField, valueType string, value any) float64 {
-	if field == nil {
-		return 0
-	}
-	switch normalizeWorkStatType(valueType) {
-	case crmmodel.DataFieldStatTypeMetric, crmmodel.DataUsageValueTypeNumber, crmmodel.DataUsageValueTypeAmount, crmmodel.DataFieldStatTypeFinance:
-		return numericValue(value)
-	}
-	if field.FieldType == "number" || field.FieldType == "money" {
-		return numericValue(value)
-	}
-	return 0
-}
-
-func workStatDateValue(field *crmmodel.DataField, valueType string, value any) time.Time {
-	if field == nil || normalizeWorkStatType(valueType) != crmmodel.DataFieldStatTypeTime && field.FieldType != "date" && field.FieldType != "datetime" {
-		return time.Time{}
-	}
-	text := inputText(value)
-	for _, layout := range []string{
-		time.RFC3339,
-		"2006-01-02T15:04",
-		"2006-01-02T15:04:05",
-		"2006-01-02 15:04",
-		"2006-01-02 15:04:05",
-		"2006-01-02",
-	} {
-		if parsed, err := time.ParseInLocation(layout, text, time.Local); err == nil {
-			return parsed
-		}
-	}
-	return time.Time{}
-}
-
-func workStatJSONValue(value any) string {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return "null"
-	}
-	return string(raw)
+	return uint64(model.Insert(ctx, data))
 }

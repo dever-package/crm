@@ -308,7 +308,14 @@ func createStageTodos(ctx context.Context, instance *crmmodel.WorkflowInstance, 
 		task *crmmodel.Task
 	}, 0)
 	for _, task := range tasks {
-		if task == nil {
+		if task == nil || !taskUsesStageActivation(task) {
+			continue
+		}
+		applicable, err := workflowTaskApplicable(ctx, instance, task)
+		if err != nil {
+			return err
+		}
+		if !applicable {
 			continue
 		}
 		createdTodo, activated, err := createOrReactivateStageTodo(ctx, instance, task, now)
@@ -338,7 +345,7 @@ func createStageTodos(ctx context.Context, instance *crmmodel.WorkflowInstance, 
 			}
 		}
 	}
-	return nil
+	return syncWorkflowMeetingParticipants(ctx, instance.ID)
 }
 
 func createOrReactivateStageTodo(

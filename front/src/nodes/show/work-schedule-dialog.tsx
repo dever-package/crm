@@ -9,11 +9,11 @@ import { createPortal } from "react-dom";
 import {
   CalendarCheck2,
   Check,
+  Clock3,
   Loader2,
   Trash2,
   UserRound,
 } from "lucide-react";
-import { useNavigate } from "@dever/front-plugin";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -35,10 +35,12 @@ import {
   workApi,
   type WorkNodeProps,
 } from "./work-core";
+import { openWorkCustomerDetailDrawer } from "./work-auth";
 import { useWorkFeedbackModalFooterTargets } from "./work-feedback-modal";
 import { WorkFormField } from "./work-form-field";
 import { useWorkTaskStoreValue } from "./work-task-form-fields";
 import type {
+  WorkScheduleCustomerOption,
   WorkScheduleDraft,
   WorkScheduleEvent,
   WorkScheduleOptions,
@@ -80,7 +82,6 @@ export function openWorkScheduleDialog(
 }
 
 export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
-  const navigate = useNavigate();
   const target = useWorkTaskStoreValue<WorkScheduleDialogTarget>(
     store,
     workScheduleDialogTargetPath,
@@ -96,7 +97,9 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const existing = Boolean(textValue(event?.id));
   const pending = !event?.status || event.status === "pending";
-  const editable = !existing || (pending && event?.can_edit !== false);
+  const editable =
+    !existing ||
+    (pending && event?.can_edit !== false && event?.schedule_type !== "meeting");
   const footerTargets = useWorkFeedbackModalFooterTargets(
     contentRef,
     existing,
@@ -108,12 +111,17 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
     setNextStartAt("");
   }, [target]);
 
+  const customerOptions = useMemo(
+    () => withCurrentScheduleCustomer(options.customers || [], event),
+    [event, options.customers],
+  );
+
   const selectedCustomer = useMemo(
     () =>
-      (options.customers || []).find(
+      customerOptions.find(
         (customer) => textValue(customer.id) === draft.customerID,
       ),
-    [draft.customerID, options.customers],
+    [customerOptions, draft.customerID],
   );
 
   const close = useCallback(() => {
@@ -138,7 +146,7 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
   };
 
   const changeCustomer = (customerID: string) => {
-    const customer = (options.customers || []).find(
+    const customer = customerOptions.find(
       (row) => textValue(row.id) === customerID,
     );
     setDraft((current) => ({
@@ -151,6 +159,40 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
     }));
   };
 
+  const changeStartAt = (startAt: string) => {
+    setDraft((current) => {
+      const previousStart = new Date(current.startAt);
+      const previousEnd = new Date(current.endAt);
+      const nextStart = new Date(startAt);
+      const duration =
+        !Number.isNaN(previousStart.getTime()) &&
+        !Number.isNaN(previousEnd.getTime()) &&
+        previousEnd > previousStart
+          ? previousEnd.getTime() - previousStart.getTime()
+          : 30 * 60_000;
+      return {
+        ...current,
+        startAt,
+        endAt: Number.isNaN(nextStart.getTime())
+          ? current.endAt
+          : formatDateTimeInput(new Date(nextStart.getTime() + duration)),
+      };
+    });
+  };
+
+  const changeDuration = (minutes: number) => {
+    setDraft((current) => {
+      const startAt = new Date(current.startAt);
+      if (Number.isNaN(startAt.getTime())) return current;
+      return {
+        ...current,
+        endAt: formatDateTimeInput(
+          new Date(startAt.getTime() + minutes * 60_000),
+        ),
+      };
+    });
+  };
+
   const save = useCallback(async () => {
     if (submitting || !editable) return false;
     if (!draft.title.trim()) {
@@ -159,13 +201,6 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
     }
     if (draft.scheduleType === "customer_follow" && !draft.customerID) {
       toast.error("请选择待跟进客户");
-      return false;
-    }
-    if (
-      draft.scheduleType === "customer_follow" &&
-      options.config?.ready === false
-    ) {
-      toast.error(options.config.message || "客户跟进时间字段未配置");
       return false;
     }
     const startAt = new Date(draft.startAt);
@@ -206,7 +241,7 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
     } finally {
       setSubmitting(false);
     }
-  }, [close, draft, editable, event?.id, notifyChanged, options.config, submitting]);
+  }, [close, draft, editable, event?.id, notifyChanged, submitting]);
 
   const complete = async (withNext = false) => {
     if (!event || submitting) return;
@@ -252,13 +287,42 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
     }
   };
 
-  const openCustomer = () => {
+  const checkIn = async () => {
+    if (!event || submitting || !event.can_check_in) return;
+    setSubmitting(true);
+    try {
+      await workApi("/crm/work/check_in_schedule", {
+        method: "POST",
+        body: JSON.stringify({ schedule_event_id: textValue(event.id) }),
+      });
+      toast.success("会议签到成功");
+      close();
+      notifyChanged();
+    } catch (error) {
+      toast.error(errorMessage(error, "会议签到失败"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openCustomer = async () => {
     const customerID = textValue(event?.customer_id);
     if (!customerID) return;
-    close();
-    void navigate({
-      to: `/crm/work?${new URLSearchParams({ customer_id: customerID }).toString()}`,
-    });
+    try {
+      const opened = await openWorkCustomerDetailDrawer(
+        store,
+        customerID,
+        textValue(event?.asset_id),
+        textValue(event?.source_workflow_instance_id),
+      );
+      if (!opened) {
+        toast.error("未找到客户详情");
+        return;
+      }
+      close();
+    } catch (error) {
+      toast.error(errorMessage(error, "客户详情加载失败"));
+    }
   };
 
   useEffect(() => {
@@ -293,7 +357,11 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
   const footerLeft = (
     <>
       {event?.customer_id ? (
-        <Button type="button" variant="ghost" onClick={openCustomer}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => void openCustomer()}
+        >
           <UserRound className="h-4 w-4" />
           客户详情
         </Button>
@@ -313,17 +381,34 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
     </>
   );
 
-  const footerActions = editable ? (
+  const footerActions = editable || event?.can_check_in || event?.checked_in_at ? (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        disabled={submitting}
-        onClick={() => void complete(false)}
-      >
-        完成
-      </Button>
-      {event?.schedule_type === "customer_follow" ? (
+      {event?.can_check_in ? (
+        <Button
+          type="button"
+          disabled={submitting}
+          onClick={() => void checkIn()}
+        >
+          <Check className="h-4 w-4" />
+          签到
+        </Button>
+      ) : event?.checked_in_at ? (
+        <Button type="button" variant="outline" disabled>
+          <Check className="h-4 w-4" />
+          已签到
+        </Button>
+      ) : null}
+      {editable ? (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={submitting}
+          onClick={() => void complete(false)}
+        >
+          完成
+        </Button>
+      ) : null}
+      {editable && event?.schedule_type === "customer_follow" ? (
         <Button
           type="button"
           variant="outline"
@@ -345,7 +430,11 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
 
       <fieldset className="contents" disabled={!editable || submitting}>
         <WorkFormField label="日程归属" className="sm:col-span-2">
-          <div className="grid max-w-sm grid-cols-2 gap-2">
+          <div
+            className={`grid max-w-lg gap-2 ${
+              event?.schedule_type === "meeting" ? "grid-cols-3" : "grid-cols-2"
+            }`}
+          >
             <Button
               type="button"
               className="justify-start"
@@ -368,6 +457,17 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
               <CalendarCheck2 className="h-4 w-4" />
               自己的
             </Button>
+            {event?.schedule_type === "meeting" ? (
+              <Button
+                type="button"
+                className="justify-start"
+                variant="default"
+                disabled
+              >
+                <Clock3 className="h-4 w-4" />
+                案件会议
+              </Button>
+            ) : null}
           </div>
         </WorkFormField>
 
@@ -376,7 +476,6 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
             label="待跟进客户"
             required
             className="sm:col-span-2"
-            error={options.config?.ready === false ? options.config.message : undefined}
             hint={
               selectedCustomer?.next_follow_at
                 ? `当前跟进时间：${formatScheduleDisplayDate(selectedCustomer.next_follow_at)}`
@@ -392,7 +491,7 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
                 <SelectValue placeholder="请选择当前待跟进客户" />
               </SelectTrigger>
               <SelectContent position="popper">
-                {(options.customers || []).map((customer) => (
+                {customerOptions.map((customer) => (
                   <SelectItem
                     key={textValue(customer.id)}
                     value={textValue(customer.id)}
@@ -421,10 +520,23 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
           <Input
             type="datetime-local"
             value={draft.startAt}
-            onChange={(input) =>
-              setDraft((current) => ({ ...current, startAt: input.target.value }))
-            }
+            onChange={(input) => changeStartAt(input.target.value)}
           />
+        </WorkFormField>
+
+        <WorkFormField label="使用时长" className="sm:col-span-2">
+          <div className="flex flex-wrap gap-2">
+            {[30, 60, 90, 120].map((minutes) => (
+              <Button
+                key={minutes}
+                type="button"
+                variant={scheduleDraftDurationMinutes(draft) === minutes ? "default" : "outline"}
+                onClick={() => changeDuration(minutes)}
+              >
+                {minutes < 60 ? `${minutes}分钟` : `${minutes / 60}小时`}
+              </Button>
+            ))}
+          </div>
         </WorkFormField>
         <WorkFormField label="结束时间" required>
           <Input
@@ -536,9 +648,9 @@ function ScheduleMultiOptions({
 }) {
   const selected = new Set(values);
   return (
-    <WorkFormField label={label} className="sm:col-span-2">
+    <WorkFormField label={label} className="col-span-full">
       {options.length ? (
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-2">
           {options.map((option) => {
             const checked = selected.has(option.id);
             return (
@@ -547,7 +659,7 @@ function ScheduleMultiOptions({
                 type="button"
                 variant="outline"
                 aria-pressed={checked}
-                className={`min-h-10 justify-start gap-2 px-3 py-2 font-normal ${
+                className={`h-auto min-h-10 justify-start gap-2 px-3 py-2 font-normal ${
                   checked
                     ? "border-primary bg-primary/10 text-primary shadow-sm hover:bg-primary/15 hover:text-primary"
                     : "text-muted-foreground hover:text-foreground"
@@ -563,7 +675,9 @@ function ScheduleMultiOptions({
                 >
                   {checked ? <Check className="h-3 w-3" /> : null}
                 </span>
-                <span className="min-w-0 truncate">{option.label}</span>
+                <span className="min-w-0 whitespace-normal break-words text-left leading-5">
+                  {option.label}
+                </span>
               </Button>
             );
           })}
@@ -596,6 +710,19 @@ function scheduleDraft(target: WorkScheduleDialogTarget): WorkScheduleDraft {
     participantIDs: (event?.participant_ids || []).map(textValue).filter(Boolean),
     resourceIDs: (event?.resource_ids || []).map(textValue).filter(Boolean),
   };
+}
+
+function scheduleDraftDurationMinutes(draft: WorkScheduleDraft): number {
+  const startAt = new Date(draft.startAt);
+  const endAt = new Date(draft.endAt);
+  if (
+    Number.isNaN(startAt.getTime()) ||
+    Number.isNaN(endAt.getTime()) ||
+    endAt <= startAt
+  ) {
+    return 0;
+  }
+  return Math.round((endAt.getTime() - startAt.getTime()) / 60_000);
 }
 
 function parseScheduleDate(value: unknown): Date | null {
@@ -644,6 +771,27 @@ function scheduleCustomerLabel(customer: {
     .map(textValue)
     .filter(Boolean)
     .join(" · ");
+}
+
+function withCurrentScheduleCustomer(
+  customers: WorkScheduleCustomerOption[],
+  event: WorkScheduleEvent | null,
+): WorkScheduleCustomerOption[] {
+  const customerID = textValue(event?.customer_id);
+  if (
+    !customerID ||
+    customers.some((customer) => textValue(customer.id) === customerID)
+  ) {
+    return customers;
+  }
+  return [
+    {
+      id: customerID,
+      name: textValue(event?.customer_name) || `客户 ${customerID}`,
+      phone: textValue(event?.customer_phone),
+    },
+    ...customers,
+  ];
 }
 
 function toggleScheduleID(values: string[], target: string): string[] {

@@ -91,10 +91,7 @@
           "extraFields": [
             "status",
             "sort"
-          ],
-          "filters": {
-            "status": "1"
-          }
+          ]
         },
         "meta": {
           "title": "脚本分类",
@@ -102,6 +99,40 @@
           "remote": true,
           "defaultFirst": true,
           "queryKey": "cate_id",
+          "sortable": true,
+          "sortField": "sort",
+          "sortChangeAction": {
+            "type": "save",
+            "path": "crm/rule_script_cate/update",
+            "params": {
+              "_partial": true,
+              "id": "$row.id",
+              "sort": "$value"
+            }
+          },
+          "statusField": "status",
+          "statusDisplay": "select",
+          "statusChangeAction": {
+            "type": "save",
+            "path": "crm/rule_script_cate/update",
+            "params": {
+              "_partial": true,
+              "id": "$row.id",
+              "status": "$value"
+            }
+          },
+          "statusCases": [
+            {
+              "value": 1,
+              "text": "启用",
+              "tone": "success"
+            },
+            {
+              "value": 2,
+              "text": "停用",
+              "tone": "muted"
+            }
+          ],
           "createButton": {
             "name": "新增分类",
             "icon": "plus",

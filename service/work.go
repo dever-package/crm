@@ -33,6 +33,7 @@ const (
 	workBusinessEventLeadConverted = "lead_converted"
 	workCustomerModeAll            = "all"
 	workCustomerModePending        = "pending"
+	workCustomerModeProcessed      = "processed"
 	workCustomerModeDone           = "done"
 	workSubmitModeComplete         = "complete"
 	workSubmitModeProgress         = "progress"
@@ -937,21 +938,26 @@ func workCustomersByMode(ctx context.Context, staff *WorkStaffSession, mode stri
 		return allWorkCustomers(ctx, staff)
 	case workCustomerModeDone:
 		return doneWorkCustomers(ctx, staff)
+	case workCustomerModeProcessed:
+		return processedWorkCustomers(ctx, staff)
 	default:
 		return pendingWorkCustomers(ctx, staff)
 	}
 }
 
 type workCustomerListTarget struct {
-	customerID uint64
-	assetIDs   []uint64
-	doneOnly   bool
+	customerID      uint64
+	assetIDs        []uint64
+	doneOnly        bool
+	processed       map[uint64]workProcessedOperation
+	latestProcessed *workProcessedOperation
 }
 
 type workCustomerListSnapshot struct {
 	visibleCustomerIDs []uint64
 	doneTargets        []doneWorkCustomerTarget
 	pendingTargets     []workCustomerListTarget
+	processedTargets   []workCustomerListTarget
 }
 
 func newWorkCustomerListSnapshot(ctx context.Context, staff *WorkStaffSession) workCustomerListSnapshot {
@@ -961,6 +967,7 @@ func newWorkCustomerListSnapshot(ctx context.Context, staff *WorkStaffSession) w
 		visibleCustomerIDs: visibleCustomerIDs,
 		doneTargets:        doneWorkCustomerTargets(ctx, staff),
 		pendingTargets:     pendingWorkCustomerListTargetsFromTargets(pendingTargets),
+		processedTargets:   processedWorkCustomerListTargets(ctx, staff),
 	}
 }
 
@@ -976,6 +983,8 @@ func workCustomerListTargetsFromSnapshot(snapshot workCustomerListSnapshot, mode
 		return allWorkCustomerListTargetsFromSnapshot(snapshot)
 	case workCustomerModeDone:
 		return doneWorkCustomerListTargetsFromTargets(snapshot.doneTargets)
+	case workCustomerModeProcessed:
+		return snapshot.processedTargets
 	default:
 		return snapshot.pendingTargets
 	}
@@ -1031,6 +1040,9 @@ func (builder *workCustomerListRowBuilder) rowForTarget(mode string, target work
 	}
 	if mode == workCustomerModeDone || target.doneOnly {
 		return builder.doneCustomerRow(target.customerID, target.assetIDs)
+	}
+	if mode == workCustomerModeProcessed {
+		return builder.processedCustomerRow(target)
 	}
 	row := builder.activeCustomerRow(target.customerID)
 	if mode == workCustomerModePending {
@@ -1225,6 +1237,10 @@ var workCustomerListFields = []string{
 	"last_operated_at",
 	"created_at",
 	"create_time",
+	"processed_task_name",
+	"processed_result",
+	"processed_content",
+	"processed_at",
 }
 
 var workAssetListFields = []string{
@@ -1251,6 +1267,10 @@ var workAssetListFields = []string{
 	"stage_days",
 	"last_operated_at",
 	"remark",
+	"processed_task_name",
+	"processed_result",
+	"processed_content",
+	"processed_at",
 }
 
 func workCustomerListRows(rows []map[string]any) []map[string]any {
@@ -1541,18 +1561,20 @@ func workCustomerModeCounts(ctx context.Context, staff *WorkStaffSession, curren
 	currentMode = normalizeWorkCustomerMode(currentMode)
 	doneTargets := doneWorkCustomerTargets(ctx, staff)
 	return map[string]int{
-		workCustomerModePending: workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModePending),
-		workCustomerModeDone:    workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModeDone),
-		workCustomerModeAll:     workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModeAll),
+		workCustomerModePending:   workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModePending),
+		workCustomerModeProcessed: workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModeProcessed),
+		workCustomerModeDone:      workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModeDone),
+		workCustomerModeAll:       workCustomerModeCount(ctx, staff, currentMode, currentRows, doneTargets, workCustomerModeAll),
 	}
 }
 
 func workCustomerModeCountsFromSnapshot(snapshot workCustomerListSnapshot, currentMode string, currentTotal int) map[string]int {
 	currentMode = normalizeWorkCustomerMode(currentMode)
 	return map[string]int{
-		workCustomerModePending: workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModePending),
-		workCustomerModeDone:    workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModeDone),
-		workCustomerModeAll:     workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModeAll),
+		workCustomerModePending:   workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModePending),
+		workCustomerModeProcessed: workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModeProcessed),
+		workCustomerModeDone:      workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModeDone),
+		workCustomerModeAll:       workCustomerModeCountFromSnapshot(snapshot, currentMode, currentTotal, workCustomerModeAll),
 	}
 }
 
@@ -1565,6 +1587,8 @@ func workCustomerModeCountFromSnapshot(snapshot workCustomerListSnapshot, curren
 		return workCustomerListSnapshotAllCount(snapshot)
 	case workCustomerModeDone:
 		return len(snapshot.doneTargets)
+	case workCustomerModeProcessed:
+		return len(snapshot.processedTargets)
 	case workCustomerModePending:
 		return len(snapshot.pendingTargets)
 	default:
@@ -1596,6 +1620,8 @@ func workCustomerModeCount(ctx context.Context, staff *WorkStaffSession, current
 		return workAllCustomerCount(ctx, staff, doneTargets)
 	case workCustomerModeDone:
 		return len(doneTargets)
+	case workCustomerModeProcessed:
+		return len(processedWorkCustomerListTargets(ctx, staff))
 	case workCustomerModePending:
 		if currentMode == workCustomerModeAll {
 			return countWorkRowsWithPendingTasks(currentRows)
@@ -1637,6 +1663,8 @@ func normalizeWorkCustomerMode(mode string) string {
 		return workCustomerModeAll
 	case workCustomerModeDone:
 		return workCustomerModeDone
+	case workCustomerModeProcessed:
+		return workCustomerModeProcessed
 	default:
 		return workCustomerModePending
 	}
@@ -3018,6 +3046,21 @@ func workOperationSnapshotItem(ctx context.Context, row map[string]any, key stri
 		return "", "", nil
 	}
 	switch key {
+	case workMeetingStartFieldKey:
+		return "预约时间", inputText(value), nil
+	case workMeetingDurationFieldKey:
+		return "会议时长（分钟）", inputText(value), nil
+	case workMeetingResourceFieldKey:
+		resource := crmmodel.NewPublicResourceModel().Find(ctx, map[string]any{"id": inputUint64(value)})
+		if resource == nil {
+			return "会议室", inputText(value), nil
+		}
+		return "会议室", resource.Name, nil
+	case workMeetingArrivalFieldKey:
+		if booleanFromAny(value) {
+			return "客户已到访", "是", nil
+		}
+		return "客户已到访", "否", nil
 	case "result_value", "resultValue":
 		return "处理结果", workOperationResultDisplayValue(ctx, row, value), nil
 	case "result":
@@ -3523,7 +3566,6 @@ func attachWorkEntityDataValues(ctx context.Context, row map[string]any, values 
 	row["data_values"] = values
 	row["data_file_values"] = workDataFileValues(ctx, values)
 	row["data_value_labels"] = workDataValueLabels(ctx, values)
-	row["display_fields"] = workDisplayDataFields(ctx, values)
 	row["data_completeness"] = workDataCompletenessTemplates(ctx, templateCateID, values)
 }
 
@@ -3549,51 +3591,6 @@ func workDataFileValues(ctx context.Context, values map[string]any) map[string]a
 		}
 	}
 	return filesByField
-}
-
-func workDisplayDataFields(ctx context.Context, values map[string]any) []map[string]any {
-	if len(values) == 0 {
-		return []map[string]any{}
-	}
-	result := make([]map[string]any, 0)
-	for _, usageField := range workDataUsageFieldsByType(ctx, crmmodel.DataUsageTypeDisplay) {
-		if usageField == nil || usageField.DataFieldID == 0 {
-			continue
-		}
-		key := fmt.Sprintf("data:%d", usageField.DataFieldID)
-		value, exists := values[key]
-		if !exists || emptyWorkFieldValue(value) {
-			continue
-		}
-		field := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
-			"id":     usageField.DataFieldID,
-			"status": crmmodel.StatusEnabled,
-		})
-		if field == nil || field.FieldType == "group" {
-			continue
-		}
-		displayValue, meta := workDataFieldDisplayValue(ctx, field, value)
-		if displayValue == "" {
-			continue
-		}
-		label := strings.TrimSpace(usageField.DisplayName)
-		if label == "" {
-			label = field.Name
-		}
-		item := map[string]any{
-			"key":        key,
-			"field_key":  field.FieldKey,
-			"field_id":   field.ID,
-			"label":      label,
-			"value":      displayValue,
-			"value_type": usageField.ValueType,
-		}
-		for metaKey, metaValue := range meta {
-			item[metaKey] = metaValue
-		}
-		result = append(result, item)
-	}
-	return result
 }
 
 func workDataDetailSections(ctx context.Context, targetType string, cateID uint64, values map[string]any) []map[string]any {
@@ -3819,6 +3816,12 @@ func attachWorkTaskForm(ctx context.Context, task map[string]any) {
 	for _, field := range fields {
 		attachWorkFormFieldOptions(ctx, field, groupCache)
 	}
+	if booleanFromAny(task["meeting_enabled"]) {
+		fields = workMeetingTaskFormFields(ctx, task, fields)
+	}
+	if booleanFromAny(task["customer_follow_enabled"]) {
+		fields = append(fields, workCustomerFollowFormFields()...)
+	}
 	form["fields"] = fields
 	task["form"] = form
 }
@@ -3942,6 +3945,9 @@ func workDataFieldChildFormFields(ctx context.Context, group *crmmodel.DataField
 			"parent_field_id":       group.ID,
 			"required":              booleanFromAny(formField["required"]),
 			"readonly":              booleanFromAny(formField["readonly"]),
+			"visible_when_field_id": inputUint64(formField["visible_when_field_id"]),
+			"visible_when_operator": inputText(formField["visible_when_operator"]),
+			"visible_when_value":    inputText(formField["visible_when_value"]),
 			"sort":                  child.Sort,
 			"options":               workDataFieldOptionsForField(ctx, child),
 		}
@@ -4030,6 +4036,34 @@ func namedWorkOptions(rows []map[string]any) []map[string]any {
 		options = append(options, map[string]any{
 			"id":    id,
 			"name":  name,
+			"value": fmt.Sprintf("%d", id),
+		})
+	}
+	return options
+}
+
+func workPublicResourceOptions(ctx context.Context) []map[string]any {
+	rows := crmmodel.NewPublicResourceModel().SelectMap(ctx, map[string]any{
+		"status": crmmodel.StatusEnabled,
+	}, map[string]any{
+		"field": "main.id, main.name, main.location, main.sort",
+		"order": "main.sort asc, main.id asc",
+	})
+	options := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		id := inputUint64(row["id"])
+		name := inputText(row["name"])
+		if id == 0 || name == "" {
+			continue
+		}
+		label := name
+		if location := inputText(row["location"]); location != "" {
+			label += "（" + location + "）"
+		}
+		options = append(options, map[string]any{
+			"id":    id,
+			"name":  label,
+			"label": label,
 			"value": fmt.Sprintf("%d", id),
 		})
 	}

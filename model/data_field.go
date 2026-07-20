@@ -15,6 +15,8 @@ type DataField struct {
 	FieldKey       string    `dorm:"type:varchar(128);not null;default:'';comment:字段编码"`
 	FieldType      string    `dorm:"type:varchar(32);not null;default:'text';comment:字段类型"`
 	DefaultValue   string    `dorm:"type:text;not null;default:'';comment:默认值"`
+	FinanceTypeID  uint64    `dorm:"type:bigint;not null;default:0;comment:财务类型"`
+	StatEnabled    bool      `dorm:"not null;default:false;comment:是否参与统计"`
 	Sort           int       `dorm:"type:int;not null;default:100;comment:排序"`
 	Status         int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
 	CreatedAt      time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
@@ -27,6 +29,8 @@ type DataFieldIndex struct {
 	TemplateStatus struct{} `index:"data_template_id,status,sort,id"`
 	TypeStatus     struct{} `index:"field_type,status,id"`
 	OptionSet      struct{} `index:"option_set_id,status,id"`
+	FinanceStatus  struct{} `index:"finance_type_id,status,id"`
+	StatStatus     struct{} `index:"stat_enabled,status,sort,id"`
 }
 
 var dataFieldOptionRelation = orm.Relation{
@@ -68,6 +72,7 @@ func NewDataFieldModel() *orm.Model[DataField] {
 			dataTemplateRelation,
 			dataFieldParentRelation,
 			dataFieldOptionSetRelation,
+			financeTypeRelation,
 			dataFieldOptionRelation,
 			dataFieldChildRelation,
 		},

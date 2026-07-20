@@ -45,11 +45,30 @@
           },
           "bodyClassName": "crm-work-task-modal-body crm-work-task-scroll-area max-h-[70vh] overflow-y-auto px-6 py-2"
         }
+      },
+      {
+        "type": "feedback-drawer",
+        "meta": {
+          "stateKey": "drawer.workDetail",
+          "formSection": "work-detail-section",
+          "title": "客户详情",
+          "titlePath": "data.actionTarget.workDetailName",
+          "descriptionPath": "data.actionTarget.workDetailDescription",
+          "assistant": false,
+          "side": "right",
+          "width": "52rem",
+          "bodyClassName": "crm-customer-detail-drawer-body px-6 py-2"
+        }
       }
     ],
     "work-schedule-form-section": [
       {
         "type": "show-crm-work-schedule-form"
+      }
+    ],
+    "work-detail-section": [
+      {
+        "type": "show-crm-work-detail"
       }
     ]
   },
@@ -57,6 +76,9 @@
   "state": {
     "dialog": {
       "workSchedule": false
+    },
+    "drawer": {
+      "workDetail": false
     }
   },
   "action": {}
