@@ -1,4 +1,5 @@
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -38,6 +39,11 @@ import {
 import { openWorkCustomerDetailDrawer } from "./work-auth";
 import { useWorkFeedbackModalFooterTargets } from "./work-feedback-modal";
 import { WorkFormField } from "./work-form-field";
+import { ShowCrmWorkTaskUpload } from "./work-upload";
+import {
+  uniqueScheduleParticipantIDs,
+  WorkScheduleParticipantPicker,
+} from "./work-schedule-participant-picker";
 import { useWorkTaskStoreValue } from "./work-task-form-fields";
 import type {
   WorkScheduleCustomerOption,
@@ -58,6 +64,12 @@ const emptyWorkScheduleDialogTarget: WorkScheduleDialogTarget = {};
 const workScheduleDialogTargetPath = "data.actionTarget.workSchedule";
 const workScheduleDialogKey = "dialog.workSchedule";
 export const workScheduleChangedEvent = "crm-work-schedule-changed";
+const workScheduleDurationOptions = [
+  { value: "30", label: "30分钟" },
+  { value: "60", label: "1小时" },
+  { value: "90", label: "1.5小时" },
+  { value: "120", label: "2小时" },
+];
 
 export function openWorkScheduleDialog(
   store: WorkNodeProps["store"],
@@ -93,6 +105,9 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
     scheduleDraft(target),
   );
   const [nextStartAt, setNextStartAt] = useState("");
+  const [arrivalVideoIDs, setArrivalVideoIDs] = useState<string[]>(() =>
+    scheduleArrivalVideoIDs(event),
+  );
   const [submitting, setSubmitting] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const existing = Boolean(textValue(event?.id));
@@ -100,6 +115,10 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
   const editable =
     !existing ||
     (pending && event?.can_edit !== false && event?.schedule_type !== "meeting");
+  const canManageArrivalVideo = Boolean(event?.can_manage_arrival_video);
+  const showArrivalVideo =
+    event?.schedule_type === "meeting" &&
+    (canManageArrivalVideo || (event.arrival_video_files || []).length > 0);
   const footerTargets = useWorkFeedbackModalFooterTargets(
     contentRef,
     existing,
@@ -109,6 +128,7 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
   useEffect(() => {
     setDraft(scheduleDraft(target));
     setNextStartAt("");
+    setArrivalVideoIDs(scheduleArrivalVideoIDs(target.event));
   }, [target]);
 
   const customerOptions = useMemo(
@@ -123,6 +143,29 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
       ),
     [customerOptions, draft.customerID],
   );
+  const currentStaffID = textValue(options.current_staff_id);
+  const currentDepartmentID = textValue(options.current_department_id);
+  const ownerStaffID = textValue(
+    event?.owner_staff_id ||
+      (draft.scheduleType === "customer_follow"
+        ? selectedCustomer?.owner_staff_id
+        : currentStaffID),
+  );
+  const lockedParticipantIDs = useMemo(
+    () => uniqueScheduleParticipantIDs([currentStaffID, ownerStaffID]),
+    [currentStaffID, ownerStaffID],
+  );
+  const durationMinutes = scheduleDraftDurationMinutes(draft);
+  const durationOptions =
+    durationMinutes > 0 &&
+    !workScheduleDurationOptions.some(
+      (option) => option.value === String(durationMinutes),
+    )
+      ? [
+          { value: String(durationMinutes), label: `${durationMinutes}分钟` },
+          ...workScheduleDurationOptions,
+        ]
+      : workScheduleDurationOptions;
 
   const close = useCallback(() => {
     setWorkModalOpen(store, workScheduleDialogKey, false);
@@ -227,7 +270,10 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
           start_at: startAt.toISOString(),
           end_at: endAt.toISOString(),
           reminder_minutes: Number(draft.reminderMinutes),
-          participant_ids: draft.participantIDs,
+          participant_ids: uniqueScheduleParticipantIDs([
+            ...lockedParticipantIDs,
+            ...draft.participantIDs,
+          ]),
           resource_ids: draft.resourceIDs,
         }),
       });
@@ -241,7 +287,15 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
     } finally {
       setSubmitting(false);
     }
-  }, [close, draft, editable, event?.id, notifyChanged, submitting]);
+  }, [
+    close,
+    draft,
+    editable,
+    event?.id,
+    lockedParticipantIDs,
+    notifyChanged,
+    submitting,
+  ]);
 
   const complete = async (withNext = false) => {
     if (!event || submitting) return;
@@ -300,6 +354,27 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
       notifyChanged();
     } catch (error) {
       toast.error(errorMessage(error, "会议签到失败"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const saveArrivalVideos = async () => {
+    if (!event || submitting || !canManageArrivalVideo) return;
+    setSubmitting(true);
+    try {
+      await workApi("/crm/work/schedule_arrival_video", {
+        method: "POST",
+        body: JSON.stringify({
+          schedule_event_id: textValue(event.id),
+          file_ids: arrivalVideoIDs,
+        }),
+      });
+      toast.success("到访视频已保存");
+      close();
+      notifyChanged();
+    } catch (error) {
+      toast.error(errorMessage(error, "到访视频保存失败"));
     } finally {
       setSubmitting(false);
     }
@@ -381,7 +456,7 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
     </>
   );
 
-  const footerActions = editable || event?.can_check_in || event?.checked_in_at ? (
+  const footerActions = editable || event?.can_check_in || event?.checked_in_at || canManageArrivalVideo ? (
     <>
       {event?.can_check_in ? (
         <Button
@@ -418,18 +493,30 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
           完成并安排下一次
         </Button>
       ) : null}
+      {canManageArrivalVideo ? (
+        <Button
+          type="button"
+          disabled={submitting}
+          onClick={() => void saveArrivalVideos()}
+        >
+          保存视频
+        </Button>
+      ) : null}
     </>
   ) : null;
 
   return (
-    <div ref={contentRef} className="grid gap-4 sm:grid-cols-2">
+    <div ref={contentRef} className="space-y-4">
       {footerTargets?.left ? createPortal(footerLeft, footerTargets.left) : null}
       {footerTargets?.actions
         ? createPortal(footerActions, footerTargets.actions)
         : null}
 
-      <fieldset className="contents" disabled={!editable || submitting}>
-        <WorkFormField label="日程归属" className="sm:col-span-2">
+      <fieldset
+        className="m-0 min-w-0 space-y-4 border-0 p-0"
+        disabled={!editable || submitting}
+      >
+        <WorkFormField label="日程归属">
           <div
             className={`grid max-w-lg gap-2 ${
               event?.schedule_type === "meeting" ? "grid-cols-3" : "grid-cols-2"
@@ -471,134 +558,173 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
           </div>
         </WorkFormField>
 
-        {draft.scheduleType === "customer_follow" ? (
-          <WorkFormField
-            label="待跟进客户"
-            required
-            className="sm:col-span-2"
-            hint={
-              selectedCustomer?.next_follow_at
-                ? `当前跟进时间：${formatScheduleDisplayDate(selectedCustomer.next_follow_at)}`
-                : undefined
-            }
-          >
+        <ScheduleFormRow>
+          <WorkFormField label="标题" required>
+            <Input
+              value={draft.title}
+              placeholder={
+                draft.scheduleType === "customer_follow" ? "客户跟进" : "日程标题"
+              }
+              onChange={(input) =>
+                setDraft((current) => ({ ...current, title: input.target.value }))
+              }
+            />
+          </WorkFormField>
+
+          {draft.scheduleType === "customer_follow" ? (
+            <WorkFormField
+              label="待跟进客户"
+              required
+              hint={
+                selectedCustomer?.next_follow_at
+                  ? `当前跟进时间：${formatScheduleDisplayDate(selectedCustomer.next_follow_at)}`
+                  : undefined
+              }
+            >
+              <Select
+                value={draft.customerID}
+                disabled={existing}
+                onValueChange={changeCustomer}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="请选择当前待跟进客户" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {customerOptions.map((customer) => (
+                    <SelectItem
+                      key={textValue(customer.id)}
+                      value={textValue(customer.id)}
+                    >
+                      {scheduleCustomerLabel(customer)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </WorkFormField>
+          ) : (
+            <div className="hidden sm:block" aria-hidden="true" />
+          )}
+        </ScheduleFormRow>
+
+        {existing && event?.schedule_type === "meeting" ? (
+          <ScheduleFormRow>
+            <WorkFormField label="预约次数">
+              <ScheduleReadonlyValue>
+                第 {Math.max(Number(event.meeting_attempt) || 1, 1)} 次
+              </ScheduleReadonlyValue>
+            </WorkFormField>
+            <WorkFormField label="到访结果">
+              <ScheduleReadonlyValue>
+                {scheduleArrivalStatusLabel(event.arrival_status)}
+              </ScheduleReadonlyValue>
+            </WorkFormField>
+          </ScheduleFormRow>
+        ) : null}
+
+        {event?.arrival_status === "no_show" && event.no_show_reason ? (
+          <WorkFormField label="未到访原因">
+            <ScheduleReadonlyValue>{event.no_show_reason}</ScheduleReadonlyValue>
+          </WorkFormField>
+        ) : null}
+
+        <ScheduleFormRow>
+          <WorkFormField label="开始时间" required>
+            <Input
+              type="datetime-local"
+              value={draft.startAt}
+              onChange={(input) => changeStartAt(input.target.value)}
+            />
+          </WorkFormField>
+
+          <WorkFormField label="结束时间" required>
+            <Input
+              type="datetime-local"
+              value={draft.endAt}
+              onChange={(input) =>
+                setDraft((current) => ({ ...current, endAt: input.target.value }))
+              }
+            />
+          </WorkFormField>
+        </ScheduleFormRow>
+
+        <ScheduleFormRow>
+          <WorkFormField label="使用时长">
             <Select
-              value={draft.customerID}
-              disabled={existing}
-              onValueChange={changeCustomer}
+              value={durationMinutes > 0 ? String(durationMinutes) : ""}
+              onValueChange={(minutes) => changeDuration(Number(minutes))}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="请选择当前待跟进客户" />
+                <SelectValue placeholder="请选择使用时长" />
               </SelectTrigger>
               <SelectContent position="popper">
-                {customerOptions.map((customer) => (
-                  <SelectItem
-                    key={textValue(customer.id)}
-                    value={textValue(customer.id)}
-                  >
-                    {scheduleCustomerLabel(customer)}
+                {durationOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </WorkFormField>
-        ) : null}
 
-        <WorkFormField label="标题" required className="sm:col-span-2">
-          <Input
-            value={draft.title}
-            placeholder={
-              draft.scheduleType === "customer_follow" ? "客户跟进" : "日程标题"
-            }
-            onChange={(input) =>
-              setDraft((current) => ({ ...current, title: input.target.value }))
-            }
-          />
-        </WorkFormField>
+          <WorkFormField label="提醒">
+            <Select
+              value={draft.reminderMinutes}
+              onValueChange={(reminderMinutes) =>
+                setDraft((current) => ({ ...current, reminderMinutes }))
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="请选择提醒时间" />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                {(options.reminders || []).map((reminder) => (
+                  <SelectItem
+                    key={textValue(reminder.id)}
+                    value={textValue(reminder.id)}
+                  >
+                    {textValue(reminder.value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </WorkFormField>
+        </ScheduleFormRow>
 
-        <WorkFormField label="开始时间" required>
-          <Input
-            type="datetime-local"
-            value={draft.startAt}
-            onChange={(input) => changeStartAt(input.target.value)}
-          />
-        </WorkFormField>
-
-        <WorkFormField label="使用时长" className="sm:col-span-2">
-          <div className="flex flex-wrap gap-2">
-            {[30, 60, 90, 120].map((minutes) => (
-              <Button
-                key={minutes}
-                type="button"
-                variant={scheduleDraftDurationMinutes(draft) === minutes ? "default" : "outline"}
-                onClick={() => changeDuration(minutes)}
-              >
-                {minutes < 60 ? `${minutes}分钟` : `${minutes / 60}小时`}
-              </Button>
-            ))}
-          </div>
-        </WorkFormField>
-        <WorkFormField label="结束时间" required>
-          <Input
-            type="datetime-local"
-            value={draft.endAt}
-            onChange={(input) =>
-              setDraft((current) => ({ ...current, endAt: input.target.value }))
+        <ScheduleFormRow>
+          <WorkScheduleParticipantPicker
+            value={draft.participantIDs}
+            currentStaffID={currentStaffID}
+            ownerStaffID={ownerStaffID}
+            currentDepartmentID={currentDepartmentID}
+            staff={options.staff || []}
+            departments={options.departments || []}
+            existingParticipants={event?.participants || []}
+            disabled={!editable || submitting}
+            onChange={(participantIDs) =>
+              setDraft((current) => ({ ...current, participantIDs }))
             }
           />
-        </WorkFormField>
 
-        <WorkFormField label="提醒" className="sm:col-span-2">
-          <Select
-            value={draft.reminderMinutes}
-            onValueChange={(reminderMinutes) =>
-              setDraft((current) => ({ ...current, reminderMinutes }))
+          <ScheduleResourceOptions
+            values={draft.resourceIDs}
+            options={(options.resources || []).map((resource) => ({
+              id: textValue(resource.id),
+              label: [
+                textValue(resource.name),
+                textValue(resource.location),
+                Number(resource.capacity) > 0 ? `容量 ${resource.capacity} 人` : "",
+              ]
+                .filter(Boolean)
+                .join(" · "),
+            }))}
+            emptyText="暂无可用资源"
+            onChange={(resourceIDs) =>
+              setDraft((current) => ({ ...current, resourceIDs }))
             }
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="请选择提醒时间" />
-            </SelectTrigger>
-            <SelectContent position="popper">
-              {(options.reminders || []).map((reminder) => (
-                <SelectItem
-                  key={textValue(reminder.id)}
-                  value={textValue(reminder.id)}
-                >
-                  {textValue(reminder.value)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </WorkFormField>
+          />
+        </ScheduleFormRow>
 
-        <ScheduleMultiOptions
-          label="参与人"
-          values={draft.participantIDs}
-          options={(options.staff || []).map((staff) => ({
-            id: textValue(staff.id),
-            label: textValue(staff.name),
-          }))}
-          onChange={(participantIDs) =>
-            setDraft((current) => ({ ...current, participantIDs }))
-          }
-        />
-
-        <ScheduleMultiOptions
-          label="公共资源"
-          values={draft.resourceIDs}
-          options={(options.resources || []).map((resource) => ({
-            id: textValue(resource.id),
-            label: [textValue(resource.name), textValue(resource.location)]
-              .filter(Boolean)
-              .join(" · "),
-          }))}
-          emptyText="暂无可用资源"
-          onChange={(resourceIDs) =>
-            setDraft((current) => ({ ...current, resourceIDs }))
-          }
-        />
-
-        <WorkFormField label="备注" className="sm:col-span-2">
+        <WorkFormField label="备注">
           <Textarea
             value={draft.remark}
             placeholder="记录准备事项或跟进说明"
@@ -612,7 +738,7 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
         {existing && pending && event?.schedule_type === "customer_follow" ? (
           <WorkFormField
             label="完成后下次跟进"
-            className="border-t pt-4 sm:col-span-2"
+            className="border-t pt-4"
           >
             <Input
               type="datetime-local"
@@ -623,8 +749,42 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
         ) : null}
       </fieldset>
 
+      {showArrivalVideo ? (
+        <div className="space-y-2 border-t pt-4">
+          <WorkFormField
+            label="到访视频"
+            hint={canManageArrivalVideo ? "客户到访后可上传留档视频" : undefined}
+          >
+            <ShowCrmWorkTaskUpload
+              item={{
+                id: "schedule-arrival-video",
+                name: "到访视频",
+                meta: {
+                  ruleId: 2,
+                  kind: "video",
+                  uploadType: "list",
+                  maxCount: 5,
+                  bizKey: "crm.schedule.arrival",
+                  bizName: "CRM到访视频",
+                  readonly: !canManageArrivalVideo,
+                  initialFiles: event?.arrival_video_files || [],
+                },
+              }}
+              value={arrivalVideoIDs}
+              setValue={(value) =>
+                setArrivalVideoIDs(
+                  (Array.isArray(value) ? value : [])
+                    .map(textValue)
+                    .filter(Boolean),
+                )
+              }
+            />
+          </WorkFormField>
+        </div>
+      ) : null}
+
       {submitting ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground sm:col-span-2">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           正在保存日程
         </div>
@@ -633,14 +793,38 @@ export function ShowCrmWorkScheduleForm({ store }: WorkNodeProps = {}) {
   );
 }
 
-function ScheduleMultiOptions({
-  label,
+function ScheduleFormRow({ children }: { children: ReactNode }) {
+  return <div className="grid min-w-0 gap-4 sm:grid-cols-2">{children}</div>;
+}
+
+function ScheduleReadonlyValue({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex min-h-10 items-center rounded-md border bg-muted/20 px-3 text-sm text-foreground">
+      {children}
+    </div>
+  );
+}
+
+function scheduleArrivalVideoIDs(event?: WorkScheduleEvent | null): string[] {
+  return (event?.arrival_video_files || [])
+    .map((file) => textValue(file.id))
+    .filter(Boolean);
+}
+
+function scheduleArrivalStatusLabel(
+  status?: WorkScheduleEvent["arrival_status"],
+): string {
+  if (status === "arrived") return "已到访";
+  if (status === "no_show") return "未到访";
+  return "待确认";
+}
+
+function ScheduleResourceOptions({
   values,
   options,
-  emptyText = "暂无可选人员",
+  emptyText = "暂无可用资源",
   onChange,
 }: {
-  label: string;
   values: string[];
   options: Array<{ id: string; label: string }>;
   emptyText?: string;
@@ -648,9 +832,12 @@ function ScheduleMultiOptions({
 }) {
   const selected = new Set(values);
   return (
-    <WorkFormField label={label} className="col-span-full">
+    <div className="min-w-0">
+      <div className="mb-1.5 flex min-h-9 items-center">
+        <span className="text-sm font-medium">公共资源</span>
+      </div>
       {options.length ? (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid max-h-64 gap-2 overflow-y-auto pr-1">
           {options.map((option) => {
             const checked = selected.has(option.id);
             return (
@@ -685,12 +872,18 @@ function ScheduleMultiOptions({
       ) : (
         <p className="text-xs text-muted-foreground">{emptyText}</p>
       )}
-    </WorkFormField>
+    </div>
   );
 }
 
 function scheduleDraft(target: WorkScheduleDialogTarget): WorkScheduleDraft {
   const event = target.event || null;
+  const lockedParticipantIDs = new Set(
+    uniqueScheduleParticipantIDs([
+      target.options?.current_staff_id,
+      event?.owner_staff_id,
+    ]),
+  );
   const initialStart = parseScheduleDate(target.initialStart);
   const initialEnd = parseScheduleDate(target.initialEnd);
   const start = event?.start_at
@@ -707,7 +900,9 @@ function scheduleDraft(target: WorkScheduleDialogTarget): WorkScheduleDraft {
     startAt: formatDateTimeInput(start),
     endAt: formatDateTimeInput(end),
     reminderMinutes: textValue(event?.reminder_minutes) || "30",
-    participantIDs: (event?.participant_ids || []).map(textValue).filter(Boolean),
+    participantIDs: uniqueScheduleParticipantIDs(event?.participant_ids || []).filter(
+      (staffID) => !lockedParticipantIDs.has(staffID),
+    ),
     resourceIDs: (event?.resource_ids || []).map(textValue).filter(Boolean),
   };
 }

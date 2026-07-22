@@ -55,8 +55,11 @@ func appendWorkTaskSystemChanges(
 				appendWorkFormChange(changes, key, beforeValues[key], normalizeWorkMeetingAuditValue(key, value))
 			}
 		}
-		if booleanFromAny(values[workMeetingArrivalFieldKey]) {
-			appendWorkFormChange(changes, workMeetingArrivalFieldKey, beforeValues[workMeetingArrivalFieldKey], true)
+		if decision := workMeetingArrivalDecision(values); decision != "" {
+			appendWorkFormChange(changes, workMeetingArrivalFieldKey, beforeValues[workMeetingArrivalFieldKey], decision)
+			if decision == crmmodel.MeetingArrivalNoShow {
+				appendWorkFormChange(changes, workMeetingNoShowReasonKey, beforeValues[workMeetingNoShowReasonKey], inputText(values[workMeetingNoShowReasonKey]))
+			}
 		}
 	}
 }

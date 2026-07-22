@@ -51,10 +51,13 @@ func (WorkService) ScheduleOptions(ctx context.Context, staff *WorkStaffSession)
 		return nil, fmt.Errorf("请先登录")
 	}
 	return map[string]any{
-		"customers": scheduleCustomerOptions(ctx, staff),
-		"staff":     scheduleStaffOptions(ctx),
-		"resources": scheduleResourceOptions(ctx),
-		"reminders": crmmodel.ScheduleReminderOptions(),
+		"customers":             scheduleCustomerOptions(ctx, staff),
+		"staff":                 scheduleStaffOptions(ctx),
+		"departments":           enabledDepartmentOptions(ctx),
+		"current_staff_id":      staff.ID,
+		"current_department_id": staff.DepartmentID,
+		"resources":             scheduleResourceOptions(ctx),
+		"reminders":             crmmodel.ScheduleReminderOptions(),
 	}, nil
 }
 
@@ -165,6 +168,9 @@ func visibleScheduleEventIDs(ctx context.Context, staff *WorkStaffSession) []uin
 			appendID(event.ID)
 		}
 	}
+	for _, eventID := range managedScheduleEventIDs(ctx, staff) {
+		appendID(eventID)
+	}
 	if staff.CanDispatch {
 		for _, event := range crmmodel.NewScheduleEventModel().Select(ctx, map[string]any{}) {
 			if event != nil {
@@ -254,6 +260,7 @@ func scheduleStaffOptions(ctx context.Context) []map[string]any {
 		result = append(result, map[string]any{
 			"id":            staff.ID,
 			"name":          staff.Name,
+			"phone":         staff.Phone,
 			"department_id": staff.DepartmentID,
 		})
 	}

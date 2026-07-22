@@ -17,25 +17,30 @@ type ScheduleEvent struct {
 	SourceWorkflowInstanceID uint64  `dorm:"type:bigint;not null;default:0;comment:来源流程实例"`
 	SourceTaskID             uint64  `dorm:"type:bigint;not null;default:0;comment:来源任务"`
 	MeetingSourceKey         *string `dorm:"type:varchar(96);null;comment:会议来源唯一键"`
+	MeetingAttempt           int     `dorm:"type:int;not null;default:1;comment:第几次预约"`
 	// 旧字段仅保留数据库兼容，新的客户跟进日程不再绑定动态资料。
-	DataUsageFieldID         uint64     `dorm:"type:bigint;not null;default:0;comment:旧用途字段绑定"`
-	DataRecordID             uint64     `dorm:"type:bigint;not null;default:0;comment:旧客户资料记录"`
-	DataFieldID              uint64     `dorm:"type:bigint;not null;default:0;comment:旧客户资料字段"`
-	OperationLogID           uint64     `dorm:"type:bigint;not null;default:0;comment:首次安排记录"`
-	Title                    string     `dorm:"type:varchar(128);not null;comment:标题"`
-	Remark                   string     `dorm:"type:text;not null;default:'';comment:备注"`
-	StartAt                  time.Time  `dorm:"not null;comment:开始时间"`
-	EndAt                    time.Time  `dorm:"not null;comment:结束时间"`
-	ReminderMinutes          int        `dorm:"type:int;not null;default:0;comment:提前提醒分钟"`
-	RemindAt                 time.Time  `dorm:"not null;comment:提醒时间"`
-	Source                   string     `dorm:"type:varchar(32);not null;default:'calendar';comment:创建来源"`
-	Status                   string     `dorm:"type:varchar(32);not null;default:'pending';comment:状态"`
-	CustomerArrivedAt        *time.Time `dorm:"null;comment:客户到访确认时间"`
-	CustomerArrivedByStaffID uint64     `dorm:"type:bigint;not null;default:0;comment:客户到访确认人"`
-	CompletedAt              *time.Time `dorm:"null;comment:完成时间"`
-	CanceledAt               *time.Time `dorm:"null;comment:取消时间"`
-	CreatedAt                time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
-	UpdatedAt                time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
+	DataUsageFieldID          uint64     `dorm:"type:bigint;not null;default:0;comment:旧用途字段绑定"`
+	DataRecordID              uint64     `dorm:"type:bigint;not null;default:0;comment:旧客户资料记录"`
+	DataFieldID               uint64     `dorm:"type:bigint;not null;default:0;comment:旧客户资料字段"`
+	OperationLogID            uint64     `dorm:"type:bigint;not null;default:0;comment:首次安排记录"`
+	Title                     string     `dorm:"type:varchar(128);not null;comment:标题"`
+	Remark                    string     `dorm:"type:text;not null;default:'';comment:备注"`
+	StartAt                   time.Time  `dorm:"not null;comment:开始时间"`
+	EndAt                     time.Time  `dorm:"not null;comment:结束时间"`
+	ReminderMinutes           int        `dorm:"type:int;not null;default:0;comment:提前提醒分钟"`
+	RemindAt                  time.Time  `dorm:"not null;comment:提醒时间"`
+	Source                    string     `dorm:"type:varchar(32);not null;default:'calendar';comment:创建来源"`
+	Status                    string     `dorm:"type:varchar(32);not null;default:'pending';comment:状态"`
+	ArrivalStatus             string     `dorm:"type:varchar(32);not null;default:'pending';comment:到访状态"`
+	ArrivalConfirmedAt        *time.Time `dorm:"null;comment:到访结果确认时间"`
+	ArrivalConfirmedByStaffID uint64     `dorm:"type:bigint;not null;default:0;comment:到访结果确认人"`
+	NoShowReason              string     `dorm:"type:text;not null;default:'';comment:未到访原因"`
+	CustomerArrivedAt         *time.Time `dorm:"null;comment:客户到访确认时间"`
+	CustomerArrivedByStaffID  uint64     `dorm:"type:bigint;not null;default:0;comment:客户到访确认人"`
+	CompletedAt               *time.Time `dorm:"null;comment:完成时间"`
+	CanceledAt                *time.Time `dorm:"null;comment:取消时间"`
+	CreatedAt                 time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
+	UpdatedAt                 time.Time  `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
 }
 
 type ScheduleEventIndex struct {
@@ -44,6 +49,7 @@ type ScheduleEventIndex struct {
 	CustomerStatus  struct{} `index:"customer_id,schedule_type,status,start_at,id"`
 	ReminderStatus  struct{} `index:"remind_at,status,id"`
 	SourceWorkflow  struct{} `index:"source_workflow_instance_id,id"`
+	SourceTask      struct{} `index:"source_workflow_instance_id,source_task_id,meeting_attempt,id"`
 	MeetingSource   struct{} `unique:"meeting_source_key"`
 	DataRecordField struct{} `index:"data_record_id,data_field_id,status,id"`
 }
@@ -58,6 +64,7 @@ func NewScheduleEventModel() *orm.Model[ScheduleEvent] {
 			"reminder_minutes": scheduleReminderOptions,
 			"source":           scheduleSourceOptions,
 			"status":           scheduleStatusOptions,
+			"arrival_status":   meetingArrivalStatusOptions,
 		},
 		Relations: []orm.Relation{
 			customerRelation,

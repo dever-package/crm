@@ -97,7 +97,7 @@ func (AdminSummaryService) Summary(ctx context.Context, queries ...AdminSummaryQ
 		},
 		"filter_options": map[string]any{
 			"workflows":   workflows,
-			"departments": adminSummaryDepartmentOptions(ctx),
+			"departments": enabledDepartmentOptions(ctx),
 			"staff":       adminSummaryStaffOptions(ctx),
 		},
 		"generated_at": time.Now(),
@@ -270,7 +270,7 @@ func adminSummaryWorkflowOptions(ctx context.Context) []map[string]any {
 	return result
 }
 
-func adminSummaryDepartmentOptions(ctx context.Context) []map[string]any {
+func enabledDepartmentOptions(ctx context.Context) []map[string]any {
 	rows := crmmodel.NewDepartmentModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled})
 	result := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {

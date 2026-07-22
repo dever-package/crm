@@ -25,6 +25,46 @@ var ignoredProcessedResults = map[string]bool{
 	"unassigned":       true,
 }
 
+func processedWorkLeadIDs(ctx context.Context, staff *WorkStaffSession, workflowID uint64) map[uint64]bool {
+	processed := map[uint64]bool{}
+	if staff == nil || staff.ID == 0 || workflowID == 0 {
+		return processed
+	}
+	taskTypes := map[uint64]string{}
+	instanceLeadIDs := map[uint64]uint64{}
+	loadedInstances := map[uint64]bool{}
+	for _, operation := range crmmodel.NewOperationLogModel().Select(ctx, map[string]any{
+		"operator_staff_id": staff.ID,
+		"workflow_id":       workflowID,
+	}) {
+		if !isHandledWorkTaskOperation(operation) {
+			continue
+		}
+		taskType, loaded := taskTypes[operation.TaskID]
+		if !loaded {
+			if task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": operation.TaskID}); task != nil {
+				taskType = task.TaskType
+			}
+			taskTypes[operation.TaskID] = taskType
+		}
+		if taskType == "" || taskType == crmmodel.TaskTypeRule {
+			continue
+		}
+		leadID := instanceLeadIDs[operation.WorkflowInstanceID]
+		if !loadedInstances[operation.WorkflowInstanceID] {
+			if instance := crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{"id": operation.WorkflowInstanceID}); instance != nil {
+				leadID = instance.LeadID
+			}
+			instanceLeadIDs[operation.WorkflowInstanceID] = leadID
+			loadedInstances[operation.WorkflowInstanceID] = true
+		}
+		if leadID > 0 {
+			processed[leadID] = true
+		}
+	}
+	return processed
+}
+
 func processedWorkCustomerListTargets(ctx context.Context, staff *WorkStaffSession) []workCustomerListTarget {
 	operations := processedWorkOperations(ctx, staff, 0)
 	targets := make([]workCustomerListTarget, 0)
@@ -100,7 +140,18 @@ func isHandledWorkOperation(operation *crmmodel.OperationLog) bool {
 	if operation == nil || operation.CustomerID == 0 || operation.TaskID == 0 || operation.OperatorStaffID == 0 {
 		return false
 	}
-	return !ignoredProcessedResults[strings.ToLower(strings.TrimSpace(operation.ResultValue))]
+	return isHandledWorkResult(operation.ResultValue)
+}
+
+func isHandledWorkTaskOperation(operation *crmmodel.OperationLog) bool {
+	if operation == nil || operation.WorkflowInstanceID == 0 || operation.TaskID == 0 || operation.OperatorStaffID == 0 {
+		return false
+	}
+	return isHandledWorkResult(operation.ResultValue)
+}
+
+func isHandledWorkResult(result string) bool {
+	return !ignoredProcessedResults[strings.ToLower(strings.TrimSpace(result))]
 }
 
 func (builder *workCustomerListRowBuilder) processedCustomerRow(target workCustomerListTarget) map[string]any {

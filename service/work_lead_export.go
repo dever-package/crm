@@ -26,6 +26,7 @@ var workLeadExportColumns = []struct {
 	{Name: "初始诉求", Key: "initial_need"},
 	{Name: "状态", Key: "status_name"},
 	{Name: "MKT负责人", Key: "owner_staff_name"},
+	{Name: "派单接收人", Key: "dispatch_assignee_staff_name"},
 	{Name: "录入时间", Key: "created_at"},
 }
 

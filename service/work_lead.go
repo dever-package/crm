@@ -23,11 +23,13 @@ func (WorkService) LeadPool(ctx context.Context, staff *WorkStaffSession, payloa
 		return nil, fmt.Errorf("请先登录")
 	}
 	workflow := workflowForSubject(ctx, firstUint64(payload, "workflow_id", "workflowId"), crmmodel.WorkflowSubjectLead)
+	templates := workLeadEntryTemplateRows(ctx, workflow)
 	if workflow == nil || !canAccessWorkflow(ctx, staff, workflow) {
 		return map[string]any{
 			"enabled":         false,
 			"can_create":      false,
 			"pending_count":   0,
+			"mode_counts":     emptyWorkLeadModeCounts(),
 			"list":            []map[string]any{},
 			"total":           0,
 			"sources":         workLeadSourceOptions(ctx),
@@ -35,14 +37,15 @@ func (WorkService) LeadPool(ctx context.Context, staff *WorkStaffSession, payloa
 			"owner_options":   []map[string]any{},
 			"invalid_reasons": workLeadInvalidReasonOptions(ctx),
 			"statuses":        workLeadStatusOptions(),
-			"templates":       workLeadTemplateRows(ctx),
+			"templates":       templates,
 		}, nil
 	}
 
-	targets, err := workLeadVisibleTargets(ctx, staff, workflow, payload)
+	snapshot, err := newWorkLeadListSnapshot(ctx, staff, workflow, payload)
 	if err != nil {
 		return nil, err
 	}
+	targets := snapshot.targets(firstText(payload, "mode"))
 
 	page, pageSize, start, end := workLeadPageBounds(len(targets), payload)
 	pageTargets := []workLeadListTarget{}
@@ -55,6 +58,7 @@ func (WorkService) LeadPool(ctx context.Context, staff *WorkStaffSession, payloa
 		"enabled":         true,
 		"can_create":      canCreateLeadInWorkflow(ctx, staff, workflow),
 		"pending_count":   pendingCounts[workflow.ID],
+		"mode_counts":     snapshot.modeCounts(),
 		"list":            pageRows,
 		"total":           len(targets),
 		"page":            page,
@@ -64,7 +68,7 @@ func (WorkService) LeadPool(ctx context.Context, staff *WorkStaffSession, payloa
 		"owner_options":   workLeadOwnerOptions(ctx, workflow),
 		"invalid_reasons": workLeadInvalidReasonOptions(ctx),
 		"statuses":        workLeadStatusOptions(),
-		"templates":       workLeadTemplateRows(ctx),
+		"templates":       templates,
 		"workflow": map[string]any{
 			"id":           workflow.ID,
 			"name":         workflow.Name,
@@ -86,18 +90,39 @@ type workLeadListTarget struct {
 	instance *crmmodel.WorkflowInstance
 }
 
+type workLeadListSnapshot struct {
+	all       []workLeadListTarget
+	pending   []workLeadListTarget
+	processed []workLeadListTarget
+	done      []workLeadListTarget
+}
+
 func workLeadVisibleTargets(
 	ctx context.Context,
 	staff *WorkStaffSession,
 	workflow *crmmodel.Workflow,
 	payload map[string]any,
 ) ([]workLeadListTarget, error) {
+	snapshot, err := newWorkLeadListSnapshot(ctx, staff, workflow, payload)
+	if err != nil {
+		return nil, err
+	}
+	return snapshot.targets(firstText(payload, "mode")), nil
+}
+
+func newWorkLeadListSnapshot(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	workflow *crmmodel.Workflow,
+	payload map[string]any,
+) (workLeadListSnapshot, error) {
+	snapshot := workLeadListSnapshot{}
 	if staff == nil || staff.ID == 0 || workflow == nil {
-		return nil, fmt.Errorf("线索查询权限无效")
+		return snapshot, fmt.Errorf("线索查询权限无效")
 	}
 	selfFilter, err := parseWorkLeadSelfFilter(payload)
 	if err != nil {
-		return nil, err
+		return snapshot, err
 	}
 	filters := map[string]any{}
 	if status := firstText(payload, "status"); validWorkLeadStatus(status) {
@@ -129,6 +154,7 @@ func workLeadVisibleTargets(
 		"workflow_id": workflow.ID,
 	}, map[string]any{"order": "id desc"})
 	visibleInstanceIDs := workVisibleWorkflowInstanceIDs(ctx, staff, instances, true)
+	processedLeadIDs := processedWorkLeadIDs(ctx, staff, workflow.ID)
 	seenLeadIDs := map[uint64]bool{}
 	targets := make([]workLeadListTarget, 0, len(leadsByID))
 	for _, instance := range instances {
@@ -143,7 +169,7 @@ func workLeadVisibleTargets(
 		if !workflowInstanceMatchesPersonalQuickFilter(ctx, staff, instance, quickFilter) {
 			continue
 		}
-		if !visibleInstanceIDs[instance.ID] && quickFilter != "completedToday" {
+		if !visibleInstanceIDs[instance.ID] && !processedLeadIDs[instance.LeadID] && quickFilter != "completedToday" {
 			continue
 		}
 		if !workflowInstanceMatchesSummaryFilters(ctx, staff, instance, stageFilter, taskFilter) {
@@ -159,7 +185,48 @@ func workLeadVisibleTargets(
 		}
 		return targets[i].lead.ID > targets[j].lead.ID
 	})
-	return targets, nil
+	snapshot.all = targets
+	for _, target := range targets {
+		if target.instance == nil {
+			continue
+		}
+		switch target.instance.Status {
+		case crmmodel.ProgressStatusActive:
+			snapshot.pending = append(snapshot.pending, target)
+		case crmmodel.ProgressStatusCompleted, crmmodel.ProgressStatusTerminated:
+			snapshot.done = append(snapshot.done, target)
+		}
+		if target.lead != nil && processedLeadIDs[target.lead.ID] {
+			snapshot.processed = append(snapshot.processed, target)
+		}
+	}
+	return snapshot, nil
+}
+
+func (snapshot workLeadListSnapshot) targets(mode string) []workLeadListTarget {
+	switch normalizeWorkCustomerMode(mode) {
+	case workCustomerModeAll:
+		return snapshot.all
+	case workCustomerModeProcessed:
+		return snapshot.processed
+	case workCustomerModeDone:
+		return snapshot.done
+	default:
+		return snapshot.pending
+	}
+}
+
+func (snapshot workLeadListSnapshot) modeCounts() map[string]int {
+	return map[string]int{
+		workCustomerModeAll:       len(snapshot.all),
+		workCustomerModePending:   len(snapshot.pending),
+		workCustomerModeProcessed: len(snapshot.processed),
+		workCustomerModeDone:      len(snapshot.done),
+	}
+}
+
+func emptyWorkLeadModeCounts() map[string]int {
+	return workLeadListSnapshot{}.modeCounts()
 }
 
 func workLeadRows(
@@ -180,7 +247,62 @@ func workLeadRows(
 		}
 		rows = append(rows, row)
 	}
+	attachWorkLeadDispatchAssignees(ctx, rows)
 	return rows
+}
+
+func attachWorkLeadDispatchAssignees(ctx context.Context, rows []map[string]any) {
+	rowsByLeadID := make(map[uint64]map[string]any, len(rows))
+	leadIDs := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		leadID := inputUint64(row["id"])
+		if leadID == 0 || rowsByLeadID[leadID] != nil {
+			continue
+		}
+		rowsByLeadID[leadID] = row
+		leadIDs = append(leadIDs, leadID)
+	}
+	if len(leadIDs) == 0 {
+		return
+	}
+
+	latestByLeadID := make(map[uint64]*crmmodel.LeadDispatchHandoff, len(leadIDs))
+	staffIDSet := map[uint64]bool{}
+	for _, handoff := range crmmodel.NewLeadDispatchHandoffModel().Select(ctx, map[string]any{
+		"lead_id": leadIDs,
+		"status":  crmmodel.LeadDispatchHandoffCompleted,
+	}, map[string]any{"order": "completed_at desc,id desc"}) {
+		if handoff == nil || handoff.AssigneeStaffID == 0 || latestByLeadID[handoff.LeadID] != nil {
+			continue
+		}
+		latestByLeadID[handoff.LeadID] = handoff
+		staffIDSet[handoff.AssigneeStaffID] = true
+	}
+	if len(latestByLeadID) == 0 {
+		return
+	}
+
+	staffIDs := make([]uint64, 0, len(staffIDSet))
+	for staffID := range staffIDSet {
+		staffIDs = append(staffIDs, staffID)
+	}
+	staffByID := make(map[uint64]*crmmodel.Staff, len(staffIDs))
+	for _, staff := range crmmodel.NewStaffModel().Select(ctx, map[string]any{"id": staffIDs}) {
+		if staff != nil {
+			staffByID[staff.ID] = staff
+		}
+	}
+	for leadID, handoff := range latestByLeadID {
+		row := rowsByLeadID[leadID]
+		assignee := staffByID[handoff.AssigneeStaffID]
+		if row == nil || assignee == nil {
+			continue
+		}
+		row["dispatch_assignee_staff_id"] = assignee.ID
+		row["dispatch_assignee_staff_name"] = assignee.Name
+		row["dispatch_type"] = handoff.DispatchType
+		row["dispatch_completed_at"] = handoff.CompletedAt
+	}
 }
 
 func parseWorkLeadSelfFilter(payload map[string]any) (workLeadSelfFilter, error) {
@@ -235,7 +357,7 @@ func (WorkService) RegisterLead(ctx context.Context, staff *WorkStaffSession, pa
 		return nil, fmt.Errorf("只有线索流程首阶段负责部门或流程调度员可以录入线索")
 	}
 	requestedOwnerID := firstUint64(payload, "owner_staff_id", "ownerStaffId")
-	if requestedOwnerID == 0 {
+	if requestedOwnerID == 0 && stageAssignmentMode(firstEnabledStage(ctx, workflow.ID)) == crmmodel.StageAssignmentManual {
 		requestedOwnerID = staff.ID
 	}
 	created, err := createWorkLead(ctx, workflow, staff, requestedOwnerID, payload)
@@ -343,12 +465,27 @@ func createWorkLead(
 		if created == nil {
 			return fmt.Errorf("线索录入后无法读取")
 		}
-		if _, err := startWorkflowInstance(txCtx, leadWorkflowSubject(leadID), workflow.ID, requestedOwnerID); err != nil {
-			return err
+		var instance *crmmodel.WorkflowInstance
+		if status != crmmodel.LeadStatusDuplicate {
+			dispatchInstance, dispatched, dispatchErr := startNewLeadDispatch(txCtx, workflow, created)
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			if dispatched {
+				instance = dispatchInstance
+			}
 		}
-		instance := activeWorkflowInstanceForLead(txCtx, leadID, workflow.ID)
+		if instance == nil {
+			instance, err = startWorkflowInstance(txCtx, leadWorkflowSubject(leadID), workflow.ID, requestedOwnerID)
+			if err != nil {
+				return err
+			}
+		}
 		if instance == nil {
 			return fmt.Errorf("线索流程启动失败")
+		}
+		if refreshed := crmmodel.NewWorkflowInstanceModel().Find(txCtx, map[string]any{"id": instance.ID}); refreshed != nil {
+			instance = refreshed
 		}
 		crmmodel.NewLeadModel().Update(txCtx, map[string]any{"id": leadID}, map[string]any{
 			"owner_department_id": instance.OwnerDepartmentID,
@@ -361,6 +498,10 @@ func createWorkLead(
 			if err := terminateActiveWorkflowInstance(txCtx, creator, instance, duplicateReason); err != nil {
 				return err
 			}
+		}
+		created = crmmodel.NewLeadModel().Find(txCtx, map[string]any{"id": leadID})
+		if created == nil {
+			return fmt.Errorf("线索保存后无法读取")
 		}
 		return nil
 	})
@@ -581,6 +722,73 @@ func convertWorkLead(
 	leadWorkflowID uint64,
 	ownerStaffID uint64,
 ) (map[string]any, error) {
+	if lead != nil && lead.CustomerID > 0 {
+		return convertWorkLeadToWorkflow(
+			ctx,
+			staff,
+			lead,
+			leadInstance,
+			leadWorkflowID,
+			nil,
+			ownerStaffID,
+			false,
+		)
+	}
+	targetWorkflow, entryStage := defaultEntryWorkflowStage(ctx, crmmodel.WorkflowSubjectCustomerAsset)
+	if targetWorkflow == nil || entryStage == nil {
+		return nil, ErrNoAvailableWorkflow
+	}
+	if ownerStaffID == 0 && stageAssignmentMode(entryStage) == crmmodel.StageAssignmentManual {
+		return nil, fmt.Errorf("请选择%s阶段负责人", entryStage.Name)
+	}
+	return convertWorkLeadToWorkflow(
+		ctx,
+		staff,
+		lead,
+		leadInstance,
+		leadWorkflowID,
+		targetWorkflow,
+		ownerStaffID,
+		false,
+	)
+}
+
+func convertWorkLeadForDispatch(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	lead *crmmodel.Lead,
+	leadInstance *crmmodel.WorkflowInstance,
+	targetWorkflow *crmmodel.Workflow,
+	ownerStaffID uint64,
+) (map[string]any, error) {
+	if leadInstance == nil {
+		return nil, fmt.Errorf("线索流程不存在")
+	}
+	return convertWorkLeadToWorkflow(
+		ctx,
+		staff,
+		lead,
+		leadInstance,
+		leadInstance.WorkflowID,
+		targetWorkflow,
+		ownerStaffID,
+		true,
+	)
+}
+
+func convertWorkLeadToWorkflow(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	lead *crmmodel.Lead,
+	leadInstance *crmmodel.WorkflowInstance,
+	leadWorkflowID uint64,
+	targetWorkflow *crmmodel.Workflow,
+	ownerStaffID uint64,
+	dispatched bool,
+) (map[string]any, error) {
+	if lead == nil || leadInstance == nil {
+		return nil, fmt.Errorf("线索或线索流程不存在")
+	}
 	if lead.CustomerID > 0 {
 		asset := crmmodel.NewCustomerAssetModel().Find(ctx, map[string]any{"customer_id": lead.CustomerID})
 		assetID := uint64(0)
@@ -606,7 +814,13 @@ func convertWorkLead(
 			"duplicate_reason":      duplicate.Reason,
 			"updated_at":            time.Now(),
 		})
-		if err := terminateLeadWorkflow(ctx, staff, leadInstance, duplicate.Reason); err != nil {
+		var err error
+		if dispatched {
+			err = terminateActiveWorkflowInstance(ctx, staff, leadInstance, duplicate.Reason)
+		} else {
+			err = terminateLeadWorkflow(ctx, staff, leadInstance, duplicate.Reason)
+		}
+		if err != nil {
 			return nil, err
 		}
 		return map[string]any{
@@ -617,8 +831,12 @@ func convertWorkLead(
 			"lead":      workLeadRow(ctx, crmmodel.NewLeadModel().Find(ctx, map[string]any{"id": lead.ID}), leadWorkflowID),
 		}, nil
 	}
-	if ownerStaffID == 0 {
-		return nil, fmt.Errorf("请选择签约流程首阶段负责人")
+	if targetWorkflow == nil || targetWorkflow.SubjectType != crmmodel.WorkflowSubjectCustomerAsset || targetWorkflow.Status != crmmodel.StatusEnabled {
+		return nil, ErrNoAvailableWorkflow
+	}
+	entryStage := firstEnabledStage(ctx, targetWorkflow.ID)
+	if entryStage == nil || dispatched && ownerStaffID == 0 {
+		return nil, fmt.Errorf("接收流程或接单人员不存在")
 	}
 
 	customerCode, err := crmmodel.GenerateUniqueCustomerCode(ctx)
@@ -649,16 +867,22 @@ func convertWorkLead(
 		}
 		return nil, fmt.Errorf("线索转化后创建资产失败")
 	}
-	if err := startAssetWorkflow(ctx, customerID, assetID, ownerStaffID); err != nil {
+	if _, err := startWorkflowInstance(
+		ctx,
+		assetWorkflowSubject(customerID, assetID, 0),
+		targetWorkflow.ID,
+		ownerStaffID,
+	); err != nil {
 		return nil, err
 	}
+	operatorStaffID, _ := workOperatorIDs(staff)
 
 	if crmmodel.NewLeadModel().Update(ctx, map[string]any{
 		"id": lead.ID, "status": crmmodel.LeadStatusPending,
 	}, map[string]any{
 		"status":                crmmodel.LeadStatusConverted,
 		"customer_id":           customerID,
-		"converted_by_staff_id": staff.ID,
+		"converted_by_staff_id": operatorStaffID,
 		"converted_at":          now,
 		"duplicate_lead_id":     uint64(0),
 		"duplicate_customer_id": uint64(0),
@@ -669,11 +893,21 @@ func convertWorkLead(
 	}) == 0 {
 		return nil, fmt.Errorf("线索状态已变化，请刷新后重试")
 	}
-	if err := completeLeadWorkflow(ctx, staff, leadInstance); err != nil {
+	if dispatched {
+		err = completeLeadWorkflowForDispatch(ctx, staff, leadInstance)
+	} else {
+		err = completeLeadWorkflow(ctx, staff, leadInstance)
+	}
+	if err != nil {
 		return nil, err
 	}
 	refreshed := crmmodel.NewLeadModel().Find(ctx, map[string]any{"id": lead.ID})
-	if progress := currentWorkEntryInstance(ctx, customerID, assetID); progress != nil {
+	if progress := crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{
+		"customer_id":         customerID,
+		"asset_id":            assetID,
+		"customer_product_id": uint64(0),
+		"workflow_id":         targetWorkflow.ID,
+	}, map[string]any{"order": "id desc"}); progress != nil {
 		conversionSnapshot := map[string]any{
 			"lead_id":     lead.ID,
 			"customer_id": customerID,
@@ -710,6 +944,29 @@ func completeLeadWorkflow(ctx context.Context, staff *WorkStaffSession, instance
 	if staff == nil || staff.ID == 0 || instance.OwnerStaffID != staff.ID && !staff.CanDispatch {
 		return fmt.Errorf("只有当前负责人或流程调度员可以转化线索")
 	}
+	return finishLeadWorkflow(ctx, staff, instance, true)
+}
+
+func completeLeadWorkflowForDispatch(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) error {
+	if instance == nil || instance.Status != crmmodel.ProgressStatusActive || instance.LeadID == 0 {
+		return fmt.Errorf("线索流程已结束")
+	}
+	if crmmodel.NewLeadDispatchHandoffModel().Find(ctx, map[string]any{
+		"workflow_instance_id": instance.ID,
+		"lead_id":              instance.LeadID,
+		"status":               crmmodel.LeadDispatchHandoffProcessing,
+	}) == nil {
+		return fmt.Errorf("线索不处于派单流转中")
+	}
+	return finishLeadWorkflow(ctx, staff, instance, false)
+}
+
+func finishLeadWorkflow(
+	ctx context.Context,
+	staff *WorkStaffSession,
+	instance *crmmodel.WorkflowInstance,
+	completeConfirmationTasks bool,
+) error {
 	if nextEnabledStage(ctx, instance.WorkflowID, instance.StageID) != nil {
 		return fmt.Errorf("线索尚未进入流程最后阶段，不能转为客户")
 	}
@@ -718,6 +975,9 @@ func completeLeadWorkflow(ctx context.Context, staff *WorkStaffSession, instance
 		"stage_id":             instance.StageID,
 		"status":               crmmodel.WorkTodoStatusPending,
 	}, map[string]any{"order": "id asc"})
+	if !completeConfirmationTasks && len(todos) > 0 {
+		return fmt.Errorf("自动派单线索存在未完成确认任务")
+	}
 	now := time.Now()
 	for _, todo := range todos {
 		if todo == nil {
@@ -727,7 +987,7 @@ func completeLeadWorkflow(ctx context.Context, staff *WorkStaffSession, instance
 		if task == nil {
 			return fmt.Errorf("线索任务配置不存在")
 		}
-		if todo.Required && (task.TaskType != crmmodel.TaskTypeTodo || todo.AssigneeStaffID != staff.ID && !staff.CanDispatch) {
+		if todo.Required && (staff == nil || task.TaskType != crmmodel.TaskTypeTodo || todo.AssigneeStaffID != staff.ID && !staff.CanDispatch) {
 			return fmt.Errorf("必做任务“%s”尚未完成", task.Name)
 		}
 		if !todo.Required {
@@ -1063,6 +1323,81 @@ func workLeadTemplateRows(ctx context.Context) []map[string]any {
 			"sort":   template.Sort,
 			"fields": fieldRows,
 		})
+	}
+	return rows
+}
+
+func workLeadEntryTemplateRows(ctx context.Context, workflow *crmmodel.Workflow) []map[string]any {
+	templates := workLeadTemplateRows(ctx)
+	formID := workLeadEntryFormID(ctx, workflow)
+	if formID == 0 {
+		return templates
+	}
+	return filterWorkLeadTemplateRows(templates, workLeadEntryDataFieldIDs(ctx, formID))
+}
+
+func workLeadEntryFormID(ctx context.Context, workflow *crmmodel.Workflow) uint64 {
+	if workflow == nil {
+		return 0
+	}
+	stage := firstEnabledStage(ctx, workflow.ID)
+	if stage == nil {
+		return 0
+	}
+	tasks := crmmodel.NewTaskModel().Select(ctx, map[string]any{
+		"stage_id":  stage.ID,
+		"task_type": crmmodel.TaskTypeForm,
+		"status":    crmmodel.StatusEnabled,
+	}, map[string]any{"order": "sort asc,id asc"})
+	for _, task := range tasks {
+		if task == nil || task.FormID == 0 {
+			continue
+		}
+		if crmmodel.NewFormModel().Find(ctx, map[string]any{
+			"id":     task.FormID,
+			"status": crmmodel.StatusEnabled,
+		}) != nil {
+			return task.FormID
+		}
+	}
+	return 0
+}
+
+func workLeadEntryDataFieldIDs(ctx context.Context, formID uint64) map[uint64]bool {
+	result := map[uint64]bool{}
+	fields := crmmodel.NewFormFieldModel().Select(ctx, map[string]any{
+		"form_id": formID,
+		"status":  crmmodel.StatusEnabled,
+	}, map[string]any{"order": "sort asc,id asc"})
+	for _, sourceField := range fields {
+		for _, field := range expandWorkInputFormFields(ctx, sourceField) {
+			if !isWorkLeadTemplateField(field) || field.DataFieldID == 0 {
+				continue
+			}
+			result[field.DataFieldID] = true
+		}
+	}
+	return result
+}
+
+func filterWorkLeadTemplateRows(templates []map[string]any, fieldIDs map[uint64]bool) []map[string]any {
+	rows := make([]map[string]any, 0, len(templates))
+	for _, template := range templates {
+		fields := make([]map[string]any, 0)
+		for _, field := range mapListFromAny(template["fields"]) {
+			if fieldIDs[inputUint64(field["id"])] {
+				fields = append(fields, field)
+			}
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		row := make(map[string]any, len(template))
+		for key, value := range template {
+			row[key] = value
+		}
+		row["fields"] = fields
+		rows = append(rows, row)
 	}
 	return rows
 }

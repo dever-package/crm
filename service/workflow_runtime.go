@@ -95,7 +95,19 @@ func startWorkflowInstance(
 	workflowID uint64,
 	requestedOwnerID uint64,
 ) (*crmmodel.WorkflowInstance, error) {
-	return createWorkflowInstance(ctx, subject, workflowID, requestedOwnerID, false)
+	return createWorkflowInstance(ctx, subject, workflowID, workflowInstanceStartOptions{
+		RequestedOwnerID: requestedOwnerID,
+	})
+}
+
+func startDeferredWorkflowInstance(
+	ctx context.Context,
+	subject workflowSubject,
+	workflowID uint64,
+) (*crmmodel.WorkflowInstance, error) {
+	return createWorkflowInstance(ctx, subject, workflowID, workflowInstanceStartOptions{
+		DeferStageAssignment: true,
+	})
 }
 
 func restartWorkflowInstance(
@@ -103,15 +115,22 @@ func restartWorkflowInstance(
 	subject workflowSubject,
 	workflowID uint64,
 ) (*crmmodel.WorkflowInstance, error) {
-	return createWorkflowInstance(ctx, subject, workflowID, 0, true)
+	return createWorkflowInstance(ctx, subject, workflowID, workflowInstanceStartOptions{
+		ActiveDuplicateOnly: true,
+	})
+}
+
+type workflowInstanceStartOptions struct {
+	RequestedOwnerID     uint64
+	ActiveDuplicateOnly  bool
+	DeferStageAssignment bool
 }
 
 func createWorkflowInstance(
 	ctx context.Context,
 	subject workflowSubject,
 	workflowID uint64,
-	requestedOwnerID uint64,
-	activeDuplicateOnly bool,
+	options workflowInstanceStartOptions,
 ) (*crmmodel.WorkflowInstance, error) {
 	if workflowID == 0 {
 		return nil, fmt.Errorf("流程不能为空")
@@ -132,15 +151,24 @@ func createWorkflowInstance(
 	}
 	instanceModel := crmmodel.NewWorkflowInstanceModel()
 	duplicateFilters := workflowSubjectInstanceFilters(subject, workflow.ID)
-	if activeDuplicateOnly {
+	if options.ActiveDuplicateOnly {
 		duplicateFilters["status"] = crmmodel.ProgressStatusActive
 	}
 	if existing := instanceModel.Find(ctx, duplicateFilters); existing != nil {
 		return existing, nil
 	}
-	owner, err := resolveStageOwner(ctx, stage, requestedOwnerID)
-	if err != nil {
-		return nil, err
+	var owner *crmmodel.Staff
+	automatic := false
+	if !options.DeferStageAssignment {
+		var err error
+		owner, automatic, err = resolveStageOwner(ctx, stage, options.RequestedOwnerID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	ownerStaffID := uint64(0)
+	if owner != nil {
+		ownerStaffID = owner.ID
 	}
 
 	now := time.Now()
@@ -151,8 +179,8 @@ func createWorkflowInstance(
 		"customer_product_id": subject.CustomerProductID,
 		"workflow_id":         workflow.ID,
 		"stage_id":            stage.ID,
-		"owner_department_id": owner.DepartmentID,
-		"owner_staff_id":      owner.ID,
+		"owner_department_id": stage.OwnerDepartmentID,
+		"owner_staff_id":      ownerStaffID,
 		"status":              crmmodel.ProgressStatusActive,
 		"started_at":          now,
 		"terminated_reason":   "",
@@ -165,21 +193,37 @@ func createWorkflowInstance(
 	if instance == nil {
 		return nil, fmt.Errorf("流程启动失败")
 	}
+	if automatic {
+		if err := recordAutomaticDispatch(ctx, stage.OwnerDepartmentID, ownerStaffID, workflowDispatchReference{
+			Source:             crmmodel.DispatchSourceStage,
+			LeadID:             subject.LeadID,
+			WorkflowInstanceID: instance.ID,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	startTitle := "流程已启动"
+	if options.DeferStageAssignment {
+		startTitle = "流程已启动，等待派单"
+	}
 	if recordWorkStageChange(ctx, nil, instance, workStageChange{
 		ToWorkflowID: workflow.ID,
 		ToStageID:    stage.ID,
 		ResultValue:  "entered",
-		Title:        "流程已启动",
+		Title:        startTitle,
 		Snapshot: map[string]any{
 			"lead_id":             subject.LeadID,
-			"owner_department_id": owner.DepartmentID,
-			"owner_staff_id":      owner.ID,
+			"owner_department_id": stage.OwnerDepartmentID,
+			"owner_staff_id":      ownerStaffID,
+			"deferred_dispatch":   options.DeferStageAssignment,
 		},
 	}) == 0 {
 		return nil, fmt.Errorf("流程启动记录创建失败")
 	}
-	if err := createStageTodos(ctx, instance, stage); err != nil {
-		return nil, err
+	if owner != nil {
+		if err := createStageTodos(ctx, instance, stage); err != nil {
+			return nil, err
+		}
 	}
 	return instance, nil
 }
@@ -254,9 +298,13 @@ func enterWorkflowStage(
 	if instance == nil || workflow == nil || stage == nil {
 		return nil, fmt.Errorf("流程阶段不能为空")
 	}
-	owner, err := resolveStageTransitionOwner(ctx, instance, stage, requestedOwnerID)
+	owner, automatic, err := resolveStageTransitionOwner(ctx, instance, stage, requestedOwnerID)
 	if err != nil {
 		return nil, err
+	}
+	ownerStaffID := uint64(0)
+	if owner != nil {
+		ownerStaffID = owner.ID
 	}
 
 	previousWorkflowID := instance.WorkflowID
@@ -270,8 +318,8 @@ func enterWorkflowStage(
 	}, map[string]any{
 		"workflow_id":         workflow.ID,
 		"stage_id":            stage.ID,
-		"owner_department_id": owner.DepartmentID,
-		"owner_staff_id":      owner.ID,
+		"owner_department_id": stage.OwnerDepartmentID,
+		"owner_staff_id":      ownerStaffID,
 		"started_at":          now,
 		"updated_at":          now,
 	})
@@ -280,16 +328,25 @@ func enterWorkflowStage(
 	}
 	instance.WorkflowID = workflow.ID
 	instance.StageID = stage.ID
-	instance.OwnerDepartmentID = owner.DepartmentID
-	instance.OwnerStaffID = owner.ID
+	instance.OwnerDepartmentID = stage.OwnerDepartmentID
+	instance.OwnerStaffID = ownerStaffID
 	instance.StartedAt = now
 	instance.UpdatedAt = now
 	if instance.LeadID > 0 {
 		crmmodel.NewLeadModel().Update(ctx, map[string]any{"id": instance.LeadID}, map[string]any{
-			"owner_department_id": owner.DepartmentID,
-			"owner_staff_id":      owner.ID,
+			"owner_department_id": stage.OwnerDepartmentID,
+			"owner_staff_id":      ownerStaffID,
 			"updated_at":          now,
 		})
+	}
+	if automatic {
+		if err := recordAutomaticDispatch(ctx, stage.OwnerDepartmentID, ownerStaffID, workflowDispatchReference{
+			Source:             crmmodel.DispatchSourceStage,
+			LeadID:             instance.LeadID,
+			WorkflowInstanceID: instance.ID,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	return owner, nil
 }
@@ -366,7 +423,7 @@ func createOrReactivateStageTodo(
 	if existing != nil && existing.Status != crmmodel.WorkTodoStatusCanceled {
 		return existing, false, nil
 	}
-	departmentID, staffID, err := resolveTaskAssignee(ctx, instance, task)
+	departmentID, staffID, automatic, err := resolveTaskAssignee(ctx, instance, task)
 	if err != nil {
 		return nil, false, err
 	}
@@ -404,6 +461,16 @@ func createOrReactivateStageTodo(
 		if createdTodo == nil {
 			return nil, false, fmt.Errorf("已取消待办重新启用后无法读取")
 		}
+		if automatic {
+			if err := recordAutomaticDispatch(ctx, departmentID, staffID, workflowDispatchReference{
+				Source:             crmmodel.DispatchSourceTask,
+				LeadID:             instance.LeadID,
+				WorkflowInstanceID: instance.ID,
+				WorkTodoID:         createdTodo.ID,
+			}); err != nil {
+				return nil, false, err
+			}
+		}
 		return createdTodo, true, nil
 	}
 	data["created_at"] = now
@@ -414,6 +481,16 @@ func createOrReactivateStageTodo(
 	createdTodo := todoModel.Find(ctx, map[string]any{"id": todoID})
 	if createdTodo == nil {
 		return nil, false, fmt.Errorf("阶段待办创建后无法读取")
+	}
+	if automatic {
+		if err := recordAutomaticDispatch(ctx, departmentID, staffID, workflowDispatchReference{
+			Source:             crmmodel.DispatchSourceTask,
+			LeadID:             instance.LeadID,
+			WorkflowInstanceID: instance.ID,
+			WorkTodoID:         createdTodo.ID,
+		}); err != nil {
+			return nil, false, err
+		}
 	}
 	return createdTodo, true, nil
 }

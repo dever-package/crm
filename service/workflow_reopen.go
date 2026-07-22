@@ -78,10 +78,14 @@ func ReopenWorkflowInstanceAtStage(ctx context.Context, req WorkflowStageReopenR
 		if err != nil {
 			return err
 		}
+		ownerStaffID := uint64(0)
+		if owner != nil {
+			ownerStaffID = owner.ID
+		}
 		snapshot := map[string]any{
 			"reason":            reason,
 			"canceled_todo_ids": canceledTodoIDs,
-			"owner_staff_id":    owner.ID,
+			"owner_staff_id":    ownerStaffID,
 		}
 		for key, value := range req.Snapshot {
 			snapshot[key] = value
@@ -98,8 +102,10 @@ func ReopenWorkflowInstanceAtStage(ctx context.Context, req WorkflowStageReopenR
 		}) == 0 {
 			return fmt.Errorf("流程重新打开记录创建失败")
 		}
-		if err := createStageTodos(txCtx, instance, targetStage); err != nil {
-			return err
+		if owner != nil {
+			if err := createStageTodos(txCtx, instance, targetStage); err != nil {
+				return err
+			}
 		}
 		reopened = instance
 		return nil

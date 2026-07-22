@@ -63,11 +63,7 @@ export function WorkScheduleCalendar({
 }: WorkScheduleCalendarProps) {
   const calendarRef = useRef<FullCalendar | null>(null);
   const reportedDateProfileRef = useRef("");
-  const [view, setView] = useState<WorkScheduleView>(() =>
-    typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches
-      ? "timeGridDay"
-      : "timeGridWeek",
-  );
+  const [view, setView] = useState<WorkScheduleView>("dayGridMonth");
   const [title, setTitle] = useState("");
   const [anchor, setAnchor] = useState(() => new Date());
   const calendarEvents = useMemo(() => events.map(scheduleEventInput), [events]);

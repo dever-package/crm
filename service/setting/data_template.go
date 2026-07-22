@@ -16,6 +16,7 @@ func (CrmHook) ProviderBeforeSaveDataTemplate(c *server.Context, params []any) a
 	}
 	partial := isPartialCrmRecord(record)
 	trimCrmStringField(record, "name", partial)
+	normalizeDataTemplateDisplayMode(record, partial)
 	delete(record, "description")
 	normalizeEmbeddedDataTemplateFields(c, record, partial)
 	if !partial {
@@ -29,6 +30,20 @@ func (CrmHook) ProviderBeforeSaveDataTemplate(c *server.Context, params []any) a
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
 	return record
+}
+
+func normalizeDataTemplateDisplayMode(record map[string]any, partial bool) {
+	if !shouldNormalizeCrmField(record, "display_mode", partial) && util.ToUint64(record["id"]) > 0 {
+		return
+	}
+	displayMode := util.ToStringTrimmed(record["display_mode"])
+	if displayMode == "" && util.ToUint64(record["id"]) == 0 {
+		displayMode = crmmodel.DataTemplateDisplayAlways
+	}
+	if !crmmodel.IsDataTemplateDisplayMode(displayMode) {
+		panicCrmField("form.display_mode", "请选择有效的展示方式。")
+	}
+	record["display_mode"] = displayMode
 }
 
 func normalizeEmbeddedDataTemplateFields(c *server.Context, record map[string]any, partial bool) {

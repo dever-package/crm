@@ -81,6 +81,7 @@ func (WorkService) ScheduleCalendar(ctx context.Context, staff *WorkStaffSession
 			}
 			resourceIDs, resourcesProvided := scheduleIDsFromPayload(payload, "resource_ids", "resourceIds")
 			participantIDs, participantsProvided := scheduleIDsFromPayload(payload, "participant_ids", "participantIds")
+			participantIDs = uniqueScheduleStaffIDs(staff.ID, participantIDs)
 			event, scheduleErr = arrangeCustomerFollow(txCtx, scheduleArrangeInput{
 				CustomerID:               customerID,
 				OwnerStaffID:             ownerStaffID,
@@ -354,6 +355,7 @@ func arrangePersonalSchedule(ctx context.Context, staff *WorkStaffSession, paylo
 	now := time.Now()
 	resourceIDs, resourcesProvided := scheduleIDsFromPayload(payload, "resource_ids", "resourceIds")
 	participantIDs, participantsProvided := scheduleIDsFromPayload(payload, "participant_ids", "participantIds")
+	participantIDs = uniqueScheduleStaffIDs(staff.ID, participantIDs)
 	var event *crmmodel.ScheduleEvent
 	reminderChanged := true
 	if eventID > 0 {
@@ -633,32 +635,45 @@ func scheduleEventResult(ctx context.Context, event *crmmodel.ScheduleEvent, ses
 		return map[string]any{}
 	}
 	result := map[string]any{
-		"id":                           event.ID,
-		"schedule_type":                event.ScheduleType,
-		"customer_id":                  event.CustomerID,
-		"asset_id":                     event.AssetID,
-		"owner_staff_id":               event.OwnerStaffID,
-		"source_workflow_instance_id":  event.SourceWorkflowInstanceID,
-		"source_task_id":               event.SourceTaskID,
-		"title":                        event.Title,
-		"remark":                       event.Remark,
-		"start_at":                     event.StartAt,
-		"end_at":                       event.EndAt,
-		"reminder_minutes":             event.ReminderMinutes,
-		"remind_at":                    event.RemindAt,
-		"source":                       event.Source,
-		"status":                       event.Status,
-		"customer_arrived":             event.CustomerArrivedAt != nil,
-		"customer_arrived_at":          event.CustomerArrivedAt,
-		"customer_arrived_by_staff_id": event.CustomerArrivedByStaffID,
-		"duration_minutes":             int(event.EndAt.Sub(event.StartAt).Minutes()),
-		"participant_ids":              scheduleParticipantIDs(ctx, event.ID),
-		"participants":                 scheduleParticipantResults(ctx, event.ID),
-		"resource_ids":                 scheduleResourceIDs(ctx, event.ID),
+		"id":                            event.ID,
+		"schedule_type":                 event.ScheduleType,
+		"customer_id":                   event.CustomerID,
+		"asset_id":                      event.AssetID,
+		"owner_staff_id":                event.OwnerStaffID,
+		"source_workflow_instance_id":   event.SourceWorkflowInstanceID,
+		"source_task_id":                event.SourceTaskID,
+		"title":                         event.Title,
+		"remark":                        event.Remark,
+		"start_at":                      event.StartAt,
+		"end_at":                        event.EndAt,
+		"reminder_minutes":              event.ReminderMinutes,
+		"remind_at":                     event.RemindAt,
+		"source":                        event.Source,
+		"status":                        event.Status,
+		"meeting_attempt":               event.MeetingAttempt,
+		"arrival_status":                event.ArrivalStatus,
+		"arrival_confirmed_at":          event.ArrivalConfirmedAt,
+		"arrival_confirmed_by_staff_id": event.ArrivalConfirmedByStaffID,
+		"no_show_reason":                event.NoShowReason,
+		"customer_arrived":              event.ArrivalStatus == crmmodel.MeetingArrivalArrived || event.CustomerArrivedAt != nil,
+		"customer_arrived_at":           event.CustomerArrivedAt,
+		"customer_arrived_by_staff_id":  event.CustomerArrivedByStaffID,
+		"duration_minutes":              int(event.EndAt.Sub(event.StartAt).Minutes()),
+		"participant_ids":               scheduleParticipantIDs(ctx, event.ID),
+		"participants":                  scheduleParticipantResults(ctx, event.ID),
+		"resource_ids":                  scheduleRecordedResourceIDs(ctx, event.ID),
+	}
+	if event.ScheduleType == crmmodel.ScheduleTypeMeeting {
+		result["arrival_video_files"] = scheduleArrivalVideoFiles(ctx, event.ID)
 	}
 	if event.CustomerArrivedByStaffID > 0 {
 		if arrivedBy := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": event.CustomerArrivedByStaffID}); arrivedBy != nil {
 			result["customer_arrived_by_staff_name"] = arrivedBy.Name
+		}
+	}
+	if event.ArrivalConfirmedByStaffID > 0 {
+		if confirmedBy := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": event.ArrivalConfirmedByStaffID}); confirmedBy != nil {
+			result["arrival_confirmed_by_staff_name"] = confirmedBy.Name
 		}
 	}
 	staff := firstWorkScheduleSession(sessions)
@@ -666,6 +681,7 @@ func scheduleEventResult(ctx context.Context, event *crmmodel.ScheduleEvent, ses
 		staff = CurrentWorkStaff(ctx)
 	}
 	if staff != nil && staff.ID > 0 {
+		result["can_manage_arrival_video"] = canManageMeetingEvidence(ctx, staff, event)
 		participant := crmmodel.NewScheduleParticipantModel().Find(ctx, map[string]any{
 			"schedule_event_id": event.ID,
 			"staff_id":          staff.ID,

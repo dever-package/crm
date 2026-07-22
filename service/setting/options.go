@@ -96,24 +96,54 @@ func (OptionService) ProviderLoadStaffOptions(c *server.Context, params []any) a
 	})
 	options := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
-		id := util.ToUint64(row["id"])
-		name := util.ToStringTrimmed(row["name"])
-		if id == 0 || name == "" {
+		option, ok := buildStaffOption(row)
+		if !ok {
 			continue
 		}
-		label := name
-		if phone := util.ToStringTrimmed(row["phone"]); phone != "" {
-			label += "（" + phone + "）"
-		}
-		options = append(options, map[string]any{
-			"id":            id,
-			"value":         label,
-			"name":          name,
-			"phone":         util.ToStringTrimmed(row["phone"]),
-			"department_id": departmentID,
-		})
+		options = append(options, option)
 	}
 	return options
+}
+
+func (OptionService) ProviderLoadFeishuBoundStaffOptions(c *server.Context, _ []any) any {
+	rows := crmmodel.NewStaffModel().SelectMap(contextFromServer(c), map[string]any{
+		"status": crmmodel.StatusEnabled,
+	}, map[string]any{
+		"field": "main.id, main.name, main.phone, main.department_id, main.feishu_open_id, main.status",
+		"order": "main.name asc, main.id asc",
+	})
+	options := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if util.ToStringTrimmed(row["feishu_open_id"]) == "" {
+			continue
+		}
+		option, ok := buildStaffOption(row)
+		if !ok {
+			continue
+		}
+		options = append(options, option)
+	}
+	return options
+}
+
+func buildStaffOption(row map[string]any) (map[string]any, bool) {
+	id := util.ToUint64(row["id"])
+	name := util.ToStringTrimmed(row["name"])
+	if id == 0 || name == "" {
+		return nil, false
+	}
+	phone := util.ToStringTrimmed(row["phone"])
+	label := name
+	if phone != "" {
+		label += "（" + phone + "）"
+	}
+	return map[string]any{
+		"id":            id,
+		"value":         label,
+		"name":          name,
+		"phone":         phone,
+		"department_id": util.ToUint64(row["department_id"]),
+	}, true
 }
 
 func (OptionService) ProviderLoadDataTemplateCates(c *server.Context, _ []any) any {

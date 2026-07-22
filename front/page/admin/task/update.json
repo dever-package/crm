@@ -96,6 +96,10 @@
           "clearOnChange": [
             "form.form_id",
             "form.script_id",
+            "form.reject_action",
+            "form.reject_target_task_id",
+            "form.opinion_requirement",
+            "form.reject_submit_form",
             "form.meeting_enabled",
             "form.customer_follow_enabled"
           ]
@@ -277,10 +281,30 @@
         }
       },
       {
+        "type": "form-radio",
+        "name": "驳回处理",
+        "value": "form.reject_action",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "flow",
+          "clearOnChange": [
+            "form.reject_target_task_id"
+          ],
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "approval"
+            }
+          ]
+        }
+      },
+      {
         "type": "form-select",
-        "name": "驳回后回到",
+        "name": "驳回后转到",
         "value": "form.reject_target_task_id",
-        "placeholder": "不选则保留当前审核",
+        "placeholder": "请选择要激活的任务",
         "mode": "form",
         "option": {
           "model": "crm.NewTaskModel",
@@ -297,6 +321,48 @@
         "meta": {
           "formLayout": "horizontal",
           "tab": "flow",
+          "hiddenCondition": "any",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "approval"
+            },
+            {
+              "path": "form.reject_action",
+              "operator": "notEquals",
+              "value": "route"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-radio",
+        "name": "审核意见",
+        "value": "form.opinion_requirement",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "flow",
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "approval"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-switch",
+        "name": "驳回提交资料",
+        "value": "form.reject_submit_form",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "flow",
+          "trueValue": true,
+          "falseValue": false,
           "hiddenWhen": [
             {
               "path": "form.task_type",
@@ -394,8 +460,11 @@
         "script_id",
         "activation_mode",
         "condition_script_id",
+        "reject_action",
         "reject_target_task_id",
         "complete_target_task_id",
+        "opinion_requirement",
+        "reject_submit_form",
         "meeting_enabled",
         "customer_follow_enabled",
         "include_in_meeting",
@@ -411,8 +480,11 @@
       "script_id": "",
       "activation_mode": "stage",
       "condition_script_id": "",
+      "reject_action": "stay",
       "reject_target_task_id": "",
       "complete_target_task_id": "",
+      "opinion_requirement": "reject_required",
+      "reject_submit_form": false,
       "meeting_enabled": false,
       "customer_follow_enabled": false,
       "include_in_meeting": false,

@@ -5,6 +5,7 @@ const loadWorkTaskForm = () => import("./nodes/show/work-task-form");
 const loadWorkLead = () => import("./nodes/show/work-lead");
 const loadWorkShell = () => import("./nodes/show/work-shell");
 const loadWorkSchedule = () => import("./nodes/show/work-schedule");
+const loadWorkDispatch = () => import("./nodes/show/work-dispatch");
 const loadAdminStats = () => import("./nodes/show/admin-stats");
 const loadCustomerTagSelector = () =>
   import("./nodes/show/customer-tag-selector");
@@ -106,6 +107,11 @@ export default defineFrontPlugin({
     "show-crm-work-schedule-form": lazyNode(() =>
       loadWorkSchedule().then((mod) => ({
         default: mod.ShowCrmWorkScheduleForm,
+      })),
+    ),
+    "show-crm-work-dispatch": lazyNode(() =>
+      loadWorkDispatch().then((mod) => ({
+        default: mod.ShowCrmWorkDispatch,
       })),
     ),
     "show-crm-work-stats": lazyNode(() =>

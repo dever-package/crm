@@ -111,9 +111,14 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 		return nil, fmt.Errorf("资料任务未配置表单")
 	}
 	progressOnly := workSubmitIsProgress(values)
+	arrivalDecision := workMeetingArrivalDecision(values)
+	if progressOnly && arrivalDecision != "" {
+		return nil, fmt.Errorf("到访结果请使用确认按钮提交")
+	}
+	keepPending := progressOnly || task.MeetingEnabled && arrivalDecision == crmmodel.MeetingArrivalNoShow
 	var formInput *workFormInput
 	var err error
-	if progressOnly {
+	if keepPending {
 		formInput, err = collectWorkProgressFormInput(ctx, task, values)
 	} else {
 		formInput, err = collectWorkFormInput(ctx, task, values)
@@ -136,14 +141,21 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 				resultText = "已保存进度"
 			}
 		}
-	} else if task.MeetingEnabled && resultText == "" {
-		resultText = "已确认客户到访"
+	} else if task.MeetingEnabled {
+		if arrivalDecision == crmmodel.MeetingArrivalNoShow {
+			resultValue = crmmodel.MeetingArrivalNoShow
+			if resultText == "" {
+				resultText = "已记录未到访：" + inputText(values[workMeetingNoShowReasonKey])
+			}
+		} else if resultText == "" {
+			resultText = "已确认客户到访"
+		}
 	}
 	operationContent := resultText
 	if !hasFormChanges && operationContent == "" {
 		operationContent = "本次未修改资料"
 	}
-	operationID := recordWorkTaskOperation(ctx, staff, todo, task, resultValue, operationContent, operationSnapshot, !progressOnly)
+	operationID := recordWorkTaskOperation(ctx, staff, todo, task, resultValue, operationContent, operationSnapshot, !keepPending)
 	if operationID == 0 {
 		return nil, fmt.Errorf("任务操作记录创建失败")
 	}
@@ -163,17 +175,19 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 		}
 	}
 	if !progressOnly {
-		if err := confirmWorkMeetingArrival(ctx, staff, todo, task, values); err != nil {
+		if _, err := confirmWorkMeetingArrival(ctx, staff, todo, task, values); err != nil {
 			return nil, err
 		}
-		if err := syncWorkCustomerFollowFromTaskForm(ctx, staff, todo, task, values, operationID); err != nil {
-			return nil, err
-		}
-		if err := syncWorkDataFieldFinanceLedgers(ctx, staff, ownership, task.ID, operationID, formInput); err != nil {
-			return nil, err
+		if !keepPending {
+			if err := syncWorkCustomerFollowFromTaskForm(ctx, staff, todo, task, values, operationID); err != nil {
+				return nil, err
+			}
+			if err := syncWorkDataFieldFinanceLedgers(ctx, staff, ownership, task.ID, operationID, formInput); err != nil {
+				return nil, err
+			}
 		}
 	}
-	if progressOnly {
+	if keepPending {
 		crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
 			"id":     todo.ID,
 			"status": crmmodel.WorkTodoStatusPending,
@@ -185,6 +199,7 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 			return nil, err
 		}
 		result := workTodoExecutionResult(todo, operationID, resultValue, true)
+		result["kept_pending"] = true
 		result["workflow_instance_id"] = todo.WorkflowInstanceID
 		result["customer_product_id"] = todo.CustomerProductID
 		return result, nil
@@ -210,22 +225,28 @@ func completeApprovalTodo(ctx context.Context, staff *WorkStaffSession, todo *cr
 	switch decision {
 	case "approved", "approve", "pass", "passed":
 	case "rejected", "reject":
-		if opinion == "" {
-			return nil, fmt.Errorf("请填写驳回原因")
-		}
 	default:
 		return nil, fmt.Errorf("请选择通过或驳回")
+	}
+	if approvalOpinionRequired(task, decision) && opinion == "" {
+		return nil, fmt.Errorf("请填写审核意见")
 	}
 
 	var executionResult map[string]any
 	err := orm.Transaction(ctx, func(txCtx context.Context) error {
+		decisionValue := "approved"
 		if decision == "rejected" || decision == "reject" {
-			var err error
-			executionResult, err = rejectApprovalTodo(txCtx, staff, todo, task, values, opinion)
+			decisionValue = "rejected"
+		}
+		formInput, operationSnapshot, err := prepareApprovalFormSubmission(txCtx, todo, task, values, decisionValue, opinion)
+		if err != nil {
 			return err
 		}
-		var err error
-		executionResult, err = approveApprovalTodo(txCtx, staff, todo, task, values, opinion)
+		if decisionValue == "rejected" {
+			executionResult, err = rejectApprovalTodo(txCtx, staff, todo, task, operationSnapshot, formInput, opinion)
+		} else {
+			executionResult, err = approveApprovalTodo(txCtx, staff, todo, task, operationSnapshot, formInput, opinion)
+		}
 		return err
 	})
 	if err != nil {
@@ -234,19 +255,52 @@ func completeApprovalTodo(ctx context.Context, staff *WorkStaffSession, todo *cr
 	return executionResult, nil
 }
 
+func prepareApprovalFormSubmission(
+	ctx context.Context,
+	todo *crmmodel.WorkTodo,
+	task *crmmodel.Task,
+	values map[string]any,
+	decision string,
+	opinion string,
+) (*workFormInput, map[string]any, error) {
+	operationSnapshot := copyMap(values)
+	operationSnapshot["approval_result"] = decision
+	operationSnapshot["opinion"] = opinion
+	if task.FormID == 0 || decision == "rejected" && !task.RejectSubmitForm {
+		return nil, operationSnapshot, nil
+	}
+	formInput, err := collectWorkFormInput(ctx, task, values)
+	if err != nil {
+		return nil, nil, err
+	}
+	operationSnapshot, _ = buildWorkFormOperationSnapshot(ctx, todo, task, formInput, values)
+	operationSnapshot["approval_result"] = decision
+	operationSnapshot["opinion"] = opinion
+	if err := saveWorkFormInput(ctx, todo.LeadID, todo.CustomerID, todo.AssetID, formInput); err != nil {
+		return nil, nil, err
+	}
+	return formInput, operationSnapshot, nil
+}
+
 func rejectApprovalTodo(
 	ctx context.Context,
 	staff *WorkStaffSession,
 	todo *crmmodel.WorkTodo,
 	task *crmmodel.Task,
-	values map[string]any,
+	operationSnapshot map[string]any,
+	formInput *workFormInput,
 	opinion string,
 ) (map[string]any, error) {
-	operationID := recordWorkTaskOperation(ctx, staff, todo, task, "rejected", opinion, values, task.RejectTargetTaskID > 0)
+	rejectAction := configuredTaskRejectAction(task)
+	operationID := recordWorkTaskOperation(ctx, staff, todo, task, "rejected", opinion, operationSnapshot, rejectAction != crmmodel.TaskRejectStay)
 	if operationID == 0 {
 		return nil, fmt.Errorf("审核记录创建失败")
 	}
-	if task.RejectTargetTaskID == 0 {
+	if err := saveApprovalFormData(ctx, staff, todo, task, operationID, formInput); err != nil {
+		return nil, err
+	}
+	switch rejectAction {
+	case crmmodel.TaskRejectStay:
 		crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
 			"id":     todo.ID,
 			"status": crmmodel.WorkTodoStatusPending,
@@ -255,6 +309,32 @@ func rejectApprovalTodo(
 			"updated_at": time.Now(),
 		})
 		return workTodoExecutionResult(todo, operationID, "rejected", false), nil
+	case crmmodel.TaskRejectTerminate:
+		resultText := strings.TrimSpace(opinion)
+		if resultText == "" {
+			resultText = "审核不通过"
+		}
+		if err := completeWorkTodo(ctx, todo, resultText); err != nil {
+			return nil, err
+		}
+		instance, err := activeWorkflowInstance(ctx, todo.WorkflowInstanceID)
+		if err != nil {
+			return nil, err
+		}
+		if err := terminateActiveWorkflowInstance(ctx, staff, instance, task.Name+"不通过："+resultText); err != nil {
+			return nil, err
+		}
+		result := workTodoExecutionResult(todo, operationID, "rejected", false)
+		result["workflow_status"] = crmmodel.ProgressStatusTerminated
+		result["workflow_terminated"] = true
+		return result, nil
+	case crmmodel.TaskRejectRoute:
+		if task.RejectTargetTaskID == 0 {
+			return nil, fmt.Errorf("审核任务未配置驳回目标")
+		}
+		cancelPendingRoutedWorkflowTask(ctx, todo, task.CompleteTargetTaskID, "前置审核驳回，等待复核通过后重新创建")
+	default:
+		return nil, fmt.Errorf("审核任务驳回处理方式无效")
 	}
 	if err := completeWorkTodo(ctx, todo, "审核驳回："+opinion); err != nil {
 		return nil, err
@@ -268,30 +348,45 @@ func rejectApprovalTodo(
 	return result, nil
 }
 
+func configuredTaskRejectAction(task *crmmodel.Task) string {
+	if task == nil {
+		return crmmodel.TaskRejectStay
+	}
+	switch task.RejectAction {
+	case crmmodel.TaskRejectStay, crmmodel.TaskRejectRoute, crmmodel.TaskRejectTerminate:
+		return task.RejectAction
+	default:
+		if task.RejectTargetTaskID > 0 {
+			return crmmodel.TaskRejectRoute
+		}
+		return crmmodel.TaskRejectStay
+	}
+}
+
+func approvalOpinionRequired(task *crmmodel.Task, decision string) bool {
+	requirement := crmmodel.TaskOpinionRejectRequired
+	if task != nil && strings.TrimSpace(task.OpinionRequirement) != "" {
+		requirement = task.OpinionRequirement
+	}
+	switch requirement {
+	case crmmodel.TaskOpinionRequired:
+		return true
+	case crmmodel.TaskOpinionOptional:
+		return false
+	default:
+		return decision == "rejected" || decision == "reject"
+	}
+}
+
 func approveApprovalTodo(
 	ctx context.Context,
 	staff *WorkStaffSession,
 	todo *crmmodel.WorkTodo,
 	task *crmmodel.Task,
-	values map[string]any,
+	operationSnapshot map[string]any,
+	formInput *workFormInput,
 	opinion string,
 ) (map[string]any, error) {
-	operationSnapshot := copyMap(values)
-	var formInput *workFormInput
-	if task.FormID > 0 {
-		var err error
-		formInput, err = collectWorkFormInput(ctx, task, values)
-		if err != nil {
-			return nil, err
-		}
-		operationSnapshot, _ = buildWorkFormOperationSnapshot(ctx, todo, task, formInput, values)
-		operationSnapshot["approval_result"] = "approved"
-		operationSnapshot["opinion"] = opinion
-		if err := saveWorkFormInput(ctx, todo.LeadID, todo.CustomerID, todo.AssetID, formInput); err != nil {
-			return nil, err
-		}
-	}
-
 	operationID := recordWorkTaskOperation(ctx, staff, todo, task, "approved", opinion, operationSnapshot, true)
 	if operationID == 0 {
 		return nil, fmt.Errorf("审核记录创建失败")

@@ -390,6 +390,10 @@ export function WorkScheduleStyles() {
         padding: 2px 4px;
       }
 
+      .crm-schedule-calendar-stage .fc-event .fc-event-main {
+        color: inherit;
+      }
+
       .crm-schedule-calendar-stage .crm-schedule-event-customer_follow {
         background: var(--schedule-customer-soft);
         color: #174ea6;

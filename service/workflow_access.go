@@ -73,27 +73,36 @@ func canManageLeadWorkflow(staff *WorkStaffSession, instance *crmmodel.WorkflowI
 		(instance.OwnerStaffID == staff.ID || staff.CanDispatch)
 }
 
-func canChangeWorkflowOwner(staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) bool {
+func canChangeWorkflowOwner(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) bool {
 	if staff == nil || staff.ID == 0 || instance == nil || instance.Status != crmmodel.ProgressStatusActive {
 		return false
 	}
 	if staff.CanDispatch {
 		return true
 	}
-	return isWorkflowDepartmentLeader(staff, instance)
+	return isWorkflowDepartmentLeader(ctx, staff, instance)
 }
 
-func isWorkflowDepartmentLeader(staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) bool {
-	return staff != nil && staff.ID > 0 && instance != nil &&
-		staff.StaffType == crmmodel.StaffTypeLeader && staff.DepartmentID > 0 &&
-		staff.DepartmentID == instance.OwnerDepartmentID
+func isWorkflowDepartmentLeader(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) bool {
+	return instance != nil && isDepartmentLeader(ctx, staff, instance.OwnerDepartmentID)
+}
+
+func isDepartmentLeader(ctx context.Context, staff *WorkStaffSession, departmentID uint64) bool {
+	if staff == nil || staff.ID == 0 || departmentID == 0 || staff.DepartmentID != departmentID {
+		return false
+	}
+	return crmmodel.NewDepartmentModel().Find(ctx, map[string]any{
+		"id":              departmentID,
+		"leader_staff_id": staff.ID,
+		"status":          crmmodel.StatusEnabled,
+	}) != nil
 }
 
 func canViewAssignedWorkflowInstance(ctx context.Context, staff *WorkStaffSession, instance *crmmodel.WorkflowInstance) bool {
 	if staff == nil || staff.ID == 0 || instance == nil {
 		return false
 	}
-	if instance.OwnerStaffID == staff.ID || isWorkflowDepartmentLeader(staff, instance) {
+	if instance.OwnerStaffID == staff.ID || isWorkflowDepartmentLeader(ctx, staff, instance) {
 		return true
 	}
 	return crmmodel.NewWorkTodoModel().Count(ctx, map[string]any{
@@ -155,7 +164,7 @@ func workVisibleWorkflowInstanceIDs(
 			continue
 		}
 		if instance.OwnerStaffID == staff.ID ||
-			isWorkflowDepartmentLeader(staff, instance) ||
+			isWorkflowDepartmentLeader(ctx, staff, instance) ||
 			assigned[instance.ID] {
 			visible[instance.ID] = true
 		}

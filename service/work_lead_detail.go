@@ -29,6 +29,7 @@ func (WorkService) LeadDetail(ctx context.Context, staff *WorkStaffSession, payl
 	}
 
 	leadRow := workLeadRow(ctx, lead, workflow.ID)
+	attachWorkLeadDispatchAssignees(ctx, []map[string]any{leadRow})
 	leadRow["flow"] = workLeadFlowDetail(ctx, staff, instance)
 	detailSections := workDataDetailSections(
 		ctx,

@@ -83,6 +83,22 @@
         "meta": {
           "formLayout": "horizontal"
         }
+      },
+      {
+        "type": "form-select",
+        "name": "展示方式",
+        "value": "form.display_mode",
+        "mode": "form",
+        "validate": [
+          {
+            "type": "required",
+            "message": "展示方式不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal",
+          "controlClassName": "max-w-[260px]"
+        }
       }
     ]
   },
@@ -91,12 +107,14 @@
       "_fields": [
         "cate_id",
         "name",
+        "display_mode",
         "fields"
       ],
       "service": "crm.setting.CrmHook.BuildDataTemplateForm",
       "id": "",
       "cate_id": 1,
       "name": "",
+      "display_mode": "always",
       "fields": []
     }
   },

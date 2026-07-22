@@ -442,6 +442,7 @@ func saveWorkFormDataRecords(ctx context.Context, ownership workDataOwnership, t
 
 func defaultWorkCustomerRecord(staff *WorkStaffSession) map[string]any {
 	now := time.Now()
+	staffID, _ := workOperatorIDs(staff)
 	return map[string]any{
 		"code":                "",
 		"name":                "",
@@ -454,7 +455,7 @@ func defaultWorkCustomerRecord(staff *WorkStaffSession) map[string]any {
 		"level_id":            crmmodel.DefaultCustomerLevelID,
 		"tags":                "",
 		"remark":              "",
-		"created_by_staff_id": staff.ID,
+		"created_by_staff_id": staffID,
 		"created_at":          now,
 		"updated_at":          now,
 	}

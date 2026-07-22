@@ -28,7 +28,7 @@ func executeWorkTask(ctx context.Context, staff *WorkStaffSession, payload map[s
 	default:
 		return nil, fmt.Errorf("不支持的任务类型")
 	}
-	if err != nil || workSubmitIsProgress(values) || inputText(result["result_value"]) == "rejected" || task.CompleteTargetTaskID == 0 {
+	if err != nil || workSubmitIsProgress(values) || booleanFromAny(result["kept_pending"]) || inputText(result["result_value"]) == "rejected" || task.CompleteTargetTaskID == 0 {
 		return result, err
 	}
 	routedTodo, activated, err := activateRoutedWorkflowTask(ctx, todo, task.CompleteTargetTaskID, false)

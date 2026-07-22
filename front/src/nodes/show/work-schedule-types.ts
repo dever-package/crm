@@ -1,6 +1,17 @@
+import type { UploadFileItem } from "@/lib/upload";
+
 export type WorkScheduleType = "customer_follow" | "meeting" | "personal";
 export type WorkScheduleStatus = "pending" | "completed" | "canceled";
 export type WorkScheduleView = "timeGridDay" | "timeGridWeek" | "dayGridMonth";
+
+export type WorkScheduleParticipant = {
+  staff_id?: string | number;
+  staff_name?: string;
+  department_id?: string | number;
+  department_name?: string;
+  role?: string;
+  checked_in_at?: string;
+};
 
 export type WorkScheduleEvent = {
   id?: string | number;
@@ -20,20 +31,21 @@ export type WorkScheduleEvent = {
   remind_at?: string;
   source?: string;
   status?: WorkScheduleStatus;
+  meeting_attempt?: string | number;
+  arrival_status?: "pending" | "arrived" | "no_show";
+  arrival_confirmed_at?: string;
+  arrival_confirmed_by_staff_id?: string | number;
+  arrival_confirmed_by_staff_name?: string;
+  no_show_reason?: string;
+  can_manage_arrival_video?: boolean;
+  arrival_video_files?: UploadFileItem[];
   can_edit?: boolean;
   can_check_in?: boolean;
   checked_in_at?: string;
   duration_minutes?: string | number;
   action_type?: "reminder" | "check_in";
   participant_ids?: Array<string | number>;
-  participants?: Array<{
-    staff_id?: string | number;
-    staff_name?: string;
-    department_id?: string | number;
-    department_name?: string;
-    role?: string;
-    checked_in_at?: string;
-  }>;
+  participants?: WorkScheduleParticipant[];
   resource_ids?: Array<string | number>;
 };
 
@@ -50,7 +62,13 @@ export type WorkScheduleCustomerOption = {
 export type WorkScheduleStaffOption = {
   id?: string | number;
   name?: string;
+  phone?: string;
   department_id?: string | number;
+};
+
+export type WorkScheduleDepartmentOption = {
+  id?: string | number;
+  name?: string;
 };
 
 export type WorkScheduleResourceOption = {
@@ -68,6 +86,9 @@ export type WorkScheduleReminderOption = {
 export type WorkScheduleOptions = {
   customers?: WorkScheduleCustomerOption[];
   staff?: WorkScheduleStaffOption[];
+  departments?: WorkScheduleDepartmentOption[];
+  current_staff_id?: string | number;
+  current_department_id?: string | number;
   resources?: WorkScheduleResourceOption[];
   reminders?: WorkScheduleReminderOption[];
 };

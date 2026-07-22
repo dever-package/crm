@@ -88,6 +88,33 @@
           "formLayout": "horizontal",
           "inputType": "number"
         }
+      },
+      {
+        "type": "form-select",
+        "name": "管理部门",
+        "value": "form.owner_department_id",
+        "mode": "form",
+        "option": {
+          "model": "crm.NewDepartmentModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": [
+            "name"
+          ],
+          "filters": {
+            "status": "1"
+          }
+        },
+        "validate": [
+          {
+            "type": "required",
+            "message": "管理部门不能为空。"
+          }
+        ],
+        "meta": {
+          "formLayout": "horizontal"
+        }
       }
     ]
   },
@@ -96,12 +123,14 @@
       "_fields": [
         "resource_cate_id",
         "name",
-        "capacity"
+        "capacity",
+        "owner_department_id"
       ],
       "id": "",
       "resource_cate_id": 1,
       "name": "",
-      "capacity": 0
+      "capacity": 0,
+      "owner_department_id": ""
     }
   },
   "state": {},

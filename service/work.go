@@ -661,6 +661,12 @@ func (WorkService) Execute(ctx context.Context, staff *WorkStaffSession, payload
 		if inputText(result["result_value"]) == workResultProgress {
 			return nil
 		}
+		if booleanFromAny(result["kept_pending"]) {
+			return nil
+		}
+		if booleanFromAny(result["workflow_terminated"]) {
+			return nil
+		}
 		nextOwnerStaffID := firstUint64(payload, "next_owner_staff_id", "nextOwnerStaffId")
 		advanced, err := advanceWorkflowAfterTaskCompletion(txCtx, staff, result, nextOwnerStaffID)
 		if err != nil {
@@ -699,7 +705,7 @@ func advanceWorkflowAfterTaskCompletion(
 			return nil, err
 		}
 		if nextTarget.CrossObject {
-			if nextOwnerStaffID == 0 {
+			if nextOwnerStaffID == 0 && stageAssignmentMode(nextTarget.Stage) == crmmodel.StageAssignmentManual {
 				return nil, fmt.Errorf("请选择%s阶段负责人", nextTarget.Stage.Name)
 			}
 			lead := crmmodel.NewLeadModel().Find(ctx, map[string]any{"id": instance.LeadID})
@@ -1396,6 +1402,8 @@ var workTaskListFields = []string{
 	"assignee_department_name",
 	"assignee_staff_id",
 	"assignee_staff_name",
+	"opinion_requirement",
+	"reject_submit_form",
 }
 
 func workListTaskRows(rows []map[string]any) []map[string]any {
@@ -2906,6 +2914,9 @@ func workOperationSummary(_ context.Context, row map[string]any, items []map[str
 	case crmmodel.TaskTypeTodo:
 		return "完成事项"
 	case crmmodel.TaskTypeForm:
+		if resultValue == crmmodel.MeetingArrivalNoShow {
+			return "记录未到访"
+		}
 		isChangeSnapshot := inputText(mapFromAny(row["data_snapshot_json"])["snapshot_type"]) == workFormChangeSnapshotType
 		if len(items) > 0 {
 			if isChangeSnapshot {
@@ -3057,10 +3068,15 @@ func workOperationSnapshotItem(ctx context.Context, row map[string]any, key stri
 		}
 		return "会议室", resource.Name, nil
 	case workMeetingArrivalFieldKey:
-		if booleanFromAny(value) {
-			return "客户已到访", "是", nil
+		switch inputText(value) {
+		case crmmodel.MeetingArrivalArrived:
+			return "到访结果", "已到访", nil
+		case crmmodel.MeetingArrivalNoShow:
+			return "到访结果", "未到访", nil
 		}
-		return "客户已到访", "否", nil
+		return "到访结果", "待确认", nil
+	case workMeetingNoShowReasonKey:
+		return "未到访原因", inputText(value), nil
 	case "result_value", "resultValue":
 		return "处理结果", workOperationResultDisplayValue(ctx, row, value), nil
 	case "result":
@@ -3114,6 +3130,8 @@ func WorkOperationResultName(value string) string {
 		return "核验未通过"
 	case "canceled":
 		return "已取消"
+	case crmmodel.MeetingArrivalNoShow:
+		return "未到访"
 	case "entered":
 		return "进入阶段"
 	case workBusinessEventLeadConverted:
@@ -3603,7 +3621,7 @@ func workDataDetailSections(ctx context.Context, targetType string, cateID uint6
 	})
 	result := make([]map[string]any, 0, len(templates))
 	for _, template := range templates {
-		if template == nil {
+		if template == nil || template.DisplayMode == crmmodel.DataTemplateDisplayHidden {
 			continue
 		}
 		fields := workDataDetailFields(ctx, template.ID, values)
@@ -3615,6 +3633,9 @@ func workDataDetailSections(ctx context.Context, targetType string, cateID uint6
 			if !booleanFromAny(field["empty"]) {
 				filled++
 			}
+		}
+		if template.DisplayMode == crmmodel.DataTemplateDisplayFilled && filled == 0 {
+			continue
 		}
 		percent := int(math.Round(float64(filled) / float64(len(fields)) * 100))
 		result = append(result, map[string]any{

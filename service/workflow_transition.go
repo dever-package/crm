@@ -58,6 +58,12 @@ func completeWorkflowStage(
 	if err != nil {
 		return nil, err
 	}
+	ownerName := "待派单"
+	ownerStaffID := uint64(0)
+	if owner != nil {
+		ownerName = owner.Name
+		ownerStaffID = owner.ID
+	}
 	if recordWorkStageChange(ctx, staff, instance, workStageChange{
 		FromWorkflowID: fromWorkflowID,
 		FromStageID:    fromStageID,
@@ -65,16 +71,18 @@ func completeWorkflowStage(
 		ToStageID:      stage.ID,
 		ResultValue:    "entered",
 		Title:          "进入阶段：" + stage.Name,
-		Content:        "负责人：" + owner.Name,
+		Content:        "负责人：" + ownerName,
 		Snapshot: map[string]any{
-			"owner_department_id": owner.DepartmentID,
-			"owner_staff_id":      owner.ID,
+			"owner_department_id": stage.OwnerDepartmentID,
+			"owner_staff_id":      ownerStaffID,
 		},
 	}) == 0 {
 		return nil, fmt.Errorf("阶段流转记录创建失败")
 	}
-	if err := createStageTodos(ctx, instance, stage); err != nil {
-		return nil, err
+	if owner != nil {
+		if err := createStageTodos(ctx, instance, stage); err != nil {
+			return nil, err
+		}
 	}
 	return instance, nil
 }

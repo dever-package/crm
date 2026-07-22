@@ -18,14 +18,28 @@ var simpleTaskTypes = map[string]bool{
 }
 
 var simpleTaskAssigneeModes = map[string]bool{
-	crmmodel.TaskAssigneeStage:  true,
-	crmmodel.TaskAssigneeAuto:   true,
-	crmmodel.TaskAssigneeManual: true,
+	crmmodel.TaskAssigneeStage:            true,
+	crmmodel.TaskAssigneeAuto:             true,
+	crmmodel.TaskAssigneePrevious:         true,
+	crmmodel.TaskAssigneeManual:           true,
+	crmmodel.TaskAssigneeDepartmentLeader: true,
 }
 
 var taskActivationModes = map[string]bool{
 	crmmodel.TaskActivationStage: true,
 	crmmodel.TaskActivationRoute: true,
+}
+
+var taskRejectActions = map[string]bool{
+	crmmodel.TaskRejectStay:      true,
+	crmmodel.TaskRejectRoute:     true,
+	crmmodel.TaskRejectTerminate: true,
+}
+
+var taskOpinionRequirements = map[string]bool{
+	crmmodel.TaskOpinionOptional:       true,
+	crmmodel.TaskOpinionRejectRequired: true,
+	crmmodel.TaskOpinionRequired:       true,
 }
 
 var stageAssignmentModes = map[string]bool{
@@ -121,6 +135,8 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	trimCrmStringField(record, "task_type", partial)
 	trimCrmStringField(record, "assignee_mode", partial)
 	trimCrmStringField(record, "activation_mode", partial)
+	trimCrmStringField(record, "reject_action", partial)
+	trimCrmStringField(record, "opinion_requirement", partial)
 	validateConfigName(record, partial, "任务名称不能为空。")
 
 	ctx := contextFromServer(c)
@@ -146,6 +162,7 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	normalizeTaskSystemControls(record, effective, partial, taskType)
 
 	defaultCrmBool(record, "required", true, partial)
+	defaultCrmBool(record, "reject_submit_form", false, partial)
 	defaultCrmBool(record, "meeting_enabled", false, partial)
 	defaultCrmBool(record, "meeting_arrival_required", false, partial)
 	defaultCrmBool(record, "customer_follow_enabled", false, partial)
@@ -351,6 +368,9 @@ func effectiveTaskConfig(ctx context.Context, record map[string]any, partial boo
 		"task_type":                crmmodel.TaskTypeTodo,
 		"assignee_mode":            crmmodel.TaskAssigneeStage,
 		"activation_mode":          crmmodel.TaskActivationStage,
+		"reject_action":            crmmodel.TaskRejectStay,
+		"opinion_requirement":      crmmodel.TaskOpinionRejectRequired,
+		"reject_submit_form":       false,
 		"meeting_enabled":          false,
 		"meeting_arrival_required": false,
 		"customer_follow_enabled":  false,
@@ -367,8 +387,11 @@ func effectiveTaskConfig(ctx context.Context, record map[string]any, partial boo
 				"script_id":                task.ScriptID,
 				"activation_mode":          task.ActivationMode,
 				"condition_script_id":      task.ConditionScriptID,
+				"reject_action":            task.RejectAction,
 				"reject_target_task_id":    task.RejectTargetTaskID,
 				"complete_target_task_id":  task.CompleteTargetTaskID,
+				"opinion_requirement":      task.OpinionRequirement,
+				"reject_submit_form":       task.RejectSubmitForm,
 				"meeting_enabled":          task.MeetingEnabled,
 				"meeting_arrival_required": task.MeetingArrivalRequired,
 				"customer_follow_enabled":  task.CustomerFollowEnabled,
@@ -398,6 +421,18 @@ func effectiveTaskConfig(ctx context.Context, record map[string]any, partial boo
 			record["activation_mode"] = crmmodel.TaskActivationStage
 		}
 	}
+	if util.ToStringTrimmed(effective["reject_action"]) == "" {
+		effective["reject_action"] = crmmodel.TaskRejectStay
+		if shouldNormalizeCrmField(record, "reject_action", partial) {
+			record["reject_action"] = crmmodel.TaskRejectStay
+		}
+	}
+	if util.ToStringTrimmed(effective["opinion_requirement"]) == "" {
+		effective["opinion_requirement"] = crmmodel.TaskOpinionRejectRequired
+		if shouldNormalizeCrmField(record, "opinion_requirement", partial) {
+			record["opinion_requirement"] = crmmodel.TaskOpinionRejectRequired
+		}
+	}
 	return effective
 }
 
@@ -418,9 +453,15 @@ func normalizeTaskActivation(
 		record["activation_mode"] = activationMode
 	}
 	currentTaskID := util.ToUint64(record["id"])
-	if currentTaskID > 0 && activationMode != crmmodel.TaskActivationRoute &&
-		(crmmodel.NewTaskModel().Count(ctx, map[string]any{"reject_target_task_id": currentTaskID}) > 0 ||
-			crmmodel.NewTaskModel().Count(ctx, map[string]any{"complete_target_task_id": currentTaskID}) > 0) {
+	usedAsRejectTarget := currentTaskID > 0 && crmmodel.NewTaskModel().Count(ctx, map[string]any{
+		"reject_target_task_id": currentTaskID,
+		"status":                crmmodel.StatusEnabled,
+	}) > 0
+	usedAsCompleteTarget := currentTaskID > 0 && crmmodel.NewTaskModel().Count(ctx, map[string]any{
+		"complete_target_task_id": currentTaskID,
+		"status":                  crmmodel.StatusEnabled,
+	}) > 0
+	if activationMode != crmmodel.TaskActivationRoute && (usedAsRejectTarget || usedAsCompleteTarget) {
 		panicCrmField("form.activation_mode", "该任务正在被流转配置使用，必须保留“由其他任务触发”。")
 	}
 
@@ -435,14 +476,65 @@ func normalizeTaskActivation(
 		record["condition_script_id"] = conditionScriptID
 	}
 
+	normalizeTaskApprovalPolicy(ctx, record, effective, partial, taskType, validateTarget, stage, currentTaskID)
+	normalizeTaskRouteTarget(ctx, record, effective, partial, validateTarget, stage, currentTaskID, "complete_target_task_id", "完成目标任务", true)
+}
+
+func normalizeTaskApprovalPolicy(
+	ctx context.Context,
+	record map[string]any,
+	effective map[string]any,
+	partial bool,
+	taskType string,
+	validateTarget bool,
+	stage *crmmodel.Stage,
+	currentTaskID uint64,
+) {
 	if taskType != crmmodel.TaskTypeApproval {
-		if shouldNormalizeCrmField(record, "reject_target_task_id", partial) || !partial {
+		if !partial ||
+			shouldNormalizeCrmField(record, "task_type", partial) ||
+			shouldNormalizeCrmField(record, "reject_action", partial) ||
+			shouldNormalizeCrmField(record, "reject_submit_form", partial) {
+			record["reject_action"] = crmmodel.TaskRejectStay
 			record["reject_target_task_id"] = uint64(0)
+			record["opinion_requirement"] = crmmodel.TaskOpinionRejectRequired
+			record["reject_submit_form"] = false
 		}
-	} else {
-		normalizeTaskRouteTarget(ctx, record, effective, partial, validateTarget, stage, currentTaskID, "reject_target_task_id", "驳回目标任务")
+		return
 	}
-	normalizeTaskRouteTarget(ctx, record, effective, partial, validateTarget, stage, currentTaskID, "complete_target_task_id", "完成目标任务")
+
+	rejectAction := util.ToStringTrimmed(effective["reject_action"])
+	if !taskRejectActions[rejectAction] {
+		panicCrmField("form.reject_action", "驳回处理方式无效。")
+	}
+	if shouldNormalizeCrmField(record, "reject_action", partial) {
+		record["reject_action"] = rejectAction
+	}
+	if rejectAction == crmmodel.TaskRejectRoute {
+		targetTaskID := util.ToUint64(effective["reject_target_task_id"])
+		if validateTarget && targetTaskID == 0 {
+			panicCrmField("form.reject_target_task_id", "请选择驳回后要转到的任务。")
+		}
+		normalizeTaskRouteTarget(ctx, record, effective, partial, validateTarget, stage, currentTaskID, "reject_target_task_id", "驳回目标任务", true)
+	} else if !partial || shouldNormalizeCrmField(record, "reject_action", partial) || shouldNormalizeCrmField(record, "reject_target_task_id", partial) {
+		record["reject_target_task_id"] = uint64(0)
+	}
+
+	opinionRequirement := util.ToStringTrimmed(effective["opinion_requirement"])
+	if !taskOpinionRequirements[opinionRequirement] {
+		panicCrmField("form.opinion_requirement", "审核意见规则无效。")
+	}
+	if shouldNormalizeCrmField(record, "opinion_requirement", partial) {
+		record["opinion_requirement"] = opinionRequirement
+	}
+
+	rejectSubmitForm := configBool(effective["reject_submit_form"])
+	if validateTarget && rejectSubmitForm && util.ToUint64(effective["form_id"]) == 0 {
+		panicCrmField("form.reject_submit_form", "请先选择任务表单。")
+	}
+	if shouldNormalizeCrmField(record, "reject_submit_form", partial) {
+		record["reject_submit_form"] = rejectSubmitForm
+	}
 }
 
 func normalizeTaskRouteTarget(
@@ -455,6 +547,7 @@ func normalizeTaskRouteTarget(
 	currentTaskID uint64,
 	field string,
 	label string,
+	requireRouteActivation bool,
 ) {
 	targetTaskID := util.ToUint64(effective[field])
 	if targetTaskID > 0 && targetTaskID == currentTaskID {
@@ -468,7 +561,7 @@ func normalizeTaskRouteTarget(
 		if target == nil || stage == nil || target.StageID != stage.ID {
 			panicCrmField("form."+field, label+"必须选择当前阶段内的已启用任务。")
 		}
-		if target.ActivationMode != crmmodel.TaskActivationRoute {
+		if requireRouteActivation && target.ActivationMode != crmmodel.TaskActivationRoute {
 			panicCrmField("form."+field, label+"必须选择“由其他任务触发”的任务。")
 		}
 	}
@@ -551,12 +644,29 @@ func normalizeSimpleTaskAssignee(ctx context.Context, record map[string]any, eff
 		if shouldWrite {
 			record["assignee_department_id"] = uint64(0)
 		}
-	case crmmodel.TaskAssigneeAuto, crmmodel.TaskAssigneeManual:
+	case crmmodel.TaskAssigneeAuto, crmmodel.TaskAssigneePrevious, crmmodel.TaskAssigneeManual, crmmodel.TaskAssigneeDepartmentLeader:
 		departmentID := util.ToUint64(effective["assignee_department_id"])
 		if validateTarget && (departmentID == 0 || crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": departmentID, "status": crmmodel.StatusEnabled}) == nil) {
-			panicCrmField("form.assignee_department_id", "自动或手动分配任务必须选择已启用的目标部门。")
+			panicCrmField("form.assignee_department_id", "当前负责方式必须选择已启用的目标部门。")
+		}
+		if validateTarget && mode == crmmodel.TaskAssigneeDepartmentLeader {
+			department := crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": departmentID, "status": crmmodel.StatusEnabled})
+			if department == nil || enabledDepartmentLeaderForSetting(ctx, department) == nil {
+				panicCrmField("form.assignee_department_id", "所选部门尚未配置启用的部门负责人。")
+			}
 		}
 	}
+}
+
+func enabledDepartmentLeaderForSetting(ctx context.Context, department *crmmodel.Department) *crmmodel.Staff {
+	if department == nil || department.LeaderStaffID == 0 {
+		return nil
+	}
+	return crmmodel.NewStaffModel().Find(ctx, map[string]any{
+		"id":            department.LeaderStaffID,
+		"department_id": department.ID,
+		"status":        crmmodel.StatusEnabled,
+	})
 }
 
 func (CrmHook) ProviderBeforeDeleteWorkflow(c *server.Context, params []any) any {

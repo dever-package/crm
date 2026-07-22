@@ -80,6 +80,7 @@ export type WorkFormField = {
   group_id?: string | number;
   group_key?: string;
   group_label?: string;
+  placeholder?: string;
   required?: boolean;
   readonly?: boolean;
   visible_when_field_id?: string | number;
@@ -88,6 +89,7 @@ export type WorkFormField = {
   default_value?: string | number | boolean;
   options?: WorkFieldOption[];
   children?: WorkFormField[];
+  meta?: Record<string, unknown>;
 };
 
 export type WorkForm = {
@@ -126,7 +128,19 @@ export type WorkTask = {
   can_reassign?: boolean;
   unassigned?: boolean;
   required?: boolean;
-  assignee_mode?: "stage" | "auto" | "manual" | string;
+  assignee_mode?:
+    | "stage"
+    | "auto"
+    | "previous"
+    | "manual"
+    | "department_leader"
+    | string;
+  opinion_requirement?:
+    | "optional"
+    | "reject_required"
+    | "required"
+    | string;
+  reject_submit_form?: boolean | string | number;
   workflow_instance_id?: string | number;
   customer_product_id?: string | number;
   workflow_id?: string | number;
@@ -498,6 +512,7 @@ export type WorkTaskFormField = {
   required: boolean;
   readonly?: boolean;
   visibleWhenFieldId?: string;
+  visibleWhenRawKey?: string;
   visibleWhenOperator?: string;
   visibleWhenValue?: string;
   type: string;
@@ -508,7 +523,7 @@ export type WorkTaskFormField = {
 };
 
 export type WorkTaskFormFieldVisibilityRule = {
-  driverFieldId: string;
+  driverRawKey: string;
   operator: string;
   expectedValues: string[];
 };
@@ -516,10 +531,11 @@ export type WorkTaskFormFieldVisibilityRule = {
 export function workTaskFormFieldVisibilityRule(
   field: WorkTaskFormField,
 ): WorkTaskFormFieldVisibilityRule | null {
+  const configuredRawKey = textValue(field.visibleWhenRawKey);
   const driverFieldId = positiveTextID(field.visibleWhenFieldId);
-  if (!driverFieldId) return null;
+  if (!configuredRawKey && !driverFieldId) return null;
   return {
-    driverFieldId,
+    driverRawKey: configuredRawKey || `data:${driverFieldId}`,
     operator: textValue(field.visibleWhenOperator) || "equals",
     expectedValues: workTaskConditionExpectedValues(field.visibleWhenValue),
   };
@@ -532,9 +548,8 @@ export function workTaskFormFieldVisible(
 ): boolean {
   const rule = workTaskFormFieldVisibilityRule(field);
   if (!rule) return true;
-  const driverRawKey = `data:${rule.driverFieldId}`;
   const driverFormKey = Object.entries(fieldMap).find(
-    ([, rawKey]) => rawKey === driverRawKey,
+    ([, rawKey]) => rawKey === rule.driverRawKey,
   )?.[0];
   const actual = driverFormKey ? values[driverFormKey] : undefined;
   if (rule.operator === "empty") return workTaskConditionValueEmpty(actual);
@@ -549,6 +564,23 @@ export function workTaskFormFieldVisible(
   }
   return rule.operator === "equals" || rule.operator === "in"
     ? matched
+    : false;
+}
+
+export function workTaskFormFieldRequired(
+  field: WorkTaskFormField,
+  values: Record<string, unknown>,
+  fieldMap: Record<string, string>,
+): boolean {
+  if (field.required) return true;
+  const driverRawKey = textValue(field.meta?.["requiredWhenRawKey"]);
+  const expectedValue = textValue(field.meta?.["requiredWhenValue"]);
+  if (!driverRawKey || !expectedValue) return false;
+  const driverFormKey = Object.entries(fieldMap).find(
+    ([, rawKey]) => rawKey === driverRawKey,
+  )?.[0];
+  return driverFormKey
+    ? textValue(values[driverFormKey]) === expectedValue
     : false;
 }
 
@@ -1153,11 +1185,26 @@ export function normalizeWorkDetailSections(
   });
 }
 
+const workDateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
 export function formatWorkDate(value: unknown): string {
   const text = textValue(value);
   if (!text) return "-";
-  return text
-    .replace("T", " ")
-    .replace(/\.\d+Z?$/, "")
-    .slice(0, 16);
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text.replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 16);
+  }
+  const parts: Record<string, string> = {};
+  for (const part of workDateTimeFormatter.formatToParts(date)) {
+    if (part.type !== "literal") parts[part.type] = part.value;
+  }
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }

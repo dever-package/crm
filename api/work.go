@@ -52,6 +52,126 @@ func (Work) GetNavigation(c *server.Context) error {
 	return crmJSON(c, data, err)
 }
 
+func (Work) GetDispatchConfig(c *server.Context) error {
+	data, err := workService.DispatchConfig(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"department_id": c.Input("department_id"),
+		"departmentId":  c.Input("departmentId"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetLeadDispatchConfig(c *server.Context) error {
+	data, err := workService.LeadDispatchConfig(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"workflow_id": c.Input("workflow_id"),
+		"workflowId":  c.Input("workflowId"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostSaveLeadDispatchConfig(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.SaveLeadDispatchConfig(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostCreateLeadDispatchGroup(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.CreateLeadDispatchGroup(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostRenameLeadDispatchGroup(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.RenameLeadDispatchGroup(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostDeleteLeadDispatchGroup(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.DeleteLeadDispatchGroup(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostAssignLeadDispatch(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.AssignLeadDispatch(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetDispatchActiveLeads(c *server.Context) error {
+	data, err := workService.DispatchActiveLeads(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+		"department_id":  c.Input("department_id"),
+		"departmentId":   c.Input("departmentId"),
+		"owner_staff_id": c.Input("owner_staff_id"),
+		"ownerStaffId":   c.Input("ownerStaffId"),
+		"keyword":        c.Input("keyword"),
+		"page":           c.Input("page"),
+		"page_size":      c.Input("page_size"),
+		"pageSize":       c.Input("pageSize"),
+	})
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostBatchReassignDispatchLeads(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.BatchReassignDispatchLeads(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostSaveDispatchConfig(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.SaveDispatchConfig(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostCreateDispatchGroup(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.CreateDispatchGroup(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostRenameDispatchGroup(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.RenameDispatchGroup(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostDeleteDispatchGroup(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.DeleteDispatchGroup(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
 func (Work) GetGlobalSearch(c *server.Context) error {
 	data, err := workService.GlobalSearch(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
 		"keyword": c.Input("keyword"),
@@ -109,6 +229,7 @@ func (Work) GetLeadDetail(c *server.Context) error {
 func workLeadQueryPayload(c *server.Context) map[string]any {
 	return map[string]any{
 		"keyword":        c.Input("keyword"),
+		"mode":           c.Input("mode"),
 		"status":         c.Input("status"),
 		"source_id":      c.Input("source_id"),
 		"sourceId":       c.Input("sourceId"),
@@ -242,6 +363,15 @@ func (Work) PostCheckInSchedule(c *server.Context) error {
 		return c.Error(err)
 	}
 	data, err := workService.CheckInSchedule(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostScheduleArrivalVideo(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.SaveScheduleArrivalVideos(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
 	return crmJSON(c, data, err)
 }
 

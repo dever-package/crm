@@ -83,6 +83,22 @@ func activateRoutedWorkflowTask(
 	return activateWorkflowTaskTodo(ctx, instance, target)
 }
 
+func cancelPendingRoutedWorkflowTask(ctx context.Context, sourceTodo *crmmodel.WorkTodo, targetTaskID uint64, reason string) {
+	if sourceTodo == nil || targetTaskID == 0 {
+		return
+	}
+	crmmodel.NewWorkTodoModel().Update(ctx, map[string]any{
+		"workflow_instance_id": sourceTodo.WorkflowInstanceID,
+		"stage_id":             sourceTodo.StageID,
+		"task_id":              targetTaskID,
+		"status":               crmmodel.WorkTodoStatusPending,
+	}, map[string]any{
+		"status":     crmmodel.WorkTodoStatusCanceled,
+		"result":     strings.TrimSpace(reason),
+		"updated_at": time.Now(),
+	})
+}
+
 func activateWorkflowTaskTodo(ctx context.Context, instance *crmmodel.WorkflowInstance, task *crmmodel.Task) (*crmmodel.WorkTodo, bool, error) {
 	if instance == nil || task == nil {
 		return nil, false, fmt.Errorf("流程实例和任务不能为空")
@@ -98,7 +114,7 @@ func activateWorkflowTaskTodo(ctx context.Context, instance *crmmodel.WorkflowIn
 	}
 
 	now := time.Now()
-	departmentID, staffID, err := resolveTaskAssignee(ctx, instance, task)
+	departmentID, staffID, automatic, err := resolveTaskAssignee(ctx, instance, task)
 	if err != nil {
 		return nil, false, err
 	}
@@ -143,6 +159,16 @@ func activateWorkflowTaskTodo(ctx context.Context, instance *crmmodel.WorkflowIn
 	}
 	if existing == nil {
 		return nil, false, fmt.Errorf("目标待办激活后无法读取")
+	}
+	if automatic {
+		if err := recordAutomaticDispatch(ctx, departmentID, staffID, workflowDispatchReference{
+			Source:             crmmodel.DispatchSourceTask,
+			LeadID:             instance.LeadID,
+			WorkflowInstanceID: instance.ID,
+			WorkTodoID:         existing.ID,
+		}); err != nil {
+			return nil, false, err
+		}
 	}
 	if existing.AssigneeStaffID > 0 {
 		assignee := crmmodel.NewStaffModel().Find(ctx, map[string]any{"id": existing.AssigneeStaffID})

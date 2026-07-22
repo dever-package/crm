@@ -19,6 +19,7 @@ import {
   type WorkItem,
   type WorkTask,
 } from "./work-core";
+import { WorkFlowModeTabs } from "./work-flow-mode-tabs";
 import { WorkFlowOwnerDialog } from "./work-flow-owner-dialog";
 import { WorkListState } from "./work-list-state";
 import { WorkPagination } from "./work-pagination";
@@ -78,13 +79,6 @@ type WorkCustomerListViewProps = {
   ) => void;
 };
 
-const modeOptions: Array<{ value: WorkCustomerMode; label: string }> = [
-  { value: "all", label: "全部" },
-  { value: "pending", label: "待处理" },
-  { value: "processed", label: "已处理" },
-  { value: "done", label: "已结束" },
-];
-
 const scopeOptions: Array<{ value: WorkCustomerScope; label: string }> = [
   { value: "mine", label: "我的" },
   { value: "all", label: "全部" },
@@ -116,7 +110,7 @@ export function WorkCustomerListView({
     <div className="crm-work-customer-list space-y-4">
       <WorkCustomerListStyles />
       <div className="flex flex-wrap items-center gap-3">
-        <WorkCustomerModeTabs
+        <WorkFlowModeTabs
           mode={mode}
           counts={modeCounts}
           onChange={onModeChange}
@@ -281,40 +275,6 @@ function WorkCustomerListStyles() {
         -webkit-line-clamp: 2;
       }
     `}</style>
-  );
-}
-
-function WorkCustomerModeTabs({
-  mode,
-  counts,
-  onChange,
-}: {
-  mode: WorkCustomerMode;
-  counts: Record<WorkCustomerMode, number>;
-  onChange: (mode: WorkCustomerMode) => void;
-}) {
-  return (
-    <div className="inline-flex items-center gap-1 rounded-md bg-muted/40 p-1">
-      {modeOptions.map((option) => (
-        <Button
-          type="button"
-          key={option.value}
-          variant="ghost"
-          aria-pressed={mode === option.value}
-          className={`h-auto rounded px-3 py-1.5 text-sm font-medium ${
-            mode === option.value
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-          <span className="ml-1 text-xs text-muted-foreground">
-            {counts[option.value] || 0}
-          </span>
-        </Button>
-      ))}
-    </div>
   );
 }
 

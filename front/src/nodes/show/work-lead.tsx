@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,6 +52,7 @@ import {
   workListSearchEvent,
   workRefreshEvent,
   type WorkCustomer,
+  type WorkCustomerMode,
   type WorkDetailField,
   type WorkDetailSection,
   type WorkFlowDetail,
@@ -72,6 +74,13 @@ import {
   type WorkDetailTab,
 } from "./work-customer-detail";
 import { useWorkFeedbackModalHeaderTarget } from "./work-feedback-modal";
+import {
+  normalizeWorkFlowMode,
+  normalizeWorkFlowModeCounts,
+  WorkFlowModeTabs,
+  type WorkFlowModeCounts,
+} from "./work-flow-mode-tabs";
+import { WorkFlowOwnerDialog } from "./work-flow-owner-dialog";
 import { WorkFormField } from "./work-form-field";
 import { WorkPagination } from "./work-pagination";
 import { useWorkTaskStoreValue } from "./work-task-form-fields";
@@ -117,6 +126,10 @@ type WorkLead = {
   workflow_status?: string;
   stage_name?: string;
   owner_staff_name?: string;
+  dispatch_assignee_staff_id?: string | number;
+  dispatch_assignee_staff_name?: string;
+  dispatch_type?: string;
+  dispatch_completed_at?: string;
   created_at?: string;
   data_values?: Record<string, unknown>;
   flow?: WorkFlowDetail;
@@ -130,6 +143,7 @@ type WorkLeadPoolResponse = {
   total?: string | number;
   page?: string | number;
   page_size?: string | number;
+  mode_counts?: Partial<Record<WorkCustomerMode, string | number>>;
   sources?: WorkLeadOption[];
   channels?: WorkLeadOption[];
   owner_options?: WorkLeadOption[];
@@ -203,6 +217,7 @@ const workLeadPageSize = 10;
 
 type WorkLeadQueryFilters = {
   workflowID: string;
+  mode: WorkCustomerMode;
   keyword: string;
   quickFilter: string;
   stageFilter: string;
@@ -219,6 +234,7 @@ function buildWorkLeadQuery(filters: WorkLeadQueryFilters): URLSearchParams {
   const query = new URLSearchParams();
   const values: Array<[string, string]> = [
     ["workflow_id", filters.workflowID],
+    ["mode", filters.mode],
     ["keyword", filters.keyword],
     ["quick_filter", filters.quickFilter],
     ["stage_filter", filters.stageFilter],
@@ -574,6 +590,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
     [],
   );
   const workflowID = routeQuery.get("workflow_id") || "";
+  const initialMode = normalizeWorkFlowMode(routeQuery.get("mode"));
   const routeKeyword = routeQuery.get("keyword") || "";
   const routeQuickFilter = routeQuery.get("quick_filter") || "";
   const routeStageFilter = routeQuery.get("stage_filter") || "";
@@ -584,6 +601,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
   );
   const [leads, setLeads] = useState<WorkLead[]>([]);
   const [options, setOptions] = useState<WorkLeadPoolResponse>({});
+  const [mode, setMode] = useState<WorkCustomerMode>(initialMode);
   const [activeKeyword, setActiveKeyword] = useState(routeKeyword);
   const [appliedFilters, setAppliedFilters] =
     useState<WorkLeadFilterValues>(initialFilters);
@@ -591,10 +609,15 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [reassignFlow, setReassignFlow] = useState<WorkFlowDetail | null>(null);
   const [invalidLead, setInvalidLead] = useState<WorkLead | null>(null);
   const [invalidating, setInvalidating] = useState(false);
   const loadVersionRef = useRef(0);
   const loadingQueryRef = useRef("");
+  const modeCounts = useMemo<WorkFlowModeCounts>(
+    () => normalizeWorkFlowModeCounts(options.mode_counts, mode, options.total),
+    [mode, options.mode_counts, options.total],
+  );
 
   useEffect(() => {
     if (workStoreValue(store, workLeadFilterDraftPath, undefined) === undefined) {
@@ -616,6 +639,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
   const loadLeads = useCallback(async () => {
     const query = buildWorkLeadQuery({
       workflowID,
+      mode,
       keyword: activeKeyword,
       quickFilter: routeQuickFilter,
       stageFilter: routeStageFilter,
@@ -662,6 +686,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
   }, [
     activeKeyword,
     appliedFilters,
+    mode,
     page,
     routeQuickFilter,
     routeStageFilter,
@@ -675,6 +700,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
     try {
       const query = buildWorkLeadQuery({
         workflowID,
+        mode,
         keyword: activeKeyword,
         quickFilter: routeQuickFilter,
         stageFilter: routeStageFilter,
@@ -699,6 +725,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
     appliedFilters,
     exporting,
     loading,
+    mode,
     routeQuickFilter,
     routeStageFilter,
     routeTaskFilter,
@@ -750,6 +777,11 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
       setLeads([]);
       setPage(1);
       setActiveKeyword(detail.keyword);
+      if (detail.mode) {
+        setMode((currentMode) =>
+          normalizeWorkFlowMode(detail.mode, currentMode),
+        );
+      }
     };
     window.addEventListener(workListSearchEvent, search);
     return () => window.removeEventListener(workListSearchEvent, search);
@@ -779,6 +811,10 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
       store,
       lead.flow,
     );
+  };
+
+  const openLeadReassign = (lead: WorkLead) => {
+    setReassignFlow(lead.flow || null);
   };
 
   const goToPage = (nextPage: number) => {
@@ -825,6 +861,16 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
 
   return (
     <div className="crm-work-lead-pool space-y-4">
+      <WorkFlowModeTabs
+        mode={mode}
+        counts={modeCounts}
+        onChange={(nextMode) => {
+          if (nextMode === mode) return;
+          setLeads([]);
+          setMode(nextMode);
+          setPage(1);
+        }}
+      />
       <section className="overflow-hidden bg-background">
         <div className="hidden overflow-x-auto md:block">
           <table className="crm-work-lead-table w-full min-w-[1060px] table-fixed border-collapse">
@@ -861,6 +907,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
                     )
                   }
                   onTask={openLeadTask}
+                  onReassign={openLeadReassign}
                   onInvalid={setInvalidLead}
                 />
               ))}
@@ -877,6 +924,7 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
                 openWorkLeadDetail(store, options, currentLead)
               }
               onTask={openLeadTask}
+              onReassign={openLeadReassign}
               onInvalid={setInvalidLead}
             />
           ))}
@@ -905,6 +953,16 @@ export function ShowCrmWorkLeadPool({ store }: WorkNodeProps = {}) {
         />
       </section>
 
+      <WorkFlowOwnerDialog
+        flow={reassignFlow}
+        open={Boolean(reassignFlow)}
+        title="改派负责人"
+        confirmLabel="确认改派"
+        onOpenChange={(open) => {
+          if (!open) setReassignFlow(null);
+        }}
+      />
+
       <InvalidateLeadDialog
         lead={invalidLead}
         reasons={options.invalid_reasons || []}
@@ -920,6 +978,7 @@ function WorkLeadTableRow({
   lead,
   onDetail,
   onTask,
+  onReassign,
   onInvalid,
 }: WorkLeadRowProps) {
   return (
@@ -955,6 +1014,7 @@ function WorkLeadTableRow({
           lead={lead}
           onDetail={onDetail}
           onTask={onTask}
+          onReassign={onReassign}
           onInvalid={onInvalid}
         />
       </td>
@@ -966,6 +1026,7 @@ function WorkLeadMobileRow({
   lead,
   onDetail,
   onTask,
+  onReassign,
   onInvalid,
 }: WorkLeadRowProps) {
   return (
@@ -984,6 +1045,7 @@ function WorkLeadMobileRow({
         lead={lead}
         onDetail={onDetail}
         onTask={onTask}
+        onReassign={onReassign}
         onInvalid={onInvalid}
       />
     </article>
@@ -994,6 +1056,7 @@ type WorkLeadRowProps = {
   lead: WorkLead;
   onDetail: (lead: WorkLead) => void;
   onTask: (lead: WorkLead, task: WorkTask) => void;
+  onReassign: (lead: WorkLead) => void;
   onInvalid: (lead: WorkLead) => void;
 };
 
@@ -1043,6 +1106,11 @@ function LeadStatus({ lead }: { lead: WorkLead }) {
       >
         {workLeadEffectiveStatusName(lead)}
       </span>
+      {status === "converted" && lead.dispatch_assignee_staff_name ? (
+        <p className="mt-1 break-words text-xs text-muted-foreground">
+          派给：{displayText(lead.dispatch_assignee_staff_name)}
+        </p>
+      ) : null}
       {lead.stage_name ? (
         <p className="mt-1 break-words text-xs text-muted-foreground">
           {lead.stage_name}
@@ -1077,6 +1145,7 @@ function LeadActions({
   lead,
   onDetail,
   onTask,
+  onReassign,
   onInvalid,
 }: WorkLeadRowProps) {
   const status = workLeadEffectiveStatus(lead);
@@ -1111,6 +1180,17 @@ function LeadActions({
             </Button>
           ) : null}
         </>
+      ) : null}
+      {flow?.can_change_owner ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onReassign(lead)}
+        >
+          <UserRound className="h-4 w-4" />
+          改派
+        </Button>
       ) : null}
       <Button
         type="button"
@@ -1410,6 +1490,15 @@ function workLeadDetailSections(
   if (customerCode) {
     baseFields.push(
       workLeadDetailField("customer", "客户编号", customerCode),
+    );
+  }
+  if (lead.dispatch_assignee_staff_name) {
+    baseFields.push(
+      workLeadDetailField(
+        "dispatch-assignee",
+        "派单接收人",
+        lead.dispatch_assignee_staff_name,
+      ),
     );
   }
   const sections = [

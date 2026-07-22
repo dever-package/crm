@@ -1,0 +1,29 @@
+{
+  "page": {
+    "name": "线索派单",
+    "icon": "list-checks",
+    "parent": "crm-work-customer-center",
+    "type": 1,
+    "sort": 98
+  },
+  "layout": {
+    "type": "container",
+    "className": "crm-body-page",
+    "children": {
+      "content": {
+        "type": "container",
+        "className": "min-w-0"
+      }
+    }
+  },
+  "nodes": {
+    "content": [
+      {
+        "type": "show-crm-work-dispatch"
+      }
+    ]
+  },
+  "data": {},
+  "state": {},
+  "action": {}
+}

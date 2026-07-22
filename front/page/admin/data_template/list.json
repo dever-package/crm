@@ -183,6 +183,11 @@
               "type": "show-base"
             },
             {
+              "name": "展示方式",
+              "value": "display_mode",
+              "type": "show-tag"
+            },
+            {
               "name": "字段数量",
               "value": "fields",
               "type": "show-base",

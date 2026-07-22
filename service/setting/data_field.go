@@ -84,7 +84,11 @@ func normalizeCrmDataFieldRecord(c *server.Context, record map[string]any, parti
 
 func normalizeCrmDataFieldCapabilities(ctx context.Context, record map[string]any, existing *crmmodel.DataField, partial bool) {
 	fieldType := effectiveCrmDataFieldType(record, existing)
-	unsupported := fieldType == "group" || fieldType == "attachment"
+	unsupported := fieldType == "group" ||
+		fieldType == "attachment" ||
+		fieldType == "image" ||
+		fieldType == "audio" ||
+		fieldType == "video"
 	fieldTypeChanged := shouldNormalizeCrmField(record, "field_type", partial)
 	if unsupported && (fieldTypeChanged || !partial) {
 		record["finance_type_id"] = uint64(0)

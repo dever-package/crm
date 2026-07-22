@@ -18,8 +18,11 @@ type Task struct {
 	ScriptID               uint64 `dorm:"type:bigint;not null;default:0;comment:核验规则"`
 	ActivationMode         string `dorm:"type:varchar(32);not null;default:'stage';comment:激活方式"`
 	ConditionScriptID      uint64 `dorm:"type:bigint;not null;default:0;comment:适用条件规则"`
+	RejectAction           string `dorm:"type:varchar(32);not null;default:'stay';comment:驳回处理"`
 	RejectTargetTaskID     uint64 `dorm:"type:bigint;not null;default:0;comment:驳回目标任务"`
 	CompleteTargetTaskID   uint64 `dorm:"type:bigint;not null;default:0;comment:完成目标任务"`
+	OpinionRequirement     string `dorm:"type:varchar(32);not null;default:'reject_required';comment:审核意见规则"`
+	RejectSubmitForm       bool   `dorm:"not null;default:false;comment:驳回时是否提交任务表单"`
 	MeetingEnabled         bool   `dorm:"not null;default:false;comment:是否需要预约会议"`
 	MeetingArrivalRequired bool   `dorm:"not null;default:false;comment:是否需要客户到访确认"`
 	CustomerFollowEnabled  bool   `dorm:"not null;default:false;comment:是否填写下次跟进时间"`
@@ -47,10 +50,12 @@ func NewTaskModel() *orm.Model[Task] {
 		Order:    "sort asc,id asc",
 		Database: "default",
 		Options: map[string]any{
-			"task_type":       taskTypeOptions,
-			"assignee_mode":   taskAssigneeModeOptions,
-			"activation_mode": taskActivationModeOptions,
-			"status":          statusOptions,
+			"task_type":           taskTypeOptions,
+			"assignee_mode":       taskAssigneeModeOptions,
+			"activation_mode":     taskActivationModeOptions,
+			"reject_action":       taskRejectActionOptions,
+			"opinion_requirement": taskOpinionRequirementOptions,
+			"status":              statusOptions,
 		},
 		Relations: []orm.Relation{
 			stageRelation,

@@ -64,6 +64,22 @@
     "header-actions": [
       {
         "type": "show-button",
+        "name": "飞书配置",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "message-circle"
+        },
+        "action": {
+          "click": {
+            "type": "modal",
+            "key": "dialog.feishuConfig",
+            "value": true
+          }
+        }
+      },
+      {
+        "type": "show-button",
         "name": "预定记录",
         "meta": {
           "variant": "outline",
@@ -208,6 +224,11 @@
               "type": "show-base"
             },
             {
+              "name": "管理部门",
+              "value": "owner_department.name",
+              "type": "show-base"
+            },
+            {
               "name": "状态",
               "value": "status",
               "type": "form-switch",
@@ -263,6 +284,21 @@
       }
     ],
     "feedback-shell": [
+      {
+        "type": "feedback-modal",
+        "meta": {
+          "stateKey": "dialog.feishuConfig",
+          "pageRoute": "/crm/feishu_login/set",
+          "title": "飞书配置",
+          "assistant": false,
+          "footer": {
+            "confirm": true,
+            "confirmText": "保存"
+          },
+          "size": "lg",
+          "bodyClassName": "px-6 py-2"
+        }
+      },
       {
         "type": "feedback-modal",
         "meta": {
@@ -355,6 +391,7 @@
   },
   "state": {
     "dialog": {
+      "feishuConfig": false,
       "createCate": false,
       "editCate": false,
       "create": false,

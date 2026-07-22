@@ -32,7 +32,10 @@ func (WorkService) Navigation(ctx context.Context, staff *WorkStaffSession) (map
 			"pending_count": pendingCounts[workflow.ID],
 		})
 	}
-	return map[string]any{"list": rows}, nil
+	return map[string]any{
+		"list":     rows,
+		"dispatch": workDispatchNavigation(ctx, staff),
+	}, nil
 }
 
 func workflowNavigationPath(workflow *crmmodel.Workflow) string {

@@ -10,6 +10,7 @@ import {
   CalendarDays,
   LayoutDashboard,
   KeyRound,
+  ListChecks,
   LoaderCircle,
   LogOut,
   PanelLeft,
@@ -50,6 +51,14 @@ type WorkNavigationRow = {
   pending_count?: string | number;
 };
 
+type WorkNavigationPayload = {
+  list?: WorkNavigationRow[];
+  dispatch?: {
+    enabled?: boolean;
+    pending_count?: string | number;
+  };
+};
+
 type WorkSearchResult = {
   type?: string;
   type_name?: string;
@@ -78,6 +87,11 @@ const scheduleNavItem: WorkNavItem = {
   to: "/crm/schedule",
   title: "日程",
   icon: CalendarDays,
+};
+const dispatchNavItem: WorkNavItem = {
+  to: "/crm/dispatch",
+  title: "线索派单",
+  icon: ListChecks,
 };
 let workNavigationSnapshot: WorkNavItem[] = [workbenchNavItem];
 let workNavigationPromise: Promise<void> | null = null;
@@ -310,7 +324,7 @@ function readWorkNavigation() {
 async function loadWorkNavigation() {
   if (workNavigationPromise) return workNavigationPromise;
   workNavigationPromise = Promise.all([
-    workApi<{ list?: WorkNavigationRow[] }>("/crm/work/navigation"),
+    workApi<WorkNavigationPayload>("/crm/work/navigation"),
     workApi<{ total?: string | number }>("/crm/work/schedule_reminders").catch(
       () => ({ total: 0 }),
     ),
@@ -336,6 +350,12 @@ async function loadWorkNavigation() {
             },
           ];
         }),
+        ...(payload.dispatch?.enabled
+          ? [{
+              ...dispatchNavItem,
+              pendingCount: Number(payload.dispatch.pending_count) || 0,
+            }]
+          : []),
         {
           ...scheduleNavItem,
           pendingCount: Number(reminderPayload.total) || 0,

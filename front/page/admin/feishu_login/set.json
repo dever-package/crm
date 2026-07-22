@@ -1,40 +1,33 @@
 {
   "page": {
-    "name": "飞书登录配置",
-    "icon": "log-in",
+    "name": "飞书配置",
+    "icon": "message-circle",
     "parent": "crm-org-manage",
+    "type": 2,
     "sort": 4,
     "auth": [
       {
         "key": "crm/feishu_login/set",
-        "name": "飞书登录配置"
+        "name": "飞书配置"
       }
     ]
   },
   "layout": {
     "type": "container",
     "children": {
-      "page-header": {
-        "type": "header"
-      },
       "page-main": {
         "type": "main",
+        "className": "p-0",
         "children": {
           "form-shell": {
             "type": "container",
-            "className": "max-w-3xl"
+            "className": "w-full space-y-5"
           }
         }
       }
     }
   },
   "nodes": {
-    "page-header": [
-      {
-        "type": "show-title",
-        "value": "page"
-      }
-    ],
     "form-shell": [
       {
         "type": "form-input",
@@ -70,6 +63,50 @@
           "inputType": "password",
           "controlClassName": "max-w-[420px]"
         }
+      },
+      {
+        "type": "show-title",
+        "name": "测试消息",
+        "className": "border-t pt-5",
+        "meta": {
+          "variant": "section"
+        }
+      },
+      {
+        "type": "form-select",
+        "name": "测试人员",
+        "value": "test.staff_id",
+        "mode": "form",
+        "placeholder": "请选择已绑定飞书人员",
+        "option": {
+          "service": "crm.setting.OptionService.LoadFeishuBoundStaffOptions",
+          "valueField": "id",
+          "labelField": "value",
+          "pageSize": 200
+        },
+        "meta": {
+          "formLayout": "horizontal",
+          "controlClassName": "max-w-[420px]"
+        }
+      },
+      {
+        "type": "show-button",
+        "name": "发送测试",
+        "meta": {
+          "variant": "outline",
+          "size": "sm",
+          "icon": "send",
+          "loadingText": "发送中...",
+          "successMessage": "测试消息已发送"
+        },
+        "action": {
+          "click": {
+            "type": "request",
+            "api": "/crm/admin/feishu/test",
+            "method": "post",
+            "params": "test"
+          }
+        }
       }
     ]
   },
@@ -79,6 +116,9 @@
       "feishu_app_id": "",
       "feishu_app_secret": "",
       "model": "crm.NewBasicConfigModel"
+    },
+    "test": {
+      "staff_id": ""
     }
   },
   "state": {},

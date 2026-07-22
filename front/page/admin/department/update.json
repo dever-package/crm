@@ -66,6 +66,9 @@
       "params": "form",
       "before": {
         "service": "crm.setting.CrmHook.BeforeSaveDepartment"
+      },
+      "after": {
+        "service": "crm.setting.CrmHook.AfterSaveDepartment"
       }
     }
   }

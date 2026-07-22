@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
@@ -15,11 +13,6 @@ const (
 	scheduleFeishuMaxAttempts  = 3
 	scheduleFeishuClaimTimeout = 5 * time.Minute
 )
-
-type feishuMessageResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-}
 
 func DispatchScheduleReminders(ctx context.Context) (map[string]any, error) {
 	if ctx == nil {
@@ -51,10 +44,7 @@ func DispatchScheduleReminders(ctx context.Context) (map[string]any, error) {
 	if strings.TrimSpace(config.FeishuAppID) == "" || strings.TrimSpace(config.FeishuAppSecret) == "" {
 		return map[string]any{"due": len(due), "sent": 0, "failed": 0, "skipped": len(due), "message": "飞书应用未配置"}, nil
 	}
-	token, err := fetchWorkFeishuAppAccessToken(ctx)
-	if err != nil {
-		return nil, err
-	}
+	token := ""
 	sent := 0
 	failed := 0
 	skipped := 0
@@ -64,19 +54,7 @@ func DispatchScheduleReminders(ctx context.Context) (map[string]any, error) {
 			"status": crmmodel.ScheduleStatusPending,
 		})
 		if event == nil {
-			continue
-		}
-		attempt := participant.FeishuAttempts + 1
-		if crmmodel.NewScheduleParticipantModel().Update(ctx, map[string]any{
-			"id":                participant.ID,
-			"feishu_sent_at":    nil,
-			"feishu_claimed_at": participant.FeishuClaimedAt,
-			"feishu_attempts":   participant.FeishuAttempts,
-		}, map[string]any{
-			"feishu_claimed_at": now,
-			"feishu_attempts":   attempt,
-			"updated_at":        now,
-		}) == 0 {
+			skipped++
 			continue
 		}
 		staff := crmmodel.NewStaffModel().Find(ctx, map[string]any{
@@ -85,12 +63,29 @@ func DispatchScheduleReminders(ctx context.Context) (map[string]any, error) {
 		})
 		if staff == nil || strings.TrimSpace(staff.FeishuOpenID) == "" {
 			skipped++
-			crmmodel.NewScheduleParticipantModel().Update(ctx, map[string]any{"id": participant.ID}, map[string]any{
-				"feishu_claimed_at": nil,
-				"feishu_attempts":   scheduleFeishuMaxAttempts,
-				"feishu_last_error": "人员未配置飞书 OpenID",
-				"updated_at":        time.Now(),
-			})
+			if participant.FeishuLastError != "人员未配置飞书 OpenID" {
+				crmmodel.NewScheduleParticipantModel().Update(ctx, map[string]any{"id": participant.ID}, map[string]any{
+					"feishu_claimed_at": nil,
+					"feishu_last_error": "人员未配置飞书 OpenID",
+					"updated_at":        time.Now(),
+				})
+			}
+			continue
+		}
+		if token == "" {
+			var err error
+			token, err = fetchWorkFeishuAppAccessToken(ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
+		attempt := participant.FeishuAttempts + 1
+		if crmmodel.NewScheduleParticipantModel().Update(ctx, scheduleFeishuClaimFilter(participant), map[string]any{
+			"feishu_claimed_at": now,
+			"feishu_attempts":   attempt,
+			"updated_at":        now,
+		}) == 0 {
+			skipped++
 			continue
 		}
 		deliveryKey := fmt.Sprintf("crm-schedule-%d-%d-%d", event.ID, event.RemindAt.Unix(), participant.StaffID)
@@ -120,26 +115,27 @@ func DispatchScheduleReminders(ctx context.Context) (map[string]any, error) {
 	}, nil
 }
 
+func scheduleFeishuClaimFilter(participant *crmmodel.ScheduleParticipant) map[string]any {
+	filter := map[string]any{
+		"id":              participant.ID,
+		"feishu_sent_at":  nil,
+		"feishu_attempts": participant.FeishuAttempts,
+	}
+	// ORM 需要无类型 nil 才会生成 IS NULL；带类型的 nil 指针会生成永不匹配的 = NULL。
+	if participant.FeishuClaimedAt == nil {
+		filter["feishu_claimed_at"] = nil
+	} else {
+		filter["feishu_claimed_at"] = *participant.FeishuClaimedAt
+	}
+	return filter
+}
+
 func sendScheduleFeishuMessage(ctx context.Context, token string, openID string, deliveryKey string, event *crmmodel.ScheduleEvent) error {
 	if event == nil {
 		return fmt.Errorf("日程不存在")
 	}
-	content, err := json.Marshal(map[string]any{"text": scheduleFeishuMessageText(ctx, event)})
-	if err != nil {
-		return err
-	}
-	var response feishuMessageResponse
-	path := "/im/v1/messages?receive_id_type=" + url.QueryEscape("open_id")
-	if err := postFeishuJSON(ctx, path, map[string]any{
-		"receive_id": strings.TrimSpace(openID),
-		"msg_type":   "text",
-		"content":    string(content),
-		"uuid":       deliveryKey,
-	}, token, &response); err != nil {
-		return err
-	}
-	if response.Code != 0 {
-		return fmt.Errorf("飞书日程提醒发送失败：%s", fallbackFeishuMessage(response.Msg))
+	if err := sendFeishuTextMessage(ctx, token, openID, deliveryKey, scheduleFeishuMessageText(ctx, event)); err != nil {
+		return fmt.Errorf("飞书日程提醒发送失败：%w", err)
 	}
 	return nil
 }

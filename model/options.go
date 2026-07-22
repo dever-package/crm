@@ -21,14 +21,28 @@ const (
 )
 
 const (
-	TaskAssigneeStage  = "stage"
-	TaskAssigneeAuto   = "auto"
-	TaskAssigneeManual = "manual"
+	TaskAssigneeStage            = "stage"
+	TaskAssigneeAuto             = "auto"
+	TaskAssigneePrevious         = "previous"
+	TaskAssigneeManual           = "manual"
+	TaskAssigneeDepartmentLeader = "department_leader"
 )
 
 const (
 	TaskActivationStage = "stage"
 	TaskActivationRoute = "route"
+)
+
+const (
+	TaskRejectStay      = "stay"
+	TaskRejectRoute     = "route"
+	TaskRejectTerminate = "terminate"
+)
+
+const (
+	TaskOpinionOptional       = "optional"
+	TaskOpinionRejectRequired = "reject_required"
+	TaskOpinionRequired       = "required"
 )
 
 const (
@@ -100,6 +114,16 @@ const (
 )
 
 const (
+	MeetingArrivalPending = "pending"
+	MeetingArrivalArrived = "arrived"
+	MeetingArrivalNoShow  = "no_show"
+)
+
+const (
+	AttachmentUsageArrivalVideo = "arrival_video"
+)
+
+const (
 	ScheduleSourceWorkForm = "work_form"
 	ScheduleSourceCalendar = "calendar"
 )
@@ -146,9 +170,30 @@ const (
 	StaffTypeEmployee = "employee"
 )
 
+const (
+	DataTemplateDisplayAlways = "always"
+	DataTemplateDisplayFilled = "filled"
+	DataTemplateDisplayHidden = "hidden"
+)
+
 var statusOptions = []map[string]any{
 	{"id": StatusEnabled, "value": "启用"},
 	{"id": StatusDisabled, "value": "停用"},
+}
+
+var dataTemplateDisplayModeOptions = []map[string]any{
+	{"id": DataTemplateDisplayAlways, "value": "始终展示"},
+	{"id": DataTemplateDisplayFilled, "value": "有数据时展示"},
+	{"id": DataTemplateDisplayHidden, "value": "不展示"},
+}
+
+func IsDataTemplateDisplayMode(value string) bool {
+	switch value {
+	case DataTemplateDisplayAlways, DataTemplateDisplayFilled, DataTemplateDisplayHidden:
+		return true
+	default:
+		return false
+	}
 }
 
 var leadStatusOptions = []map[string]any{
@@ -208,6 +253,12 @@ var scheduleStatusOptions = []map[string]any{
 	{"id": ScheduleStatusCanceled, "value": "已取消"},
 }
 
+var meetingArrivalStatusOptions = []map[string]any{
+	{"id": MeetingArrivalPending, "value": "待确认"},
+	{"id": MeetingArrivalArrived, "value": "已到访"},
+	{"id": MeetingArrivalNoShow, "value": "未到访"},
+}
+
 var scheduleSourceOptions = []map[string]any{
 	{"id": ScheduleSourceWorkForm, "value": "流程表单"},
 	{"id": ScheduleSourceCalendar, "value": "工作台日历"},
@@ -264,12 +315,26 @@ var taskTypeOptions = []map[string]any{
 var taskAssigneeModeOptions = []map[string]any{
 	{"id": TaskAssigneeStage, "value": "跟随阶段负责人"},
 	{"id": TaskAssigneeAuto, "value": "自动分配到部门"},
+	{"id": TaskAssigneePrevious, "value": "沿用同部门负责人"},
 	{"id": TaskAssigneeManual, "value": "由当前负责人手动分配"},
+	{"id": TaskAssigneeDepartmentLeader, "value": "部门负责人"},
 }
 
 var taskActivationModeOptions = []map[string]any{
 	{"id": TaskActivationStage, "value": "进入阶段时创建"},
 	{"id": TaskActivationRoute, "value": "由其他任务触发"},
+}
+
+var taskRejectActionOptions = []map[string]any{
+	{"id": TaskRejectStay, "value": "保留当前审核"},
+	{"id": TaskRejectRoute, "value": "转到指定任务"},
+	{"id": TaskRejectTerminate, "value": "终止流程"},
+}
+
+var taskOpinionRequirementOptions = []map[string]any{
+	{"id": TaskOpinionOptional, "value": "可选"},
+	{"id": TaskOpinionRejectRequired, "value": "驳回必填"},
+	{"id": TaskOpinionRequired, "value": "始终必填"},
 }
 
 var stageAssignmentModeOptions = []map[string]any{
@@ -323,6 +388,9 @@ var fieldTypeOptions = []map[string]any{
 	{"id": "multi_select", "value": "多选下拉"},
 	{"id": "boolean", "value": "开关"},
 	{"id": "attachment", "value": "附件"},
+	{"id": "image", "value": "图片"},
+	{"id": "audio", "value": "音频"},
+	{"id": "video", "value": "视频"},
 	{"id": "group", "value": "分组"},
 }
 

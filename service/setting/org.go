@@ -30,7 +30,34 @@ func (CrmHook) ProviderBeforeSaveDepartment(c *server.Context, params []any) any
 	}
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
+	if c != nil {
+		departmentID := util.ToUint64(record["id"])
+		leaderStaffID := util.ToUint64(record["leader_staff_id"])
+		if departmentID > 0 && leaderStaffID > 0 && crmmodel.NewStaffModel().Find(c.Context(), map[string]any{
+			"id":            leaderStaffID,
+			"department_id": departmentID,
+			"status":        crmmodel.StatusEnabled,
+		}) == nil {
+			panicCrmField("form.leader_staff_id", "部门负责人必须是本部门启用人员。")
+		}
+	}
 	return record
+}
+
+func (CrmHook) ProviderAfterSaveDepartment(c *server.Context, params []any) any {
+	if c == nil || len(params) == 0 {
+		return nil
+	}
+	payload, ok := params[0].(map[string]any)
+	if !ok {
+		return nil
+	}
+	departmentID := savedRecordID(payload)
+	if departmentID == 0 {
+		return nil
+	}
+	syncDepartmentLeaderStaffTypes(c.Context(), departmentID)
+	return nil
 }
 
 func resolveDepartmentCode(c *server.Context, record map[string]any) string {
@@ -101,26 +128,56 @@ func (CrmHook) ProviderAfterSaveStaff(c *server.Context, params []any) any {
 	if !ok {
 		return nil
 	}
-	record, ok := payload["payload"].(map[string]any)
-	if !ok || util.ToStringTrimmed(record["staff_type"]) != crmmodel.StaffTypeLeader {
-		return nil
-	}
 	staffID := savedRecordID(payload)
-	departmentID := util.ToUint64(record["department_id"])
-	if staffID == 0 || departmentID == 0 {
+	if staffID == 0 {
 		return nil
 	}
-	rows := crmmodel.NewStaffModel().Select(c.Context(), map[string]any{
-		"department_id": departmentID,
-		"staff_type":    crmmodel.StaffTypeLeader,
-	})
-	for _, row := range rows {
-		if row == nil || row.ID == staffID {
+	staff := crmmodel.NewStaffModel().Find(c.Context(), map[string]any{"id": staffID})
+	if staff == nil {
+		return nil
+	}
+	for _, department := range crmmodel.NewDepartmentModel().Select(c.Context(), map[string]any{"leader_staff_id": staff.ID}) {
+		if department == nil || department.ID == staff.DepartmentID && staff.Status == crmmodel.StatusEnabled {
 			continue
 		}
-		crmmodel.NewStaffModel().Update(c.Context(), map[string]any{"id": row.ID}, map[string]any{"staff_type": crmmodel.StaffTypeEmployee})
+		crmmodel.NewDepartmentModel().Update(c.Context(), map[string]any{"id": department.ID}, map[string]any{"leader_staff_id": uint64(0)})
+		syncDepartmentLeaderStaffTypes(c.Context(), department.ID)
 	}
+	record, _ := payload["payload"].(map[string]any)
+	if staff.Status == crmmodel.StatusEnabled && util.ToStringTrimmed(record["staff_type"]) == crmmodel.StaffTypeLeader {
+		crmmodel.NewDepartmentModel().Update(c.Context(), map[string]any{"id": staff.DepartmentID}, map[string]any{
+			"leader_staff_id": staff.ID,
+		})
+	} else if util.ToStringTrimmed(record["staff_type"]) == crmmodel.StaffTypeEmployee {
+		crmmodel.NewDepartmentModel().Update(c.Context(), map[string]any{
+			"id":              staff.DepartmentID,
+			"leader_staff_id": staff.ID,
+		}, map[string]any{"leader_staff_id": uint64(0)})
+	}
+	syncDepartmentLeaderStaffTypes(c.Context(), staff.DepartmentID)
 	return nil
+}
+
+func syncDepartmentLeaderStaffTypes(ctx context.Context, departmentID uint64) {
+	if departmentID == 0 {
+		return
+	}
+	department := crmmodel.NewDepartmentModel().Find(ctx, map[string]any{"id": departmentID})
+	if department == nil {
+		return
+	}
+	crmmodel.NewStaffModel().Update(ctx, map[string]any{
+		"department_id": departmentID,
+		"staff_type":    crmmodel.StaffTypeLeader,
+		"id":            map[string]any{"!=": department.LeaderStaffID},
+	}, map[string]any{"staff_type": crmmodel.StaffTypeEmployee})
+	if department.LeaderStaffID > 0 {
+		crmmodel.NewStaffModel().Update(ctx, map[string]any{
+			"id":            department.LeaderStaffID,
+			"department_id": departmentID,
+			"status":        crmmodel.StatusEnabled,
+		}, map[string]any{"staff_type": crmmodel.StaffTypeLeader})
+	}
 }
 
 func savedRecordID(payload map[string]any) uint64 {

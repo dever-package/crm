@@ -29,6 +29,7 @@ func syncScheduleResources(ctx context.Context, event *crmmodel.ScheduleEvent, r
 	if replace {
 		targetIDs = uniqueUint64Values(resourceIDs)
 	}
+	participantCount := len(uniqueScheduleStaffIDs(event.OwnerStaffID, scheduleParticipantIDs(ctx, event.ID)))
 	for _, resourceID := range targetIDs {
 		resource := crmmodel.NewPublicResourceModel().Find(ctx, map[string]any{
 			"id":     resourceID,
@@ -42,6 +43,9 @@ func syncScheduleResources(ctx context.Context, event *crmmodel.ScheduleEvent, r
 			currentID = booking.ID
 		}
 		if err := ValidateResourceBookingTime(ctx, currentID, resourceID, event.StartAt, event.EndAt); err != nil {
+			return err
+		}
+		if err := validateResourceBookingCapacity(resource, participantCount); err != nil {
 			return err
 		}
 	}
@@ -85,6 +89,13 @@ func syncScheduleResources(ctx context.Context, event *crmmodel.ScheduleEvent, r
 		}
 	}
 	return nil
+}
+
+func validateResourceBookingCapacity(resource *crmmodel.PublicResource, participantCount int) error {
+	if resource == nil || resource.Capacity <= 0 || participantCount <= resource.Capacity {
+		return nil
+	}
+	return fmt.Errorf("“%s”容量为 %d 人，当前参会 %d 人，请减少参与人或更换会议室。", resource.Name, resource.Capacity, participantCount)
 }
 
 func ValidateResourceBookingTime(ctx context.Context, currentID uint64, resourceID uint64, startAt time.Time, endAt time.Time) error {
@@ -136,6 +147,18 @@ func scheduleResourceIDs(ctx context.Context, eventID uint64) []uint64 {
 		if booking != nil && !ResourceBookingInactive(booking.BookingStatus) {
 			result = append(result, booking.ResourceID)
 		}
+	}
+	return uniqueUint64Values(result)
+}
+
+func scheduleRecordedResourceIDs(ctx context.Context, eventID uint64) []uint64 {
+	rows := crmmodel.NewPublicResourceBookingModel().Select(ctx, map[string]any{"schedule_event_id": eventID})
+	result := make([]uint64, 0, len(rows))
+	for _, booking := range rows {
+		if booking == nil || booking.BookingStatus == crmmodel.ResourceBookingStatusCanceled || booking.BookingStatus == crmmodel.ResourceBookingStatusRejected {
+			continue
+		}
+		result = append(result, booking.ResourceID)
 	}
 	return uniqueUint64Values(result)
 }

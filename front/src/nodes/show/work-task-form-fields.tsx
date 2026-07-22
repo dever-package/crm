@@ -19,6 +19,7 @@ import {
   textValue,
   workStoreValue,
   workTaskFieldMapPath,
+  workTaskFormFieldRequired,
   workTaskFormFieldVisible,
   workTaskFormDataPath,
   workTaskValidationErrorsPath,
@@ -97,6 +98,7 @@ function WorkTaskField({
     workTaskFieldMapPath,
     emptyWorkTaskRecord,
   );
+  const required = workTaskFormFieldRequired(field, formValues, fieldMap);
   const value = formValues[field.formKey];
   const errorKey = `workTaskForm.${field.formKey}`;
   const error = taskErrors[errorKey] || errors[errorKey];
@@ -131,7 +133,7 @@ function WorkTaskField({
     >
       <div className="mb-1.5 flex min-h-5 items-center gap-1 text-sm font-medium text-foreground">
         <span>{field.label}</span>
-        {field.required ? <span className="text-destructive">*</span> : null}
+        {required ? <span className="text-destructive">*</span> : null}
         {field.readonly ? (
           <span className="ml-auto text-xs font-normal text-muted-foreground">
             只读

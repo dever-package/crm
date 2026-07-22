@@ -7,13 +7,14 @@ import (
 )
 
 type DataTemplate struct {
-	ID        uint64    `dorm:"primaryKey;autoIncrement;comment:数据模板ID"`
-	CateID    uint64    `dorm:"type:bigint;not null;default:1;comment:数据模板分类"`
-	Name      string    `dorm:"type:varchar(128);not null;comment:模板名称"`
-	Status    int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
-	Sort      int       `dorm:"type:int;not null;default:100;comment:排序"`
-	CreatedAt time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
-	UpdatedAt time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
+	ID          uint64    `dorm:"primaryKey;autoIncrement;comment:数据模板ID"`
+	CateID      uint64    `dorm:"type:bigint;not null;default:1;comment:数据模板分类"`
+	Name        string    `dorm:"type:varchar(128);not null;comment:模板名称"`
+	DisplayMode string    `dorm:"type:varchar(16);not null;default:'always';comment:展示方式"`
+	Status      int16     `dorm:"type:smallint;not null;default:1;comment:状态"`
+	Sort        int       `dorm:"type:int;not null;default:100;comment:排序"`
+	CreatedAt   time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:创建时间"`
+	UpdatedAt   time.Time `dorm:"not null;default:CURRENT_TIMESTAMP;comment:更新时间"`
 }
 
 type DataTemplateIndex struct {
@@ -33,7 +34,8 @@ func NewDataTemplateModel() *orm.Model[DataTemplate] {
 		Order:    "sort asc,id asc",
 		Database: "default",
 		Options: map[string]any{
-			"status": statusOptions,
+			"display_mode": dataTemplateDisplayModeOptions,
+			"status":       statusOptions,
 		},
 		Relations: []orm.Relation{
 			dataTemplateCateRelation,

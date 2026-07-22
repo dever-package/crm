@@ -35,7 +35,7 @@ func (WorkService) FlowAssignees(ctx context.Context, staff *WorkStaffSession, p
 		}
 		return workDepartmentAssignees(ctx, nextTarget.Stage.OwnerDepartmentID, nextTarget.Stage.AssignmentMode), nil
 	}
-	if !canChangeWorkflowOwner(staff, instance) {
+	if !canChangeWorkflowOwner(ctx, staff, instance) {
 		return nil, fmt.Errorf("只有当前负责部门负责人或流程调度员可以选择阶段负责人")
 	}
 	return workDepartmentAssignees(ctx, instance.OwnerDepartmentID, "manual"), nil
@@ -158,7 +158,7 @@ func workTodoAssignees(ctx context.Context, staff *WorkStaffSession, todoID uint
 		return nil, fmt.Errorf("待办不属于流程当前阶段")
 	}
 	task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": todo.TaskID})
-	if task == nil || !canAssignPendingTodo(staff, instance, task) {
+	if task == nil || !canAssignPendingTodo(ctx, staff, instance, todo, task) {
 		return nil, fmt.Errorf("无权分配该任务")
 	}
 	return workDepartmentAssignees(ctx, todo.AssigneeDepartmentID, task.AssigneeMode), nil
@@ -244,7 +244,7 @@ func workFlowDetail(ctx context.Context, staff *WorkStaffSession, instanceID uin
 	result["can_complete_stage"] = canComplete
 	result["ready_to_complete"] = canComplete && pendingRequired == 0
 	result["can_terminate"] = isActive && isCurrentOwner
-	result["can_change_owner"] = canChangeWorkflowOwner(staff, instance)
+	result["can_change_owner"] = canChangeWorkflowOwner(ctx, staff, instance)
 	result["can_restart"] = instance.Status == crmmodel.ProgressStatusTerminated && instance.LeadID == 0 &&
 		instance.CustomerID > 0 && instance.AssetID > 0 && instance.CustomerProductID == 0 &&
 		staff != nil && (isCurrentOwner || staff.CanDispatch) && workflow != nil &&
@@ -271,8 +271,8 @@ func workFlowDetail(ctx context.Context, staff *WorkStaffSession, instanceID uin
 			result["next_stage_name"] = nextStage.Name
 			result["next_department_id"] = nextStage.OwnerDepartmentID
 			result["next_assignment_mode"] = nextAssignmentMode
-			result["next_owner_required"] = nextTarget.CrossObject ||
-				(!canInheritOwner && nextAssignmentMode == crmmodel.StageAssignmentManual)
+			result["next_owner_required"] = !canInheritOwner &&
+				nextAssignmentMode == crmmodel.StageAssignmentManual
 		}
 	}
 	return result
@@ -308,7 +308,7 @@ func workCurrentStageTodoRows(ctx context.Context, staff *WorkStaffSession, inst
 			continue
 		}
 		task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": todo.TaskID})
-		canAssign := todo.Status == crmmodel.WorkTodoStatusPending && canAssignPendingTodo(staff, instance, task)
+		canAssign := todo.Status == crmmodel.WorkTodoStatusPending && canAssignPendingTodo(ctx, staff, instance, todo, task)
 		row["can_assign"] = canAssign
 		row["can_reassign"] = canAssign && todo.AssigneeStaffID > 0
 		rows = append(rows, row)
