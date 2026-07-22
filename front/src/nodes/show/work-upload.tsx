@@ -425,8 +425,8 @@ export function WorkTaskUploadPreviewDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
-  const previewKind = resolveWorkTaskUploadPreviewKind(file);
-  const previewUrl = workTaskUploadPreviewUrl(file);
+  const previewKind = resolveWorkUploadPreviewKind(file);
+  const previewUrl = workUploadPreviewUrl(file);
   const canPreviewImage = previewKind === "image" && previewUrl && !imageFailed;
 
   useEffect(() => {
@@ -495,7 +495,7 @@ export function WorkTaskUploadPreviewDialog({
   );
 }
 
-function workTaskUploadPreviewUrl(file?: UploadFileItem | null): string {
+export function workUploadPreviewUrl(file?: UploadFileItem | null): string {
   const directUrl = textValue(
     file?.thumbnail || file?.url || file?.open_url || file?.download,
   );
@@ -508,7 +508,7 @@ function workTaskUploadPreviewUrl(file?: UploadFileItem | null): string {
   return "";
 }
 
-function resolveWorkTaskUploadPreviewKind(
+export function resolveWorkUploadPreviewKind(
   file?: UploadFileItem | null,
 ): string {
   const resourceKind = resolveResourcePreviewKind(file);

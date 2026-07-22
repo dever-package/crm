@@ -1,5 +1,5 @@
-import { useCallback, useState, useSyncExternalStore } from "react";
-import type { ReactElement } from "react";
+import { Fragment, useCallback, useState, useSyncExternalStore } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { Check, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
   workTaskFormFieldRequired,
   workTaskFormFieldVisible,
   workTaskFormDataPath,
+  workTaskFormFieldsPath,
   workTaskValidationErrorsPath,
   type WorkStoreLike,
   type WorkTaskFormField,
@@ -58,14 +59,21 @@ export const emptyWorkTaskFields: WorkTaskFormField[] = [];
 export function WorkTaskFieldGrid({
   fields,
   store,
+  insertBeforeFormKey,
+  insertBefore,
 }: {
   fields: WorkTaskFormField[];
   store?: WorkStoreLike;
+  insertBeforeFormKey?: string;
+  insertBefore?: ReactNode;
 }) {
   return (
     <div className="crm-work-task-field-grid">
       {fields.map((field) => (
-        <WorkTaskField key={field.formKey} field={field} store={store} />
+        <Fragment key={field.formKey}>
+          {field.formKey === insertBeforeFormKey ? insertBefore : null}
+          <WorkTaskField field={field} store={store} />
+        </Fragment>
       ))}
     </div>
   );
@@ -98,6 +106,11 @@ function WorkTaskField({
     workTaskFieldMapPath,
     emptyWorkTaskRecord,
   );
+  const fields = useWorkTaskStoreValue<WorkTaskFormField[]>(
+    store,
+    workTaskFormFieldsPath,
+    emptyWorkTaskFields,
+  );
   const required = workTaskFormFieldRequired(field, formValues, fieldMap);
   const value = formValues[field.formKey];
   const errorKey = `workTaskForm.${field.formKey}`;
@@ -120,7 +133,9 @@ function WorkTaskField({
   const renderer =
     taskFieldRenderers[field.type] || taskFieldRenderers["form-input"];
 
-  if (!workTaskFormFieldVisible(field, formValues, fieldMap)) return null;
+  if (!workTaskFormFieldVisible(field, formValues, fieldMap, fields)) {
+    return null;
+  }
 
   return (
     <div

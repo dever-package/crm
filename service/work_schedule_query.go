@@ -52,7 +52,7 @@ func (WorkService) ScheduleOptions(ctx context.Context, staff *WorkStaffSession)
 	}
 	return map[string]any{
 		"customers":             scheduleCustomerOptions(ctx, staff),
-		"staff":                 scheduleStaffOptions(ctx),
+		"staff":                 workStaffOptions(ctx),
 		"departments":           enabledDepartmentOptions(ctx),
 		"current_staff_id":      staff.ID,
 		"current_department_id": staff.DepartmentID,
@@ -246,23 +246,6 @@ func scheduleCustomerOptionIDs(ctx context.Context, staff *WorkStaffSession) []u
 	}
 	for _, target := range workPendingTargets(ctx, staff) {
 		appendCustomer(target.customerID)
-	}
-	return result
-}
-
-func scheduleStaffOptions(ctx context.Context) []map[string]any {
-	staffRows := crmmodel.NewStaffModel().Select(ctx, map[string]any{"status": crmmodel.StatusEnabled})
-	result := make([]map[string]any, 0, len(staffRows))
-	for _, staff := range staffRows {
-		if staff == nil {
-			continue
-		}
-		result = append(result, map[string]any{
-			"id":            staff.ID,
-			"name":          staff.Name,
-			"phone":         staff.Phone,
-			"department_id": staff.DepartmentID,
-		})
 	}
 	return result
 }

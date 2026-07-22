@@ -71,54 +71,62 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 		customerDataRecords: map[uint64]map[string]any{},
 		assetDataRecords:    map[uint64]map[string]any{},
 	}
+	expandedFields := make([]*crmmodel.FormField, 0, len(fields))
 	for _, sourceField := range fields {
-		for _, field := range expandWorkInputFormFields(ctx, sourceField) {
-			if field == nil {
+		expandedFields = append(expandedFields, expandWorkInputFormFields(ctx, sourceField)...)
+	}
+	fieldsByDataFieldID := make(map[uint64]*crmmodel.FormField, len(expandedFields))
+	for _, field := range expandedFields {
+		if field != nil && field.DataFieldID > 0 {
+			fieldsByDataFieldID[field.DataFieldID] = field
+		}
+	}
+	for _, field := range expandedFields {
+		if field == nil {
+			continue
+		}
+		if !workFormFieldVisible(field, values, fieldsByDataFieldID) {
+			continue
+		}
+		value, submitted := values[workFieldInputKey(field)]
+		if field.Required && emptyWorkFieldValue(value) {
+			if !inputOptions.allowMissingRequiredFields && (!inputOptions.allowEmptyCustomerContactFields || !isWorkCustomerContactField(field)) {
+				return nil, fmt.Errorf("%s不能为空", field.Name)
+			}
+		}
+		if inputOptions.skipMissingFields && !submitted {
+			continue
+		}
+		if field.Readonly {
+			continue
+		}
+		if field.MainField != "" {
+			if isWorkLeadTemplateField(field) {
+				applyWorkLeadMainField(result.leadFields, field.MainField, value)
 				continue
 			}
-			if !workFormFieldVisible(field, values) {
+			if isWorkAssetMainField(field) {
+				applyWorkAssetMainField(result.assetFields, field.MainField, value)
 				continue
 			}
-			value, submitted := values[workFieldInputKey(field)]
-			if field.Required && emptyWorkFieldValue(value) {
-				if !inputOptions.allowMissingRequiredFields && (!inputOptions.allowEmptyCustomerContactFields || !isWorkCustomerContactField(field)) {
-					return nil, fmt.Errorf("%s不能为空", field.Name)
+			if field.MainField == "tags" {
+				selection, err := ResolveCustomerTagSelection(ctx, value)
+				if err != nil {
+					return nil, err
 				}
-			}
-			if inputOptions.skipMissingFields && !submitted {
+				result.customerTagIDs = selection.TagIDs
+				result.customerTagsProvided = submitted
 				continue
 			}
-			if field.Readonly {
-				continue
+			applyWorkCustomerMainField(result.customerFields, field.MainField, value)
+			continue
+		}
+		if field.DataTemplateID > 0 && field.DataFieldID > 0 {
+			records := workFormRecordBucket(ctx, result, field)
+			if records[field.DataTemplateID] == nil {
+				records[field.DataTemplateID] = map[string]any{}
 			}
-			if field.MainField != "" {
-				if isWorkLeadTemplateField(field) {
-					applyWorkLeadMainField(result.leadFields, field.MainField, value)
-					continue
-				}
-				if isWorkAssetMainField(field) {
-					applyWorkAssetMainField(result.assetFields, field.MainField, value)
-					continue
-				}
-				if field.MainField == "tags" {
-					selection, err := ResolveCustomerTagSelection(ctx, value)
-					if err != nil {
-						return nil, err
-					}
-					result.customerTagIDs = selection.TagIDs
-					result.customerTagsProvided = submitted
-					continue
-				}
-				applyWorkCustomerMainField(result.customerFields, field.MainField, value)
-				continue
-			}
-			if field.DataTemplateID > 0 && field.DataFieldID > 0 {
-				records := workFormRecordBucket(ctx, result, field)
-				if records[field.DataTemplateID] == nil {
-					records[field.DataTemplateID] = map[string]any{}
-				}
-				records[field.DataTemplateID][fmt.Sprintf("%d", field.DataFieldID)] = value
-			}
+			records[field.DataTemplateID][fmt.Sprintf("%d", field.DataFieldID)] = value
 		}
 	}
 	return result, nil
@@ -171,7 +179,7 @@ func collectWorkProgressFormInput(ctx context.Context, task *crmmodel.Task, valu
 }
 
 func workTaskHasSystemFormFields(task *crmmodel.Task) bool {
-	return task != nil && (task.MeetingEnabled || task.CustomerFollowEnabled)
+	return task != nil && (task.MeetingEnabled || task.CustomerFollowEnabled || task.CommunicationGroupEnabled)
 }
 
 func collectWorkProgressFormInputForForm(ctx context.Context, formID uint64, values map[string]any) (*workFormInput, error) {

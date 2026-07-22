@@ -28,9 +28,45 @@ func workBusinessOperationRows(ctx context.Context, rows []map[string]any) []map
 		if inputText(row["result_value"]) == workBusinessEventLeadConverted {
 			row["business_event"] = workBusinessEventLeadConverted
 		}
+		if isCommunicationGroupOperation(row) {
+			row["business_event"] = inputText(row["result_value"])
+		}
 		result = append(result, row)
 	}
 	return result
+}
+
+func isCommunicationGroupOperation(row map[string]any) bool {
+	switch inputText(row["result_value"]) {
+	case workBusinessEventCommunicationGroupCreated,
+		workBusinessEventCommunicationGroupUpdated,
+		workBusinessEventCommunicationGroupDissolved:
+		return true
+	default:
+		return false
+	}
+}
+
+func workCommunicationGroupOperationSummaryItems(snapshot map[string]any) []map[string]any {
+	items := []map[string]any{}
+	for _, field := range []struct {
+		key   string
+		label string
+	}{
+		{key: "group_name", label: "群名称"},
+		{key: "group_type", label: "群类型"},
+		{key: "established_at", label: "建群日期"},
+		{key: "dissolved_at", label: "解散日期"},
+		{key: "dissolve_reason", label: "解散原因"},
+		{key: "staff_names", label: "关联人员"},
+		{key: "summary", label: "智能总结"},
+		{key: "remark", label: "备注"},
+	} {
+		if value := inputText(snapshot[field.key]); value != "" {
+			items = appendWorkOperationSummaryValue(items, "communication_group", "沟通群", field.key, field.label, value)
+		}
+	}
+	return items
 }
 
 func isWorkflowStartedOperation(row map[string]any) bool {

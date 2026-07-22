@@ -8,9 +8,33 @@ import (
 	crmmodel "github.com/dever-package/crm/model"
 )
 
-func workFormFieldVisible(field *crmmodel.FormField, values map[string]any) bool {
+func workFormFieldVisible(
+	field *crmmodel.FormField,
+	values map[string]any,
+	fieldsByDataFieldID map[uint64]*crmmodel.FormField,
+) bool {
+	return workFormFieldVisibleWithAncestors(field, values, fieldsByDataFieldID, map[uint64]bool{})
+}
+
+func workFormFieldVisibleWithAncestors(
+	field *crmmodel.FormField,
+	values map[string]any,
+	fieldsByDataFieldID map[uint64]*crmmodel.FormField,
+	visiting map[uint64]bool,
+) bool {
 	if field == nil || field.VisibleWhenFieldID == 0 {
 		return true
+	}
+	if field.DataFieldID > 0 {
+		if visiting[field.DataFieldID] {
+			return false
+		}
+		visiting[field.DataFieldID] = true
+		defer delete(visiting, field.DataFieldID)
+	}
+	if driverField := fieldsByDataFieldID[field.VisibleWhenFieldID]; driverField != nil &&
+		!workFormFieldVisibleWithAncestors(driverField, values, fieldsByDataFieldID, visiting) {
+		return false
 	}
 	driverValue := workFormConditionValue(values, field.VisibleWhenFieldID)
 	switch field.VisibleWhenOperator {

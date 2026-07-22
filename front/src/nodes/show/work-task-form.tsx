@@ -29,6 +29,7 @@ import {
   WorkTaskFieldGrid,
   useWorkTaskStoreValue,
 } from "./work-task-form-fields";
+import { WorkTaskCommunicationGroupSection } from "./work-task-communication-group";
 
 export function WorkTaskFormStyles() {
   return (
@@ -322,6 +323,17 @@ export function ShowCrmWorkTaskGroupTabs({ item, store }: WorkNodeProps) {
   const customFields = activeTab.fields.filter(
     (field) => field.type !== "form-date",
   );
+  const communicationGroupAnchorFormKey =
+    customFields.find(
+      (field) =>
+        textValue(field.meta?.["dataFieldKey"]) === "first_call_summary",
+    )?.formKey || "";
+  const communicationGroupSection = (
+    <WorkTaskCommunicationGroupSection
+      fields={activeTab.fields}
+      store={store}
+    />
+  );
 
   return (
     <section
@@ -354,8 +366,18 @@ export function ShowCrmWorkTaskGroupTabs({ item, store }: WorkNodeProps) {
       ) : null}
       <div className="min-w-0">
         {customFields.length > 0 ? (
-          <WorkTaskFieldGrid fields={customFields} store={store} />
+          <WorkTaskFieldGrid
+            fields={customFields}
+            store={store}
+            insertBeforeFormKey={communicationGroupAnchorFormKey}
+            insertBefore={
+              communicationGroupAnchorFormKey
+                ? communicationGroupSection
+                : undefined
+            }
+          />
         ) : null}
+        {!communicationGroupAnchorFormKey ? communicationGroupSection : null}
       </div>
     </section>
   );

@@ -12,6 +12,7 @@ import { normalizeUploadItems } from "@/lib/resource";
 
 import {
   displayText,
+  formatWorkDate,
   type WorkAsset,
   type WorkCustomer,
   type WorkDetailField,
@@ -34,7 +35,12 @@ export type WorkCustomerFlowEntryView = {
 };
 
 export type WorkCustomerOperationScope = "all" | "mine";
-export type WorkDetailTab = "info" | "records";
+export type WorkCustomerFlowTimelineVariant = "cards" | "rail";
+export type WorkCustomerFlowCurrentState = {
+  ownerName: string;
+  statusName: string;
+};
+export type WorkDetailTab = "info" | "records" | "groups";
 
 const operationScopeOptions: Array<{
   value: WorkCustomerOperationScope;
@@ -74,6 +80,179 @@ export function WorkCustomerDetailStyles() {
         left: -27px;
       }
 
+      .crm-customer-flow-rail {
+        --crm-flow-rail-accent: #b63a3a;
+        --crm-flow-rail-line: #ead0d0;
+        --crm-flow-rail-link: #2563c9;
+        display: grid;
+        width: 100%;
+        min-width: 0;
+      }
+
+      .crm-customer-flow-rail-row {
+        display: grid;
+        grid-template-columns: 92px 28px minmax(0, 1fr);
+        width: 100%;
+        min-width: 0;
+        align-items: stretch;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+      }
+
+      button.crm-customer-flow-rail-row {
+        appearance: none;
+        cursor: pointer;
+        transition: background-color 120ms ease;
+      }
+
+      button.crm-customer-flow-rail-row:hover {
+        background: color-mix(in oklab, var(--muted) 35%, transparent);
+      }
+
+      button.crm-customer-flow-rail-row:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: -2px;
+      }
+
+      .crm-customer-flow-rail-row--current {
+        min-height: 50px;
+      }
+
+      .crm-customer-flow-rail-row--entry {
+        min-height: 76px;
+      }
+
+      .crm-customer-flow-rail-time {
+        display: block;
+        min-width: 0;
+        padding: 7px 9px 10px 0;
+        color: #887878;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 18px;
+        text-align: right;
+      }
+
+      .crm-customer-flow-rail-time > span {
+        display: block;
+      }
+
+      .crm-customer-flow-rail-track {
+        position: relative;
+        display: block;
+        min-height: 100%;
+        align-self: stretch;
+      }
+
+      .crm-customer-flow-rail-track::before {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 2px;
+        background: var(--crm-flow-rail-line);
+        content: "";
+        transform: translateX(-50%);
+      }
+
+      .crm-customer-flow-rail-track--first::before {
+        top: 13px;
+      }
+
+      .crm-customer-flow-rail-track--last::before {
+        bottom: calc(100% - 13px);
+      }
+
+      .crm-customer-flow-rail-dot {
+        position: absolute;
+        top: 7px;
+        left: 50%;
+        box-sizing: border-box;
+        width: 13px;
+        height: 13px;
+        border: 2px solid var(--crm-flow-rail-accent);
+        border-radius: 50%;
+        background: var(--background);
+        transform: translateX(-50%);
+      }
+
+      .crm-customer-flow-rail-dot--active {
+        background: var(--crm-flow-rail-accent);
+        box-shadow: 0 0 0 3px #f6e8e8;
+      }
+
+      .crm-customer-flow-rail-content {
+        display: block;
+        min-width: 0;
+        padding: 6px 4px 13px 10px;
+      }
+
+      .crm-customer-flow-rail-heading {
+        display: flex;
+        min-width: 0;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 10px;
+        font-size: 14px;
+        line-height: 22px;
+      }
+
+      .crm-customer-flow-rail-operator,
+      .crm-customer-flow-rail-action {
+        color: var(--crm-flow-rail-link);
+        font-weight: 600;
+      }
+
+      .crm-customer-flow-rail-status {
+        color: var(--foreground);
+        font-weight: 600;
+      }
+
+      .crm-customer-flow-rail-description {
+        display: block;
+        min-width: 0;
+        margin-top: 2px;
+        color: #6f6868;
+        font-size: 13px;
+        font-weight: 400;
+        line-height: 21px;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      .crm-customer-detail-data-grid--tabs {
+        display: block;
+      }
+
+      .crm-customer-detail-data-grid--tabs .crm-customer-detail-section-nav {
+        display: flex;
+        gap: 0;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 0;
+      }
+
+      .crm-customer-detail-data-grid--tabs .crm-customer-detail-section-nav button {
+        width: auto;
+        min-width: 132px;
+        height: auto;
+        min-height: 48px;
+        max-height: none;
+        flex: 0 0 auto;
+        border-radius: 0;
+        border-bottom-width: 2px;
+      }
+
+      .crm-customer-detail-data-grid--tabs > section {
+        padding-top: 18px;
+      }
+
       @media (max-width: 767px) {
         .crm-customer-detail-data-grid {
           grid-template-columns: minmax(0, 1fr);
@@ -94,6 +273,10 @@ export function WorkCustomerDetailStyles() {
           grid-template-columns: minmax(0, 1fr);
         }
 
+        .crm-customer-flow-rail-row {
+          grid-template-columns: 76px 24px minmax(0, 1fr);
+        }
+
       }
     `}</style>
   );
@@ -102,14 +285,17 @@ export function WorkCustomerDetailStyles() {
 export function WorkDetailTabs({
   activeTab,
   onChange,
+  showGroups = false,
 }: {
   activeTab: WorkDetailTab;
   onChange: (tab: WorkDetailTab) => void;
+  showGroups?: boolean;
 }) {
   const tabs: Array<{ key: WorkDetailTab; label: string }> = [
     { key: "records", label: "记录" },
     { key: "info", label: "资料" },
   ];
+  if (showGroups) tabs.push({ key: "groups", label: "沟通群" });
 
   return (
     <div className="border-b border-border/70">
@@ -145,23 +331,27 @@ export function WorkCustomerDetailData({
   customer,
   asset,
   sections,
+  navigation = "sidebar",
 }: {
   customer: WorkCustomer;
   asset?: WorkAsset;
   sections: WorkDetailSection[];
+  navigation?: "sidebar" | "tabs";
 }) {
   const allSections = useMemo(
     () => workCustomerDetailSections(customer, asset, sections),
     [asset, customer, sections],
   );
 
-  return <WorkDetailSectionsData sections={allSections} />;
+  return <WorkDetailSectionsData sections={allSections} navigation={navigation} />;
 }
 
 export function WorkDetailSectionsData({
   sections,
+  navigation = "sidebar",
 }: {
   sections: WorkDetailSection[];
+  navigation?: "sidebar" | "tabs";
 }) {
   const allSections = sections;
   const [activeSectionID, setActiveSectionID] = useState(
@@ -184,7 +374,11 @@ export function WorkDetailSectionsData({
   }
 
   return (
-    <div className="crm-customer-detail-data-grid">
+    <div
+      className={`crm-customer-detail-data-grid ${
+        navigation === "tabs" ? "crm-customer-detail-data-grid--tabs" : ""
+      }`}
+    >
       <nav className="crm-customer-detail-section-nav grid content-start gap-1">
         {allSections.map((section) => {
           const active = section.id === activeSection.id;
@@ -196,8 +390,12 @@ export function WorkDetailSectionsData({
               aria-pressed={active}
               className={`h-auto w-full flex-col items-stretch gap-0 rounded-md px-3 py-2.5 text-left ${
                 active
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  ? navigation === "tabs"
+                    ? "border-primary bg-transparent text-foreground"
+                    : "bg-muted text-foreground"
+                  : navigation === "tabs"
+                    ? "border-transparent bg-transparent text-muted-foreground hover:bg-muted/30 hover:text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
               }`}
               onClick={() => setActiveSectionID(section.id)}
             >
@@ -214,8 +412,8 @@ export function WorkDetailSectionsData({
         })}
       </nav>
 
-      <section className="min-w-0">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 pb-3">
+      <section className="crm-work-detail-section min-w-0">
+        <div className="crm-work-detail-section-header flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-foreground">
               {activeSection.name}
@@ -375,11 +573,11 @@ function WorkCustomerDetailFieldGroups({
   }, [fields]);
 
   return (
-    <div className="grid gap-5 pt-4">
+    <div className="crm-work-detail-field-groups grid">
       {groups.map(([group, groupFields]) => (
-        <section key={group}>
+        <section className="crm-work-detail-field-group" key={group}>
           {groups.length > 1 ? (
-            <h4 className="mb-2 text-xs font-medium text-muted-foreground">
+            <h4 className="crm-work-detail-field-group-title">
               {group}
             </h4>
           ) : null}
@@ -455,6 +653,8 @@ export function WorkCustomerFlowTimeline({
   scope,
   onScopeChange,
   onOpen,
+  variant = "cards",
+  currentState,
   loadingText = "正在加载流程记录",
   emptyText = "暂无流程记录",
 }: {
@@ -463,82 +663,220 @@ export function WorkCustomerFlowTimeline({
   scope: WorkCustomerOperationScope;
   onScopeChange: (scope: WorkCustomerOperationScope) => void;
   onOpen: (entry: WorkCustomerFlowEntryView) => void;
+  variant?: WorkCustomerFlowTimelineVariant;
+  currentState?: WorkCustomerFlowCurrentState;
   loadingText?: string;
   emptyText?: string;
 }) {
+  const hasRailCurrentState =
+    variant === "rail" && Boolean(currentState?.ownerName);
   return (
     <div className="grid gap-4">
-      <div className="inline-flex w-fit rounded-md border border-border/70 bg-muted/20 p-1">
-        {operationScopeOptions.map((option) => (
-          <Button
-            type="button"
-            key={option.value}
-            variant="ghost"
-            aria-pressed={scope === option.value}
-            className={`h-auto rounded px-3 py-1.5 text-sm font-medium ${
-              scope === option.value
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => onScopeChange(option.value)}
-          >
-            {option.label}
-          </Button>
-        ))}
-      </div>
+      {variant === "cards" ? (
+        <div className="inline-flex w-fit rounded-md border border-border/70 bg-muted/20 p-1">
+          {operationScopeOptions.map((option) => (
+            <Button
+              type="button"
+              key={option.value}
+              variant="ghost"
+              aria-pressed={scope === option.value}
+              className={`h-auto rounded px-3 py-1.5 text-sm font-medium ${
+                scope === option.value
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => onScopeChange(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           {loadingText}
         </div>
-      ) : entries.length === 0 ? (
+      ) : entries.length === 0 && !hasRailCurrentState ? (
         <div className="py-10 text-center text-sm text-muted-foreground">
           {emptyText}
         </div>
+      ) : variant === "rail" ? (
+        <WorkCustomerFlowRail
+          entries={entries}
+          currentState={currentState}
+          onOpen={onOpen}
+        />
       ) : (
-        <div className="crm-customer-flow-timeline relative grid gap-3 border-l border-border/70 pl-5">
-          {entries.map((entry) => (
-            <Button
-              type="button"
-              key={entry.id}
-              variant="outline"
-              className="relative h-auto w-full flex-col items-stretch gap-0 rounded-md border-border/60 bg-background px-4 py-3 text-left font-normal hover:bg-muted/20"
-              onClick={() => onOpen(entry)}
-            >
-              <span
-                className={`crm-customer-flow-dot absolute top-4 h-3 w-3 rounded-full border-2 border-background ${entry.dotClassName}`}
-              />
-              <div className="flex min-w-0 items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="min-w-0 break-words text-sm font-semibold text-foreground">
-                      {entry.title}
-                    </span>
-                    <span className={`rounded px-2 py-0.5 text-[11px] font-medium ${entry.badgeClassName}`}>
-                      {entry.badge}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    {entry.stageName ? <span>{entry.stageName}</span> : null}
-                    <span>操作人：{displayText(entry.operatorName)}</span>
-                  </div>
-                </div>
-                <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                  {entry.time}
-                </span>
-              </div>
-              {entry.description ? (
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {entry.description}
-                </p>
-              ) : null}
-            </Button>
-          ))}
-        </div>
+        <WorkCustomerFlowCards entries={entries} onOpen={onOpen} />
       )}
     </div>
   );
+}
+
+function WorkCustomerFlowCards({
+  entries,
+  onOpen,
+}: {
+  entries: WorkCustomerFlowEntryView[];
+  onOpen: (entry: WorkCustomerFlowEntryView) => void;
+}) {
+  return (
+    <div className="crm-customer-flow-timeline relative grid gap-3 border-l border-border/70 pl-5">
+      {entries.map((entry) => (
+        <Button
+          type="button"
+          key={entry.id}
+          variant="outline"
+          className="relative h-auto w-full flex-col items-stretch gap-0 rounded-md border-border/60 bg-background px-4 py-3 text-left font-normal hover:bg-muted/20"
+          onClick={() => onOpen(entry)}
+        >
+          <span
+            className={`crm-customer-flow-dot absolute top-4 h-3 w-3 rounded-full border-2 border-background ${entry.dotClassName}`}
+          />
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="min-w-0 break-words text-sm font-semibold text-foreground">
+                  {entry.title}
+                </span>
+                <span
+                  className={`rounded px-2 py-0.5 text-[11px] font-medium ${entry.badgeClassName}`}
+                >
+                  {entry.badge}
+                </span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                {entry.stageName ? <span>{entry.stageName}</span> : null}
+                <span>操作人：{displayText(entry.operatorName)}</span>
+              </div>
+            </div>
+            <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+              {entry.time}
+            </span>
+          </div>
+          {entry.description ? (
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {entry.description}
+            </p>
+          ) : null}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function WorkCustomerFlowRail({
+  entries,
+  currentState,
+  onOpen,
+}: {
+  entries: WorkCustomerFlowEntryView[];
+  currentState?: WorkCustomerFlowCurrentState;
+  onOpen: (entry: WorkCustomerFlowEntryView) => void;
+}) {
+  const today = formatWorkDate(new Date()).slice(0, 10);
+  const currentStateVisible = Boolean(currentState?.ownerName);
+  const nodeCount = entries.length + (currentStateVisible ? 1 : 0);
+  return (
+    <div className="crm-customer-flow-rail">
+      {currentStateVisible ? (
+        <div className="crm-customer-flow-rail-row crm-customer-flow-rail-row--current">
+          <span aria-hidden="true" />
+          <WorkCustomerFlowRailMarker
+            first
+            last={nodeCount === 1}
+            active
+          />
+          <div className="crm-customer-flow-rail-content">
+            <div className="crm-customer-flow-rail-heading">
+              <span className="crm-customer-flow-rail-operator">
+                {displayText(currentState?.ownerName)}
+              </span>
+              <span className="crm-customer-flow-rail-status">
+                {displayText(currentState?.statusName, "处理中")}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {entries.map((entry, index) => {
+        const time = workCustomerFlowTimeParts(entry.time, today);
+        const nodeIndex = index + (currentStateVisible ? 1 : 0);
+        const description = entry.description;
+        return (
+          <button
+            type="button"
+            key={entry.id}
+            className="crm-customer-flow-rail-row crm-customer-flow-rail-row--entry"
+            aria-label={`${displayText(entry.operatorName)}${entry.title}`}
+            onClick={() => onOpen(entry)}
+          >
+            <span className="crm-customer-flow-rail-time">
+              <span>{time.date}</span>
+              {time.clock ? <span>{time.clock}</span> : null}
+            </span>
+            <WorkCustomerFlowRailMarker
+              first={nodeIndex === 0}
+              last={nodeIndex === nodeCount - 1}
+            />
+            <span className="crm-customer-flow-rail-content">
+              <span className="crm-customer-flow-rail-heading">
+                <span className="crm-customer-flow-rail-operator">
+                  {displayText(entry.operatorName)}
+                </span>
+                <span className="crm-customer-flow-rail-action">
+                  {entry.title}
+                </span>
+              </span>
+              {description ? (
+                <span className="crm-customer-flow-rail-description">
+                  {description}
+                </span>
+              ) : null}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function WorkCustomerFlowRailMarker({
+  first = false,
+  last = false,
+  active = false,
+}: {
+  first?: boolean;
+  last?: boolean;
+  active?: boolean;
+}) {
+  const className = [
+    "crm-customer-flow-rail-track",
+    first ? "crm-customer-flow-rail-track--first" : "",
+    last ? "crm-customer-flow-rail-track--last" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <span className={className} aria-hidden="true">
+      <span
+        className={`crm-customer-flow-rail-dot ${
+          active ? "crm-customer-flow-rail-dot--active" : ""
+        }`}
+      />
+    </span>
+  );
+}
+
+function workCustomerFlowTimeParts(value: string, today: string): {
+  date: string;
+  clock: string;
+} {
+  const [date = "-", clock = ""] = value.trim().split(/\s+/, 2);
+  return { date: date === today ? "今天" : date, clock };
 }
 
 export function WorkCustomerDetailSectionEmpty() {

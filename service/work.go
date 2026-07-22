@@ -415,141 +415,24 @@ func (WorkService) Summary(ctx context.Context, staff *WorkStaffSession) (map[st
 	}, nil
 }
 
-func (WorkService) CustomerDetail(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
-	if staff == nil || staff.ID == 0 {
-		return nil, fmt.Errorf("请先登录")
-	}
-	viewStaff := staff
-	if staff.CanDispatch {
-		viewStaff = workStaffWithScope(staff, "all")
-	}
-	customerID := firstUint64(payload, "customer_id", "customerId")
-	if customerID == 0 {
-		return nil, fmt.Errorf("请选择客户")
-	}
-	if !canViewWorkCustomer(ctx, viewStaff, customerID) {
-		return nil, fmt.Errorf("无权查看该客户")
-	}
-	customer := workCustomerRow(ctx, viewStaff, customerID)
-	if len(customer) == 0 {
-		return nil, fmt.Errorf("客户不存在")
-	}
-	sourceLead := crmmodel.NewLeadModel().Find(ctx, map[string]any{
-		"customer_id": customerID,
-		"status":      crmmodel.LeadStatusConverted,
-	}, map[string]any{"order": "converted_at desc,id desc"})
-	if sourceLead != nil {
-		customer["source_lead"] = workLeadRow(ctx, sourceLead)
-	}
-
-	assetID := firstUint64(payload, "asset_id", "assetId")
-	asset := map[string]any(nil)
-	var detailInstance *crmmodel.WorkflowInstance
-	if assetID > 0 {
-		if !canViewWorkAsset(ctx, viewStaff, customerID, assetID) {
-			return nil, fmt.Errorf("无权查看该资产")
-		}
-		asset = workCustomerRowAsset(customer, assetID)
-		if len(asset) == 0 {
-			return nil, fmt.Errorf("资产不存在或不可见")
-		}
-		if instanceID := firstUint64(payload, "workflow_instance_id", "workflowInstanceId"); instanceID > 0 {
-			detailInstance = crmmodel.NewWorkflowInstanceModel().Find(ctx, map[string]any{"id": instanceID})
-			if detailInstance == nil || detailInstance.CustomerID != customerID || detailInstance.AssetID != assetID {
-				return nil, fmt.Errorf("流程实例不存在或不属于该资产")
-			}
-			if !canViewWorkflowInstance(ctx, viewStaff, detailInstance) {
-				return nil, fmt.Errorf("无权查看该流程记录")
-			}
-			attachWorkStageFields(ctx, asset, detailInstance)
-		}
-	}
-
-	operationPayload := map[string]any{"customer_id": customerID}
-	if assetID > 0 {
-		operationPayload["asset_id"] = assetID
-	}
-	operations, err := (WorkService{}).Operations(ctx, viewStaff, operationPayload)
+func (WorkService) Operations(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
+	rows, err := loadWorkOperationRows(ctx, staff, payload)
 	if err != nil {
 		return nil, err
 	}
-	detailSections := []map[string]any{}
-	if sourceLead != nil {
-		detailSections = append(detailSections, workDataDetailSections(
-			ctx,
-			crmmodel.DataTemplateTargetLead,
-			crmmodel.LeadDataTemplateCateID,
-			workLeadDataValues(sourceLead),
-		)...)
+	customerID := firstUint64(payload, "customer_id", "customerId")
+	todos := []map[string]any{}
+	if customerID > 0 {
+		todos = workTodoRows(ctx, staff, customerID, firstUint64(payload, "asset_id", "assetId"))
 	}
-	detailSections = append(detailSections, workDataDetailSections(
-		ctx,
-		crmmodel.DataTemplateTargetCustomer,
-		crmmodel.CustomerDataTemplateCateID,
-		mapFromAny(customer["data_values"]),
-	)...)
-	if len(asset) > 0 {
-		detailSections = append(detailSections, workDataDetailSections(
-			ctx,
-			crmmodel.DataTemplateTargetCustomerAsset,
-			crmmodel.CustomerAssetDataTemplateCateID,
-			mapFromAny(asset["data_values"]),
-		)...)
-	}
-	result := map[string]any{
-		"customer":           customer,
-		"asset":              asset,
-		"operations":         operations["list"],
-		"todos":              operations["todos"],
-		"detail_sections":    detailSections,
-		"customer_products":  []map[string]any{},
-		"workflow_instances": []map[string]any{},
-	}
-	if assetID > 0 {
-		customerProducts := mapListFromAny(asset["customer_products"])
-		result["customer_products"] = customerProducts
-		workflowInstances := make([]map[string]any, 0, len(customerProducts)+1)
-		if detailInstance != nil {
-			detailFlow := workFlowDetail(ctx, staff, detailInstance.ID)
-			if detailInstance.CustomerProductID > 0 {
-				detailFlow["flow_role"] = "product"
-			} else {
-				detailFlow["flow_role"] = "entry"
-			}
-			result["flow"] = detailFlow
-		}
-		if instance := currentWorkEntryInstance(ctx, customerID, assetID); instance != nil {
-			entryFlow := workFlowDetail(ctx, staff, instance.ID)
-			entryFlow["flow_role"] = "entry"
-			if detailInstance == nil {
-				result["flow"] = entryFlow
-			}
-			workflowInstances = append(workflowInstances, entryFlow)
-		} else if detailInstance == nil {
-			result["flow"] = map[string]any{
-				"customer_id": customerID,
-				"asset_id":    assetID,
-				"status":      "not_started",
-				"tasks":       []map[string]any{},
-			}
-		}
-		for _, customerProduct := range customerProducts {
-			flow := mapFromAny(customerProduct["flow"])
-			if len(flow) == 0 {
-				continue
-			}
-			flow["flow_role"] = "product"
-			flow["product_id"] = customerProduct["product_id"]
-			flow["product_name"] = customerProduct["product_name"]
-			flow["customer_product_id"] = customerProduct["customer_product_id"]
-			workflowInstances = append(workflowInstances, flow)
-		}
-		result["workflow_instances"] = workflowInstances
-	}
-	return result, nil
+	return map[string]any{
+		"list":  rows,
+		"total": len(rows),
+		"todos": todos,
+	}, nil
 }
 
-func (WorkService) Operations(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
+func loadWorkOperationRows(ctx context.Context, staff *WorkStaffSession, payload map[string]any) ([]map[string]any, error) {
 	if staff == nil || staff.ID == 0 {
 		return nil, fmt.Errorf("请先登录")
 	}
@@ -589,15 +472,7 @@ func (WorkService) Operations(ctx context.Context, staff *WorkStaffSession, payl
 		rows = filterWorkOperations(rows, keyword)
 	}
 	enrichWorkOperationRows(ctx, staff, rows)
-	todos := []map[string]any{}
-	if customerID > 0 {
-		todos = workTodoRows(ctx, staff, customerID, firstUint64(payload, "asset_id", "assetId"))
-	}
-	return map[string]any{
-		"list":  rows,
-		"total": len(rows),
-		"todos": todos,
-	}, nil
+	return rows, nil
 }
 
 func (WorkService) Bookings(ctx context.Context, staff *WorkStaffSession, payload map[string]any) (map[string]any, error) {
@@ -1404,6 +1279,7 @@ var workTaskListFields = []string{
 	"assignee_staff_name",
 	"opinion_requirement",
 	"reject_submit_form",
+	"communication_group_enabled",
 }
 
 func workListTaskRows(rows []map[string]any) []map[string]any {
@@ -2948,6 +2824,9 @@ func workOperationSummaryItems(ctx context.Context, row map[string]any) []map[st
 	if len(values) == 0 {
 		return []map[string]any{}
 	}
+	if isCommunicationGroupOperation(row) {
+		return workCommunicationGroupOperationSummaryItems(values)
+	}
 	if inputText(values["snapshot_type"]) == workFormChangeSnapshotType {
 		return workOperationChangeSummaryItems(ctx, row, mapListFromAny(values["changes"]))
 	}
@@ -3077,6 +2956,19 @@ func workOperationSnapshotItem(ctx context.Context, row map[string]any, key stri
 		return "到访结果", "待确认", nil
 	case workMeetingNoShowReasonKey:
 		return "未到访原因", inputText(value), nil
+	case "file_ids", "fileIds":
+		files := workUploadFilePayloads(ctx, uint64ListFromAny(value))
+		if len(files) == 0 {
+			return "", "", nil
+		}
+		label := "附件"
+		if inputText(row["result_value"]) == "arrival_video_saved" {
+			label = "到访视频"
+		}
+		return label, fmt.Sprintf("%d 个附件", len(files)), map[string]any{
+			"value_type": "files",
+			"files":      files,
+		}
 	case "result_value", "resultValue":
 		return "处理结果", workOperationResultDisplayValue(ctx, row, value), nil
 	case "result":
@@ -3118,6 +3010,8 @@ func WorkOperationResultName(value string) string {
 		return "保存进度"
 	case "completed":
 		return "已完成"
+	case "terminated":
+		return "已终止"
 	case "submitted":
 		return "已提交"
 	case "approved":
@@ -3136,6 +3030,12 @@ func WorkOperationResultName(value string) string {
 		return "进入阶段"
 	case workBusinessEventLeadConverted:
 		return "已转化"
+	case workBusinessEventCommunicationGroupCreated:
+		return "已建群"
+	case workBusinessEventCommunicationGroupUpdated:
+		return "已更新"
+	case workBusinessEventCommunicationGroupDissolved:
+		return "已解散"
 	default:
 		return ""
 	}
@@ -3295,7 +3195,7 @@ func workDataFieldOptionLabelMap(ctx context.Context, field *crmmodel.DataField)
 
 func workIsAttachmentFieldType(fieldType string) bool {
 	switch strings.ToLower(strings.TrimSpace(fieldType)) {
-	case "attachment", "file", "image":
+	case "attachment", "file", "image", "audio", "video":
 		return true
 	default:
 		return false

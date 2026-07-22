@@ -52,17 +52,22 @@
         }
       },
       {
-        "type": "feedback-drawer",
+        "type": "feedback-modal",
         "meta": {
-          "stateKey": "drawer.workDetail",
+          "stateKey": "dialog.workDetail",
           "formSection": "work-detail-section",
           "title": "客户详情",
           "titlePath": "data.actionTarget.workDetailName",
           "descriptionPath": "data.actionTarget.workDetailDescription",
           "assistant": false,
-          "side": "right",
-          "width": "52rem",
-          "bodyClassName": "crm-customer-detail-drawer-body px-6 py-2"
+          "size": "xl",
+          "width": "96vw",
+          "contentOverflow": "hidden",
+          "bodyScroll": false,
+          "footer": {
+            "close": false
+          },
+          "bodyClassName": "crm-customer-detail-modal-body min-h-0 overflow-hidden p-0"
         }
       },
       {
@@ -99,10 +104,8 @@
   "state": {
     "dialog": {
       "workTask": false,
+      "workDetail": false,
       "workRecordDetail": false
-    },
-    "drawer": {
-      "workDetail": false
     }
   },
   "action": {}

@@ -275,15 +275,34 @@ func (Work) PostLeadAction(c *server.Context) error {
 }
 
 func (Work) GetCustomerDetail(c *server.Context) error {
-	data, err := workService.CustomerDetail(c.Context(), crmservice.CurrentWorkStaff(c.Context()), map[string]any{
+	data, err := workService.CustomerDetail(c.Context(), crmservice.CurrentWorkStaff(c.Context()), workCustomerDetailPayload(c))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetCustomerProfile(c *server.Context) error {
+	data, err := workService.CustomerProfile(c.Context(), crmservice.CurrentWorkStaff(c.Context()), workCustomerDetailPayload(c))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetCustomerOperations(c *server.Context) error {
+	data, err := workService.CustomerOperations(c.Context(), crmservice.CurrentWorkStaff(c.Context()), workCustomerDetailPayload(c))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetCustomerAttachments(c *server.Context) error {
+	data, err := workService.CustomerAttachments(c.Context(), crmservice.CurrentWorkStaff(c.Context()), workCustomerDetailPayload(c))
+	return crmJSON(c, data, err)
+}
+
+func workCustomerDetailPayload(c *server.Context) map[string]any {
+	return map[string]any{
 		"customer_id":          c.Input("customer_id"),
 		"customerId":           c.Input("customerId"),
 		"asset_id":             c.Input("asset_id"),
 		"assetId":              c.Input("assetId"),
 		"workflow_instance_id": c.Input("workflow_instance_id"),
 		"workflowInstanceId":   c.Input("workflowInstanceId"),
-	})
-	return crmJSON(c, data, err)
+	}
 }
 
 func (Work) GetSummary(c *server.Context) error {
@@ -304,6 +323,29 @@ func (Work) GetSchedules(c *server.Context) error {
 
 func (Work) GetScheduleOptions(c *server.Context) error {
 	data, err := workService.ScheduleOptions(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
+	return crmJSON(c, data, err)
+}
+
+func (Work) GetPeopleOptions(c *server.Context) error {
+	data, err := workService.PeopleOptions(c.Context(), crmservice.CurrentWorkStaff(c.Context()))
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostSaveCommunicationGroup(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.SaveCommunicationGroup(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
+	return crmJSON(c, data, err)
+}
+
+func (Work) PostDissolveCommunicationGroup(c *server.Context) error {
+	body, err := bindBody(c)
+	if err != nil {
+		return c.Error(err)
+	}
+	data, err := workService.DissolveCommunicationGroup(c.Context(), crmservice.CurrentWorkStaff(c.Context()), body)
 	return crmJSON(c, data, err)
 }
 

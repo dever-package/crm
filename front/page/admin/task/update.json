@@ -101,7 +101,8 @@
             "form.opinion_requirement",
             "form.reject_submit_form",
             "form.meeting_enabled",
-            "form.customer_follow_enabled"
+            "form.customer_follow_enabled",
+            "form.communication_group_enabled"
           ]
         }
       },
@@ -435,6 +436,25 @@
       },
       {
         "type": "form-switch",
+        "name": "建沟通群",
+        "value": "form.communication_group_enabled",
+        "mode": "form",
+        "meta": {
+          "formLayout": "horizontal",
+          "tab": "capability",
+          "trueValue": true,
+          "falseValue": false,
+          "hiddenWhen": [
+            {
+              "path": "form.task_type",
+              "operator": "notEquals",
+              "value": "form"
+            }
+          ]
+        }
+      },
+      {
+        "type": "form-switch",
         "name": "负责人参会",
         "value": "form.include_in_meeting",
         "mode": "form",
@@ -467,6 +487,7 @@
         "reject_submit_form",
         "meeting_enabled",
         "customer_follow_enabled",
+        "communication_group_enabled",
         "include_in_meeting",
         "due_days"
       ],
@@ -487,6 +508,7 @@
       "reject_submit_form": false,
       "meeting_enabled": false,
       "customer_follow_enabled": false,
+      "communication_group_enabled": false,
       "include_in_meeting": false,
       "due_days": 0,
       "sort": 100,

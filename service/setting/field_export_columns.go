@@ -76,6 +76,7 @@ var fieldExportWorkflowColumns = []fieldExportColumn{
 	{Key: "complete_target_task_id", Title: "完成目标任务ID", Width: 18},
 	{Key: "opinion_requirement", Title: "审核意见规则", Width: 18},
 	{Key: "reject_submit_form", Title: "驳回提交资料", Width: 16},
+	{Key: "communication_group_enabled", Title: "建沟通群", Width: 14},
 	{Key: "due_days", Title: "办理期限天数", Width: 14},
 	{Key: "task_status", Title: "任务状态", Width: 12},
 	{Key: "task_sort", Title: "任务排序", Width: 12},

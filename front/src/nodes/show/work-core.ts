@@ -156,6 +156,7 @@ export type WorkTask = {
   assignee_staff_name?: string;
   task_type?: string;
   meeting_enabled?: boolean | string | number;
+  communication_group_enabled?: boolean | string | number;
   product_options?: WorkProductOption[];
   selected_product_ids?: Array<string | number>;
   form_id?: string | number;
@@ -293,6 +294,55 @@ export type WorkCustomerProduct = {
   data_value_labels?: Record<string, string>;
   data_completeness?: WorkDataCompletenessTemplate[];
   [key: string]: unknown;
+};
+
+export type WorkCommunicationGroupType = {
+  id?: string | number;
+  code?: string;
+  name?: string;
+  status?: string | number;
+};
+
+export type WorkCommunicationGroupStaff = {
+  staff_id?: string | number;
+  staff_name?: string;
+  phone?: string;
+  department_id?: string | number;
+  department_name?: string;
+  role?: string;
+  role_name?: string;
+  staff_status?: string | number;
+};
+
+export type WorkCommunicationGroup = {
+  id?: string | number;
+  communication_group_id?: string | number;
+  customer_id?: string | number;
+  asset_id?: string | number;
+  workflow_instance_id?: string | number;
+  group_type_id?: string | number;
+  group_type_name?: string;
+  group_type_code?: string;
+  name?: string;
+  external_group_id?: string;
+  status?: "active" | "dissolved" | string;
+  status_name?: string;
+  established_at?: string;
+  dissolved_at?: string;
+  dissolve_reason?: string;
+  summary?: string;
+  remark?: string;
+  can_edit?: boolean;
+  staff?: WorkCommunicationGroupStaff[];
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type WorkTaskCommunicationGroupContext = {
+  groups: WorkCommunicationGroup[];
+  groupTypes: WorkCommunicationGroupType[];
+  workflowInstanceID: string;
+  canManage: boolean;
 };
 
 export type WorkOperation = {
@@ -545,13 +595,49 @@ export function workTaskFormFieldVisible(
   field: WorkTaskFormField,
   values: Record<string, unknown>,
   fieldMap: Record<string, string>,
+  fields: WorkTaskFormField[] = [],
+): boolean {
+  return workTaskFormFieldVisibleWithAncestors(
+    field,
+    values,
+    fieldMap,
+    fields,
+    new Set<string>(),
+  );
+}
+
+function workTaskFormFieldVisibleWithAncestors(
+  field: WorkTaskFormField,
+  values: Record<string, unknown>,
+  fieldMap: Record<string, string>,
+  fields: WorkTaskFormField[],
+  visiting: Set<string>,
 ): boolean {
   const rule = workTaskFormFieldVisibilityRule(field);
   if (!rule) return true;
+  if (visiting.has(field.formKey)) return false;
+  visiting.add(field.formKey);
   const driverFormKey = Object.entries(fieldMap).find(
     ([, rawKey]) => rawKey === rule.driverRawKey,
   )?.[0];
+  const driverField = fields.find(
+    (candidate) => candidate.formKey === driverFormKey,
+  );
+  if (
+    driverField &&
+    !workTaskFormFieldVisibleWithAncestors(
+      driverField,
+      values,
+      fieldMap,
+      fields,
+      visiting,
+    )
+  ) {
+    visiting.delete(field.formKey);
+    return false;
+  }
   const actual = driverFormKey ? values[driverFormKey] : undefined;
+  visiting.delete(field.formKey);
   if (rule.operator === "empty") return workTaskConditionValueEmpty(actual);
   if (rule.operator === "not_empty") {
     return !workTaskConditionValueEmpty(actual);
@@ -565,6 +651,46 @@ export function workTaskFormFieldVisible(
   return rule.operator === "equals" || rule.operator === "in"
     ? matched
     : false;
+}
+
+export function workTaskFormFieldVisibilityRules(
+  field: WorkTaskFormField,
+  fieldMap: Record<string, string>,
+  fields: WorkTaskFormField[],
+): WorkTaskFormFieldVisibilityRule[] {
+  return workTaskFormFieldVisibilityRulesWithAncestors(
+    field,
+    fieldMap,
+    fields,
+    new Set<string>(),
+  );
+}
+
+function workTaskFormFieldVisibilityRulesWithAncestors(
+  field: WorkTaskFormField,
+  fieldMap: Record<string, string>,
+  fields: WorkTaskFormField[],
+  visiting: Set<string>,
+): WorkTaskFormFieldVisibilityRule[] {
+  const rule = workTaskFormFieldVisibilityRule(field);
+  if (!rule || visiting.has(field.formKey)) return [];
+  visiting.add(field.formKey);
+  const driverFormKey = Object.entries(fieldMap).find(
+    ([, rawKey]) => rawKey === rule.driverRawKey,
+  )?.[0];
+  const driverField = fields.find(
+    (candidate) => candidate.formKey === driverFormKey,
+  );
+  const ancestors = driverField
+    ? workTaskFormFieldVisibilityRulesWithAncestors(
+        driverField,
+        fieldMap,
+        fields,
+        visiting,
+      )
+    : [];
+  visiting.delete(field.formKey);
+  return [...ancestors, rule];
 }
 
 export function workTaskFormFieldRequired(
@@ -693,6 +819,7 @@ export const workRefreshEvent = "crm-work-refresh";
 export const workListSearchEvent = "crm-work-list-search";
 export const workTaskFormSectionID = "work-task-form-section";
 export const workTaskFormDataPath = "data.workTaskForm";
+export const workTaskPath = "data.actionTarget.workTask";
 export const workTaskFieldMapPath = "data.actionTarget.workTaskFieldMap";
 export const workTaskFormFieldsPath = "data.actionTarget.workTaskFormFields";
 export const workTaskValidationErrorsPath =
@@ -703,6 +830,12 @@ export const workTaskUploadPendingPath =
   "data.actionTarget.workTaskUploadPending";
 export const workTaskUploadFilesPath =
   "data.actionTarget.workTaskUploadFiles";
+export const workTaskCommunicationGroupContextPath =
+  "data.actionTarget.workTaskCommunicationGroupContext";
+export const workTaskCommunicationGroupDraftPath =
+  "data.actionTarget.workTaskCommunicationGroupDraft";
+export const workTaskCommunicationGroupErrorPath =
+  "data.actionTarget.workTaskCommunicationGroupError";
 let workApiFreshSeq = 0;
 
 const buttonBase =

@@ -130,6 +130,9 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 	if err := saveWorkFormInput(ctx, todo.LeadID, todo.CustomerID, todo.AssetID, formInput); err != nil {
 		return nil, err
 	}
+	if err := syncWorkCommunicationGroupFromFormTask(ctx, staff, todo, task, formInput, values); err != nil {
+		return nil, err
+	}
 	resultValue := "submitted"
 	resultText := firstText(values, "result", "remark")
 	if progressOnly {

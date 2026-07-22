@@ -412,6 +412,7 @@ func (catalog fieldExportCatalog) buildWorkflowRow(
 		row["complete_target_task_id"] = task.CompleteTargetTaskID
 		row["opinion_requirement"] = fieldExportOptionLabel(taskOptions["opinion_requirement"], task.OpinionRequirement)
 		row["reject_submit_form"] = fieldExportBool(task.RejectSubmitForm)
+		row["communication_group_enabled"] = fieldExportBool(task.CommunicationGroupEnabled)
 		row["due_days"] = task.DueDays
 		row["task_status"] = fieldExportStatus(task.Status)
 		row["task_sort"] = task.Sort

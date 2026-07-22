@@ -166,6 +166,7 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	defaultCrmBool(record, "meeting_enabled", false, partial)
 	defaultCrmBool(record, "meeting_arrival_required", false, partial)
 	defaultCrmBool(record, "customer_follow_enabled", false, partial)
+	defaultCrmBool(record, "communication_group_enabled", false, partial)
 	defaultCrmBool(record, "include_in_meeting", false, partial)
 	defaultCrmInt(record, "due_days", 0, partial)
 	if shouldNormalizeCrmField(record, "due_days", partial) && util.ToIntDefault(record["due_days"], 0) < 0 {
@@ -365,38 +366,40 @@ func firstEnabledStageForWorkflowSetting(ctx context.Context, workflowID uint64)
 
 func effectiveTaskConfig(ctx context.Context, record map[string]any, partial bool) map[string]any {
 	effective := map[string]any{
-		"task_type":                crmmodel.TaskTypeTodo,
-		"assignee_mode":            crmmodel.TaskAssigneeStage,
-		"activation_mode":          crmmodel.TaskActivationStage,
-		"reject_action":            crmmodel.TaskRejectStay,
-		"opinion_requirement":      crmmodel.TaskOpinionRejectRequired,
-		"reject_submit_form":       false,
-		"meeting_enabled":          false,
-		"meeting_arrival_required": false,
-		"customer_follow_enabled":  false,
-		"status":                   crmmodel.StatusEnabled,
+		"task_type":                   crmmodel.TaskTypeTodo,
+		"assignee_mode":               crmmodel.TaskAssigneeStage,
+		"activation_mode":             crmmodel.TaskActivationStage,
+		"reject_action":               crmmodel.TaskRejectStay,
+		"opinion_requirement":         crmmodel.TaskOpinionRejectRequired,
+		"reject_submit_form":          false,
+		"meeting_enabled":             false,
+		"meeting_arrival_required":    false,
+		"customer_follow_enabled":     false,
+		"communication_group_enabled": false,
+		"status":                      crmmodel.StatusEnabled,
 	}
 	if partial {
 		if task := crmmodel.NewTaskModel().Find(ctx, map[string]any{"id": util.ToUint64(record["id"])}); task != nil {
 			effective = map[string]any{
-				"stage_id":                 task.StageID,
-				"task_type":                task.TaskType,
-				"assignee_mode":            task.AssigneeMode,
-				"assignee_department_id":   task.AssigneeDepartmentID,
-				"form_id":                  task.FormID,
-				"script_id":                task.ScriptID,
-				"activation_mode":          task.ActivationMode,
-				"condition_script_id":      task.ConditionScriptID,
-				"reject_action":            task.RejectAction,
-				"reject_target_task_id":    task.RejectTargetTaskID,
-				"complete_target_task_id":  task.CompleteTargetTaskID,
-				"opinion_requirement":      task.OpinionRequirement,
-				"reject_submit_form":       task.RejectSubmitForm,
-				"meeting_enabled":          task.MeetingEnabled,
-				"meeting_arrival_required": task.MeetingArrivalRequired,
-				"customer_follow_enabled":  task.CustomerFollowEnabled,
-				"include_in_meeting":       task.IncludeInMeeting,
-				"status":                   task.Status,
+				"stage_id":                    task.StageID,
+				"task_type":                   task.TaskType,
+				"assignee_mode":               task.AssigneeMode,
+				"assignee_department_id":      task.AssigneeDepartmentID,
+				"form_id":                     task.FormID,
+				"script_id":                   task.ScriptID,
+				"activation_mode":             task.ActivationMode,
+				"condition_script_id":         task.ConditionScriptID,
+				"reject_action":               task.RejectAction,
+				"reject_target_task_id":       task.RejectTargetTaskID,
+				"complete_target_task_id":     task.CompleteTargetTaskID,
+				"opinion_requirement":         task.OpinionRequirement,
+				"reject_submit_form":          task.RejectSubmitForm,
+				"meeting_enabled":             task.MeetingEnabled,
+				"meeting_arrival_required":    task.MeetingArrivalRequired,
+				"customer_follow_enabled":     task.CustomerFollowEnabled,
+				"communication_group_enabled": task.CommunicationGroupEnabled,
+				"include_in_meeting":          task.IncludeInMeeting,
+				"status":                      task.Status,
 			}
 		}
 	}
@@ -575,6 +578,7 @@ func normalizeTaskSystemControls(record map[string]any, effective map[string]any
 	normalizeTaskFormSwitch(record, effective, partial, isFormTask, "meeting_enabled")
 	normalizeTaskMeetingArrival(record, effective, partial, isFormTask)
 	normalizeTaskFormSwitch(record, effective, partial, isFormTask, "customer_follow_enabled")
+	normalizeTaskFormSwitch(record, effective, partial, isFormTask, "communication_group_enabled")
 }
 
 func normalizeTaskMeetingArrival(record map[string]any, effective map[string]any, partial bool, isFormTask bool) {

@@ -44,10 +44,13 @@ import {
   workListSearchEvent,
   workRefreshEvent,
   workStoreValue,
+  workTaskCommunicationGroupContextPath,
+  workTaskCommunicationGroupDraftPath,
+  workTaskCommunicationGroupErrorPath,
   workTaskFieldMapPath,
   workTaskFormFieldRequired,
   workTaskFormFieldVisible,
-  workTaskFormFieldVisibilityRule,
+  workTaskFormFieldVisibilityRules,
   workTaskActiveGroupPath,
   workTaskFormDataPath,
   workTaskFormFieldsPath,
@@ -60,6 +63,8 @@ import {
   type WorkAIFillResponse,
   type WorkAsset,
   type WorkCommonOption,
+  type WorkCommunicationGroup,
+  type WorkCommunicationGroupType,
   type WorkCustomer,
   type WorkCustomerMode,
   type WorkCustomerScope,
@@ -78,12 +83,15 @@ import {
   type WorkSummaryMetric,
   type WorkSummaryTrendPoint,
   type WorkTask,
+  type WorkTaskCommunicationGroupContext,
   type WorkTaskFieldRenderConfig,
   type WorkTaskFormField,
+  type WorkTaskFormFieldVisibilityRule,
   type WorkTaskFormGroup,
   type WorkTaskFormNode,
   type WorkTaskFormState,
 } from "./work-core";
+import { communicationGroupDraft } from "./work-communication-group-form";
 import {
   WorkCustomerListView,
   type WorkCustomerListRowView,
@@ -95,13 +103,17 @@ import {
   type WorkFlowModeCounts as WorkCustomerModeCounts,
 } from "./work-flow-mode-tabs";
 import {
-  WorkCustomerDetailData,
-  WorkCustomerDetailStyles,
   WorkCustomerFlowTimeline,
-  WorkDetailTabs,
+  type WorkCustomerFlowCurrentState,
   type WorkCustomerFlowEntryView,
-  type WorkDetailTab,
+  type WorkCustomerFlowTimelineVariant,
 } from "./work-customer-detail";
+import {
+  WorkCustomerDetailWorkspace,
+  normalizeWorkCustomerDetailAttachments,
+  type WorkCustomerDetailAttachment,
+  type WorkCustomerDetailWorkspaceSummary,
+} from "./work-customer-detail-workspace";
 import { WorkFlowOwnerDialog } from "./work-flow-owner-dialog";
 import {
   useWorkFeedbackModalFooterTargets,
@@ -113,6 +125,12 @@ import {
   workTaskLayoutMode,
   workTaskNodeFormFields,
 } from "./work-task-form";
+import {
+  applyWorkTaskCommunicationGroupError,
+  clearWorkTaskCommunicationGroupError,
+  collectWorkTaskCommunicationGroup,
+  validateWorkTaskCommunicationGroup,
+} from "./work-task-communication-group";
 import {
   emptyWorkTaskRecord,
   useWorkTaskStoreValue,
@@ -441,7 +459,7 @@ async function openRowTask(
   let detail: WorkDetailTargetResponse | null = null;
   if (customerID) {
     try {
-      detail = await refreshWorkDetailTarget(
+      detail = await refreshWorkTaskDetailTarget(
         store,
         customerID,
         assetID,
@@ -474,7 +492,13 @@ async function openRowTask(
     "data.actionTarget.workTaskDescription",
     workTaskDialogDescription(taskCustomer, taskAsset),
   );
-  await openPreparedWorkTaskModal(store, fullTask, taskCustomer, taskAsset);
+  await openPreparedWorkTaskModal(
+    store,
+    fullTask,
+    taskCustomer,
+    taskAsset,
+    detail,
+  );
 }
 
 export async function openWorkLeadTask(
@@ -505,8 +529,9 @@ async function openPreparedWorkTaskModal(
   task: WorkTask,
   customer?: WorkCustomer | null,
   asset?: WorkAsset,
+  detail?: WorkDetailTargetResponse | null,
 ) {
-  await prepareWorkTaskForm(store, task, customer, asset);
+  await prepareWorkTaskForm(store, task, customer, asset, detail);
   setWorkModalOpen(store, "dialog.workTask", true);
 }
 
@@ -595,8 +620,28 @@ async function prepareWorkTaskForm(
   task: WorkTask,
   customer?: WorkCustomer | null,
   asset?: WorkAsset,
+  detail?: WorkDetailTargetResponse | null,
 ) {
   const formState = buildWorkTaskFormState(task, customer, asset);
+  const communicationGroups = Array.isArray(detail?.communication_groups)
+    ? detail.communication_groups
+    : [];
+  const communicationGroupTypes = Array.isArray(
+    detail?.communication_group_types,
+  )
+    ? detail.communication_group_types
+    : [];
+  const communicationGroupWorkflowInstanceID =
+    textValue(detail?.communication_group_workflow_instance_id) ||
+    positiveTextID(task.workflow_instance_id);
+  const communicationGroupContext: WorkTaskCommunicationGroupContext = {
+    groups: communicationGroups,
+    groupTypes: communicationGroupTypes,
+    workflowInstanceID: communicationGroupWorkflowInstanceID,
+    canManage: Boolean(detail?.can_manage_communication_groups),
+  };
+  const activeCommunicationGroup =
+    communicationGroups.find((group) => group.status === "active") || null;
   setWorkStoreValue(store, workTaskFormDataPath, formState.values);
   setWorkStoreValue(store, workTaskFieldMapPath, formState.fieldMap);
   setWorkStoreValue(store, workTaskFormFieldsPath, formState.fields);
@@ -604,6 +649,21 @@ async function prepareWorkTaskForm(
   setWorkStoreValue(store, workTaskActiveGroupPath, "");
   setWorkStoreValue(store, workTaskUploadFilesPath, {});
   setWorkStoreValue(store, workTaskUploadPendingPath, {});
+  setWorkStoreValue(
+    store,
+    workTaskCommunicationGroupContextPath,
+    communicationGroupContext,
+  );
+  setWorkStoreValue(
+    store,
+    workTaskCommunicationGroupDraftPath,
+    communicationGroupDraft(
+      activeCommunicationGroup,
+      communicationGroupTypes,
+      communicationGroupWorkflowInstanceID,
+    ),
+  );
+  setWorkStoreValue(store, workTaskCommunicationGroupErrorPath, "");
   setCurrentWorkTaskFormErrors(store, {});
   replaceWorkTaskFormNodes(store, formState.nodes);
 }
@@ -1028,10 +1088,11 @@ function addWorkTaskDateNodes(
   tabs: WorkTaskFormGroup[],
   fieldMap: Record<string, string>,
 ) {
+  const fields = tabs.flatMap((tab) => tab.fields);
   for (const tab of tabs) {
     for (const field of tab.fields) {
       if (field.type !== "form-date") continue;
-      const visibility = workTaskDateVisibility(field, fieldMap);
+      const visibility = workTaskDateVisibility(field, fieldMap, fields);
       nodes.push({
         id: `work-task-date-${field.formKey}`,
         type: "form-date",
@@ -1073,12 +1134,33 @@ function addWorkTaskDateNodes(
 function workTaskDateVisibility(
   field: WorkTaskFormField,
   fieldMap: Record<string, string>,
+  fields: WorkTaskFormField[],
 ): {
   conditions: Array<Record<string, unknown>>;
   mode: "all" | "any";
 } {
-  const rule = workTaskFormFieldVisibilityRule(field);
-  if (!rule) return { conditions: [], mode: "all" };
+  const rules = workTaskFormFieldVisibilityRules(field, fieldMap, fields);
+  if (rules.length === 0) return { conditions: [], mode: "all" };
+  const groups = rules.map((rule) =>
+    workTaskDateVisibilityForRule(rule, fieldMap),
+  );
+  if (groups.length === 1) return groups[0];
+  if (groups.every((group) => group.mode === "all")) {
+    return {
+      conditions: groups.flatMap((group) => group.conditions),
+      mode: "all",
+    };
+  }
+  return groups[groups.length - 1];
+}
+
+function workTaskDateVisibilityForRule(
+  rule: WorkTaskFormFieldVisibilityRule,
+  fieldMap: Record<string, string>,
+): {
+  conditions: Array<Record<string, unknown>>;
+  mode: "all" | "any";
+} {
   const driverFormKey = Object.entries(fieldMap).find(
     ([, rawKey]) => rawKey === rule.driverRawKey,
   )?.[0];
@@ -1108,7 +1190,7 @@ function workTaskDateVisibility(
           : "equals",
       value,
     })),
-    mode: rule.operator === "in" ? "any" : "all",
+    mode: rule.operator === "in" && values.length > 1 ? "any" : "all",
   };
 }
 
@@ -1189,6 +1271,7 @@ function workTaskGroupField(
   const meta = {
     ...renderConfig.meta,
     ...(field.meta || {}),
+    dataFieldKey: textValue(field.field_key) || undefined,
   };
   return {
     formKey,
@@ -1407,10 +1490,13 @@ function openWorkDetail(
   store?: StoreLike,
   asset?: WorkAsset,
 ) {
+  setWorkStoreValue(store, workDetailProfilePrefetchPath, null);
   setWorkDetailTarget(store, customer, asset);
-  setWorkModalOpen(store, "dialog.workDetail", false);
-  setWorkModalOpen(store, "drawer.workDetail", true);
+  setWorkModalOpen(store, "dialog.workDetail", true);
 }
+
+const workDetailProfilePrefetchPath =
+  "data.actionTarget.workDetailProfilePrefetch";
 
 export async function openWorkCustomerDetailDrawer(
   store: WorkStoreLike | undefined,
@@ -1418,15 +1504,15 @@ export async function openWorkCustomerDetailDrawer(
   assetID = "",
   workflowInstanceID = "",
 ): Promise<boolean> {
-  const detail = await refreshWorkDetailTarget(
+  const detail = await refreshWorkDetailProfileTarget(
     store,
     customerID,
     assetID,
     workflowInstanceID,
   );
   if (!detail?.customer) return false;
-  setWorkModalOpen(store, "dialog.workDetail", false);
-  setWorkModalOpen(store, "drawer.workDetail", true);
+  setWorkStoreValue(store, workDetailProfilePrefetchPath, detail);
+  setWorkModalOpen(store, "dialog.workDetail", true);
   return true;
 }
 
@@ -1435,7 +1521,21 @@ type WorkDetailTargetResponse = {
   asset?: WorkAsset | null;
   operations?: WorkOperation[];
   list?: WorkOperation[];
+  flow?: WorkFlowDetail | null;
   detail_sections?: WorkDetailSection[];
+  communication_groups?: WorkCommunicationGroup[];
+  communication_group_types?: WorkCommunicationGroupType[];
+  communication_group_workflow_instance_id?: string | number;
+  can_manage_communication_groups?: boolean;
+};
+
+type WorkDetailOperationsResponse = {
+  list?: WorkOperation[];
+  operations?: WorkOperation[];
+};
+
+type WorkDetailAttachmentsResponse = {
+  list?: unknown[];
 };
 
 function setWorkDetailTarget(
@@ -1458,18 +1558,31 @@ function setWorkDetailTarget(
   );
 }
 
-async function refreshWorkDetailTarget(
+async function refreshWorkDetailProfileTarget(
   store: StoreLike | undefined,
   customerID: string,
   assetID = "",
   workflowInstanceID = "",
 ): Promise<WorkDetailTargetResponse | null> {
   if (!customerID) return null;
-  const query = new URLSearchParams({ customer_id: customerID });
-  if (assetID) query.set("asset_id", assetID);
-  if (workflowInstanceID) {
-    query.set("workflow_instance_id", workflowInstanceID);
+  const query = workDetailQuery(customerID, assetID, workflowInstanceID);
+  const payload = await workApi<WorkDetailTargetResponse>(
+    `/crm/work/customer_profile?${query.toString()}`,
+  );
+  if (payload.customer) {
+    setWorkDetailTarget(store, payload.customer, payload.asset ?? null);
   }
+  return payload;
+}
+
+async function refreshWorkTaskDetailTarget(
+  store: StoreLike | undefined,
+  customerID: string,
+  assetID = "",
+  workflowInstanceID = "",
+): Promise<WorkDetailTargetResponse | null> {
+  if (!customerID) return null;
+  const query = workDetailQuery(customerID, assetID, workflowInstanceID);
   const payload = await workApi<WorkDetailTargetResponse>(
     `/crm/work/customer_detail?${query.toString()}`,
   );
@@ -1477,6 +1590,46 @@ async function refreshWorkDetailTarget(
     setWorkDetailTarget(store, payload.customer, payload.asset ?? null);
   }
   return payload;
+}
+
+async function fetchWorkDetailOperations(
+  customerID: string,
+  assetID = "",
+): Promise<WorkOperation[]> {
+  const query = workDetailQuery(customerID, assetID);
+  const payload = await workApi<WorkDetailOperationsResponse>(
+    `/crm/work/customer_operations?${query.toString()}`,
+  );
+  return Array.isArray(payload.list)
+    ? payload.list
+    : Array.isArray(payload.operations)
+      ? payload.operations
+      : [];
+}
+
+async function fetchWorkDetailAttachments(
+  customerID: string,
+  assetID = "",
+  workflowInstanceID = "",
+): Promise<WorkCustomerDetailAttachment[]> {
+  const query = workDetailQuery(customerID, assetID, workflowInstanceID);
+  const payload = await workApi<WorkDetailAttachmentsResponse>(
+    `/crm/work/customer_attachments?${query.toString()}`,
+  );
+  return normalizeWorkCustomerDetailAttachments(payload.list);
+}
+
+function workDetailQuery(
+  customerID: string,
+  assetID = "",
+  workflowInstanceID = "",
+): URLSearchParams {
+  const query = new URLSearchParams({ customer_id: customerID });
+  if (assetID) query.set("asset_id", assetID);
+  if (workflowInstanceID) {
+    query.set("workflow_instance_id", workflowInstanceID);
+  }
+  return query;
 }
 
 function workDetailTitle(customer: WorkCustomer, asset?: WorkAsset): string {
@@ -2958,17 +3111,20 @@ export function ShowCrmWorkDetail({ store }: WorkNodeProps) {
     return <WorkEmptyText>暂无详情</WorkEmptyText>;
   }
 
-  if (asset) {
-    return (
-      <WorkAssetDetailContent
-        customer={customer}
-        asset={asset}
-        store={store}
-      />
-    );
-  }
+  const initialProfile = workStoreValue<WorkDetailTargetResponse | null>(
+    store,
+    workDetailProfilePrefetchPath,
+    null,
+  );
 
-  return <WorkCustomerDetailContent customer={customer} store={store} />;
+  return (
+    <WorkDetailContent
+      customer={customer}
+      asset={asset}
+      store={store}
+      initialProfile={initialProfile}
+    />
+  );
 }
 
 export function ShowCrmWorkRecordDetail({ store }: WorkNodeProps) {
@@ -3279,10 +3435,24 @@ function WorkRecordCurrentSummaryValue({
   return <>{displayText(item.value, "-")}</>;
 }
 
+function workDetailProfileForTarget(
+  profile: WorkDetailTargetResponse | null | undefined,
+  customerID: string,
+  assetID: string,
+): WorkDetailTargetResponse | null {
+  if (!profile?.customer || workCustomerID(profile.customer) !== customerID) {
+    return null;
+  }
+  const profileAssetID = textValue(profile.asset?.id);
+  if (profileAssetID !== assetID) return null;
+  return profile;
+}
+
 function useWorkDetailData(
   initialCustomer: WorkCustomer,
   initialAsset: WorkAsset | null | undefined,
   store?: StoreLike,
+  initialProfile?: WorkDetailTargetResponse | null,
 ) {
   const customerID = workCustomerID(initialCustomer);
   const assetID = textValue(initialAsset?.id);
@@ -3293,45 +3463,171 @@ function useWorkDetailData(
   );
   const initialCustomerRef = useRef(initialCustomer);
   const initialAssetRef = useRef<WorkAsset | null>(initialAsset ?? null);
-  const [customer, setCustomer] = useState(initialCustomer);
-  const [asset, setAsset] = useState<WorkAsset | null>(initialAsset ?? null);
+  const profileSeed = workDetailProfileForTarget(
+    initialProfile,
+    customerID,
+    assetID,
+  );
+  const profileSeedRef = useRef<WorkDetailTargetResponse | null>(profileSeed);
+  const profileSeedConsumedRef = useRef(false);
+  const profileRequestRef = useRef(0);
+  const operationsRequestRef = useRef(0);
+  const attachmentsRequestRef = useRef(0);
+  const [customer, setCustomer] = useState(
+    profileSeed?.customer ?? initialCustomer,
+  );
+  const [asset, setAsset] = useState<WorkAsset | null>(
+    profileSeed?.asset ?? initialAsset ?? null,
+  );
+  const [flow, setFlow] = useState<WorkFlowDetail | null>(
+    profileSeed?.flow ?? profileSeed?.asset?.flow ?? initialAsset?.flow ?? null,
+  );
   const [operations, setOperations] = useState<WorkOperation[]>([]);
-  const [detailSections, setDetailSections] = useState<WorkDetailSection[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [attachments, setAttachments] = useState<
+    WorkCustomerDetailAttachment[]
+  >([]);
+  const [detailSections, setDetailSections] = useState<WorkDetailSection[]>(
+    normalizeWorkDetailSections(profileSeed?.detail_sections),
+  );
+  const [communicationGroups, setCommunicationGroups] = useState<
+    WorkCommunicationGroup[]
+  >(
+    Array.isArray(profileSeed?.communication_groups)
+      ? profileSeed.communication_groups
+      : [],
+  );
+  const [communicationGroupTypes, setCommunicationGroupTypes] = useState<
+    WorkCommunicationGroupType[]
+  >(
+    Array.isArray(profileSeed?.communication_group_types)
+      ? profileSeed.communication_group_types
+      : [],
+  );
+  const [
+    communicationGroupWorkflowInstanceID,
+    setCommunicationGroupWorkflowInstanceID,
+  ] = useState(
+    textValue(profileSeed?.communication_group_workflow_instance_id),
+  );
+  const [canManageCommunicationGroups, setCanManageCommunicationGroups] =
+    useState(Boolean(profileSeed?.can_manage_communication_groups));
+  const [profileLoading, setProfileLoading] = useState(!profileSeed);
+  const [operationsLoading, setOperationsLoading] = useState(true);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(true);
+  const [profileError, setProfileError] = useState("");
+  const [operationsError, setOperationsError] = useState("");
+  const [attachmentsError, setAttachmentsError] = useState("");
 
-  const reload = useCallback(async () => {
-    if (!customerID) {
-      setCustomer(initialCustomerRef.current);
-      setAsset(initialAssetRef.current);
-      setOperations([]);
-      setDetailSections([]);
-      return;
-    }
-    setLoading(true);
+  const applyProfile = useCallback(
+    (data: WorkDetailTargetResponse) => {
+      if (data.customer) setCustomer(data.customer);
+      setAsset(data.asset ?? null);
+      setFlow(data.flow ?? data.asset?.flow ?? null);
+      setDetailSections(normalizeWorkDetailSections(data.detail_sections));
+      setCommunicationGroups(
+        Array.isArray(data.communication_groups)
+          ? data.communication_groups
+          : [],
+      );
+      setCommunicationGroupTypes(
+        Array.isArray(data.communication_group_types)
+          ? data.communication_group_types
+          : [],
+      );
+      setCommunicationGroupWorkflowInstanceID(
+        textValue(data.communication_group_workflow_instance_id),
+      );
+      setCanManageCommunicationGroups(
+        Boolean(data.can_manage_communication_groups),
+      );
+    },
+    [],
+  );
+
+  const reloadProfile = useCallback(async () => {
+    if (!customerID) return;
+    const requestID = profileRequestRef.current + 1;
+    profileRequestRef.current = requestID;
+    setProfileLoading(true);
+    setProfileError("");
     try {
-      const data = await refreshWorkDetailTarget(
+      const data = await refreshWorkDetailProfileTarget(
         store,
         customerID,
         assetID,
         workflowInstanceID,
       );
-      if (data?.customer) setCustomer(data.customer);
-      if (assetID) setAsset(data?.asset ?? null);
-      const list = Array.isArray(data?.operations)
-        ? data.operations
-        : Array.isArray(data?.list)
-          ? data.list
-          : [];
-      setOperations(list);
-      setDetailSections(normalizeWorkDetailSections(data?.detail_sections));
+      if (data && profileRequestRef.current === requestID) {
+        applyProfile(data);
+      }
     } catch (error) {
-      toast.error(errorMessage(error, "详情加载失败"));
-      setOperations([]);
-      setDetailSections([]);
+      if (profileRequestRef.current === requestID) {
+        setProfileError(errorMessage(error, "详细信息加载失败"));
+      }
     } finally {
-      setLoading(false);
+      if (profileRequestRef.current === requestID) {
+        setProfileLoading(false);
+      }
     }
-  }, [assetID, customerID, store, workflowInstanceID]);
+  }, [applyProfile, assetID, customerID, store, workflowInstanceID]);
+
+  const reloadOperations = useCallback(async () => {
+    if (!customerID) return;
+    const requestID = operationsRequestRef.current + 1;
+    operationsRequestRef.current = requestID;
+    setOperationsLoading(true);
+    setOperationsError("");
+    try {
+      const rows = await fetchWorkDetailOperations(customerID, assetID);
+      if (operationsRequestRef.current === requestID) {
+        setOperations(rows);
+      }
+    } catch (error) {
+      if (operationsRequestRef.current === requestID) {
+        setOperationsError(errorMessage(error, "时间轴加载失败"));
+      }
+    } finally {
+      if (operationsRequestRef.current === requestID) {
+        setOperationsLoading(false);
+      }
+    }
+  }, [assetID, customerID]);
+
+  const reloadAttachments = useCallback(async () => {
+    if (!customerID) return;
+    const requestID = attachmentsRequestRef.current + 1;
+    attachmentsRequestRef.current = requestID;
+    setAttachmentsLoading(true);
+    setAttachmentsError("");
+    try {
+      const rows = await fetchWorkDetailAttachments(
+        customerID,
+        assetID,
+        workflowInstanceID,
+      );
+      if (attachmentsRequestRef.current === requestID) {
+        setAttachments(rows);
+      }
+    } catch (error) {
+      if (attachmentsRequestRef.current === requestID) {
+        setAttachmentsError(errorMessage(error, "附件加载失败"));
+      }
+    } finally {
+      if (attachmentsRequestRef.current === requestID) {
+        setAttachmentsLoading(false);
+      }
+    }
+  }, [assetID, customerID, workflowInstanceID]);
+
+  const reloadAll = useCallback(
+    () =>
+      Promise.allSettled([
+        reloadProfile(),
+        reloadOperations(),
+        reloadAttachments(),
+      ]),
+    [reloadAttachments, reloadOperations, reloadProfile],
+  );
 
   useEffect(() => {
     initialCustomerRef.current = initialCustomer;
@@ -3339,160 +3635,235 @@ function useWorkDetailData(
   }, [initialAsset, initialCustomer]);
 
   useEffect(() => {
-    setCustomer(initialCustomerRef.current);
-    setAsset(initialAssetRef.current);
+    profileRequestRef.current += 1;
+    operationsRequestRef.current += 1;
+    attachmentsRequestRef.current += 1;
+    profileSeedRef.current = workDetailProfileForTarget(
+      initialProfile,
+      customerID,
+      assetID,
+    );
+    profileSeedConsumedRef.current = false;
+    const seed = profileSeedRef.current;
+    setCustomer(seed?.customer ?? initialCustomerRef.current);
+    setAsset(seed?.asset ?? initialAssetRef.current);
+    setFlow(
+      seed?.flow ??
+        seed?.asset?.flow ??
+        initialAssetRef.current?.flow ??
+        null,
+    );
     setOperations([]);
-    setDetailSections([]);
-  }, [assetID, customerID]);
+    setAttachments([]);
+    setDetailSections(normalizeWorkDetailSections(seed?.detail_sections));
+    setCommunicationGroups(
+      Array.isArray(seed?.communication_groups)
+        ? seed.communication_groups
+        : [],
+    );
+    setCommunicationGroupTypes(
+      Array.isArray(seed?.communication_group_types)
+        ? seed.communication_group_types
+        : [],
+    );
+    setCommunicationGroupWorkflowInstanceID(
+      textValue(seed?.communication_group_workflow_instance_id),
+    );
+    setCanManageCommunicationGroups(
+      Boolean(seed?.can_manage_communication_groups),
+    );
+    setProfileError("");
+    setOperationsError("");
+    setAttachmentsError("");
+    setProfileLoading(!seed);
+    setOperationsLoading(true);
+    setAttachmentsLoading(true);
+  }, [assetID, customerID, initialProfile]);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (profileSeedRef.current && !profileSeedConsumedRef.current) {
+      profileSeedConsumedRef.current = true;
+      void Promise.allSettled([reloadOperations(), reloadAttachments()]);
+      return;
+    }
+    void reloadAll();
+  }, [reloadAll, reloadAttachments, reloadOperations]);
 
   useEffect(() => {
     if (!customerID) {
       return undefined;
     }
+    const reload = () => {
+      void reloadAll();
+    };
     window.addEventListener(workRefreshEvent, reload);
     return () => {
       window.removeEventListener(workRefreshEvent, reload);
     };
-  }, [customerID, reload]);
+  }, [customerID, reloadAll]);
 
   return {
     customer,
     asset,
+    flow,
     operations,
+    attachments,
     detailSections,
-    loading,
+    communicationGroups,
+    communicationGroupTypes,
+    communicationGroupWorkflowInstanceID,
+    canManageCommunicationGroups,
+    profileLoading,
+    operationsLoading,
+    attachmentsLoading,
+    profileError,
+    operationsError,
+    attachmentsError,
+    reloadProfile,
+    reloadOperations,
+    reloadAttachments,
   };
 }
 
-function WorkCustomerDetailContent({
+function WorkDetailContent({
   customer,
+  asset,
   store,
+  initialProfile,
 }: {
   customer: WorkCustomer;
+  asset?: WorkAsset | null;
   store?: StoreLike;
+  initialProfile?: WorkDetailTargetResponse | null;
 }) {
   const [operationScope, setOperationScope] =
     useState<WorkOperationScope>("all");
   const customerID = workCustomerID(customer);
-  const [activeTab, setActiveTab] = useState<WorkDetailTab>("records");
-  const {
-    customer: detailCustomer,
-    operations,
-    detailSections,
-    loading: loadingDetail,
-  } = useWorkDetailData(customer, null, store);
-
-  useEffect(() => {
-    setActiveTab("records");
-    setOperationScope("all");
-  }, [customerID]);
-
-  return (
-    <div className="grid gap-5">
-      <WorkCustomerDetailStyles />
-      <WorkDetailTabs activeTab={activeTab} onChange={setActiveTab} />
-
-      <div>
-        {activeTab === "records" ? (
-          <WorkDetailRecords
-            operations={operations}
-            loadingOperations={loadingDetail}
-            operationScope={operationScope}
-            onOperationScopeChange={setOperationScope}
-            store={store}
-          />
-        ) : (
-          <WorkCustomerDetailData
-            customer={detailCustomer}
-            sections={detailSections}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function WorkAssetDetailContent({
-  customer,
-  asset,
-  store,
-}: {
-  customer: WorkCustomer;
-  asset: WorkAsset;
-  store?: StoreLike;
-}) {
-  const [operationScope, setOperationScope] =
-    useState<WorkOperationScope>("all");
-  const assetID = textValue(asset?.id);
-  const [activeTab, setActiveTab] = useState<WorkDetailTab>("records");
+  const assetID = workAssetID(asset);
   const {
     customer: detailCustomer,
     asset: detailAsset,
+    flow,
     operations,
+    attachments,
     detailSections,
-    loading: loadingDetail,
-  } = useWorkDetailData(customer, asset, store);
-  const activeAsset = detailAsset || asset;
+    communicationGroups,
+    communicationGroupTypes,
+    communicationGroupWorkflowInstanceID,
+    canManageCommunicationGroups,
+    profileLoading,
+    operationsLoading,
+    attachmentsLoading,
+    profileError,
+    operationsError,
+    attachmentsError,
+    reloadProfile,
+    reloadOperations,
+    reloadAttachments,
+  } = useWorkDetailData(customer, asset ?? null, store, initialProfile);
+  const activeAsset = detailAsset || asset || undefined;
+  const summary = useMemo(
+    () => workDetailWorkspaceSummary(detailCustomer, activeAsset, flow),
+    [activeAsset, detailCustomer, flow],
+  );
 
   useEffect(() => {
-    setActiveTab("records");
     setOperationScope("all");
-  }, [assetID]);
+  }, [assetID, customerID]);
 
   return (
-    <div className="grid gap-5">
-      <WorkCustomerDetailStyles />
-      <WorkDetailTabs activeTab={activeTab} onChange={setActiveTab} />
-
-      <div>
-        {activeTab === "records" ? (
-          <WorkDetailRecords
-            operations={operations}
-            loadingOperations={loadingDetail}
-            operationScope={operationScope}
-            onOperationScopeChange={setOperationScope}
-            store={store}
-          />
-        ) : (
-          <WorkCustomerDetailData
-            customer={detailCustomer}
-            asset={activeAsset}
-            sections={detailSections}
-          />
-        )}
-      </div>
-    </div>
+    <WorkCustomerDetailWorkspace
+      key={`${customerID}:${assetID}`}
+      customer={detailCustomer}
+      asset={activeAsset}
+      summary={summary}
+      sections={detailSections}
+      attachments={attachments}
+      profileLoading={profileLoading}
+      profileError={profileError}
+      attachmentsLoading={attachmentsLoading}
+      attachmentsError={attachmentsError}
+      timelineError={operationsError}
+      timelineHasData={operations.length > 0}
+      communicationGroups={communicationGroups}
+      communicationGroupTypes={communicationGroupTypes}
+      communicationGroupWorkflowInstanceID={
+        communicationGroupWorkflowInstanceID
+      }
+      canManageCommunicationGroups={canManageCommunicationGroups}
+      onReloadProfile={() => void reloadProfile()}
+      onReloadAttachments={() => void reloadAttachments()}
+      onReloadTimeline={() => void reloadOperations()}
+      timeline={
+        <WorkCustomerOperationTimeline
+          operations={operations}
+          loading={operationsLoading}
+          scope={operationScope}
+          onScopeChange={setOperationScope}
+          store={store}
+          variant="rail"
+          currentState={
+            flow
+              ? {
+                  ownerName: summary.ownerName,
+                  statusName:
+                    summary.flowStatus === "active"
+                      ? "处理中"
+                      : summary.flowStatusName,
+                }
+              : undefined
+          }
+        />
+      }
+    />
   );
 }
 
-function WorkDetailRecords({
-  operations,
-  loadingOperations,
-  operationScope,
-  onOperationScopeChange,
-  store,
-}: {
-  operations: WorkOperation[];
-  loadingOperations: boolean;
-  operationScope: WorkOperationScope;
-  onOperationScopeChange: (scope: WorkOperationScope) => void;
-  store?: StoreLike;
-}) {
-  return (
-    <div className="grid gap-5">
-      <WorkCustomerOperationTimeline
-        operations={operations}
-        loading={loadingOperations}
-        scope={operationScope}
-        onScopeChange={onOperationScopeChange}
-        store={store}
-      />
-    </div>
-  );
+function workDetailWorkspaceSummary(
+  customer: WorkCustomer,
+  asset: WorkAsset | undefined,
+  flow: WorkFlowDetail | null,
+): WorkCustomerDetailWorkspaceSummary {
+  const target = asset || customer;
+  const customerNo = workCustomerNo(customer);
+  const customerPhone = workCustomerPhone(customer);
+  const assetNo = workAssetNo(asset);
+  return {
+    title: workCustomerTitle(customer),
+    subtitle: asset ? assetTitle(asset) : "客户资料",
+    identifiers: [
+      customerNo === "-" ? "" : `客户 ${customerNo}`,
+      customerPhone === "-" ? "" : customerPhone,
+      assetNo ? `资产 ${assetNo}` : "",
+    ].filter(Boolean),
+    statusName: workStatusName(target),
+    workflowName: displayText(flow?.workflow_name),
+    stageName: displayText(flow?.stage_name, workStatusName(target)),
+    ownerName: displayText(
+      flow?.owner_staff_name || customer.current_owner_staff_name,
+    ),
+    updatedAt: formatWorkDate(
+      target.last_operated_at || target.updated_at || customer.created_at,
+    ),
+    flowStatus: textValue(flow?.status),
+    flowStatusName: workFlowStatusName(flow?.status),
+    stageDays: textValue(target.stage_days),
+  };
+}
+
+function workFlowStatusName(status: unknown): string {
+  switch (textValue(status)) {
+    case "active":
+      return "进行中";
+    case "completed":
+      return "已完成";
+    case "terminated":
+      return "已终止";
+    case "not_started":
+      return "未开始";
+    default:
+      return "未开始";
+  }
 }
 
 type WorkOperationScope = "all" | "mine";
@@ -3503,6 +3874,8 @@ export function WorkCustomerOperationTimeline({
   scope,
   onScopeChange,
   store,
+  variant,
+  currentState,
   loadingText,
   emptyText,
 }: {
@@ -3511,6 +3884,8 @@ export function WorkCustomerOperationTimeline({
   scope: WorkOperationScope;
   onScopeChange: (scope: WorkOperationScope) => void;
   store?: StoreLike;
+  variant?: WorkCustomerFlowTimelineVariant;
+  currentState?: WorkCustomerFlowCurrentState;
   loadingText?: string;
   emptyText?: string;
 }) {
@@ -3530,6 +3905,8 @@ export function WorkCustomerOperationTimeline({
       scope={scope}
       onScopeChange={onScopeChange}
       onOpen={(entry) => openWorkRecordDetail(entry.operation, store)}
+      variant={variant}
+      currentState={currentState}
       loadingText={loadingText}
       emptyText={emptyText}
     />
@@ -3549,8 +3926,9 @@ function workCustomerFlowEntryView(
     badgeClassName: tone.badge,
     dotClassName: tone.dot,
     stageName: workOperationStageLabel(operation),
-    operatorName: textValue(
+    operatorName: displayText(
       operation.operator_name || operation["operator_staff.name"],
+      "系统",
     ),
     time: formatWorkDate(operation.created_at || operation.create_time),
     operation,
@@ -3586,6 +3964,7 @@ function workOperationBadgeText(operation: WorkOperation): string {
   const businessEvent = workOperationBusinessEvent(operation);
   if (businessEvent === "lead_created") return "线索";
   if (businessEvent === "lead_converted") return "转化";
+  if (businessEvent.startsWith("communication_group_")) return "沟通群";
   const resultValue = textValue(operation.result_value);
   if (resultValue === "progress") return "进度";
   const taskType = textValue(
@@ -3609,6 +3988,9 @@ function workOperationResultName(operation: WorkOperation): string {
   const businessEvent = workOperationBusinessEvent(operation);
   if (businessEvent === "lead_created") return "已新增";
   if (businessEvent === "lead_converted") return "已转化";
+  if (businessEvent === "communication_group_created") return "已建群";
+  if (businessEvent === "communication_group_updated") return "已更新";
+  if (businessEvent === "communication_group_dissolved") return "已解散";
   const resultName = textValue(
     operation.result_value_name || operation.result_value_display,
   );
@@ -3619,6 +4001,8 @@ function workOperationResultName(operation: WorkOperation): string {
       return "保存进度";
     case "completed":
       return "已完成";
+    case "terminated":
+      return "已终止";
     case "submitted":
       return "已提交";
     case "approved":
@@ -3644,6 +4028,23 @@ function workOperationTone(operation: WorkOperation): {
   dot: string;
 } {
   const resultValue = textValue(operation.result_value);
+  if (resultValue === "communication_group_dissolved") {
+    return {
+      badge: "bg-muted text-muted-foreground",
+      border: "border-border/60",
+      dot: "bg-muted-foreground/70",
+    };
+  }
+  if (
+    resultValue === "communication_group_created" ||
+    resultValue === "communication_group_updated"
+  ) {
+    return {
+      badge: "bg-emerald-50 text-emerald-700",
+      border: "border-emerald-200/80",
+      dot: "bg-emerald-500",
+    };
+  }
   if (resultValue === "rejected" || resultValue === "failed") {
     return {
       badge: "bg-red-50 text-red-700",
@@ -3784,6 +4185,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
         return false;
       }
       clearCurrentWorkTaskFormErrors(store);
+      clearWorkTaskCommunicationGroupError(store);
       const noShow =
         mode === "complete" &&
         currentWorkTaskMeetingDecision(store) === "no_show";
@@ -3814,6 +4216,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
         focusFirstWorkTaskFormError(store);
         return false;
       }
+      if (!validateWorkTaskCommunicationGroup(store)) return false;
       return true;
     },
     [store, task],
@@ -3829,6 +4232,7 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
       if (!validated && !validateSubmit(mode)) return false;
       setSubmitting(true);
       try {
+        const communicationGroup = collectWorkTaskCommunicationGroup(store);
         const execution = await workApi<{ kept_pending?: boolean }>(
           "/crm/work/execute",
           {
@@ -3844,6 +4248,9 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
               next_owner_staff_id: nextOwnerStaffID || undefined,
               values: {
                 ...collectWorkTaskSubmitValues(store),
+                ...(communicationGroup
+                  ? { communication_group: communicationGroup }
+                  : {}),
                 submit_mode: mode,
               },
             }),
@@ -3861,7 +4268,10 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
         close();
       } catch (error) {
         const message = errorMessage(error);
-        if (nextOwnerStaffID || !applyWorkTaskSubmitError(store, message)) {
+        const handled =
+          applyWorkTaskCommunicationGroupError(store, message) ||
+          applyWorkTaskSubmitError(store, message);
+        if (nextOwnerStaffID || !handled) {
           toast.error(message || "保存失败");
         }
         return false;
@@ -4181,7 +4591,7 @@ function currentWorkTaskRequiredErrors(
     ) {
       continue;
     }
-    if (!workTaskFormFieldVisible(field, values, fieldMap)) continue;
+    if (!workTaskFormFieldVisible(field, values, fieldMap, fields)) continue;
     if (!workTaskFormValueEmpty(values[field.formKey])) continue;
     errors[`workTaskForm.${field.formKey}`] = `${field.label}不能为空。`;
   }
@@ -4251,7 +4661,10 @@ function collectWorkTaskSubmitValues(
   return Object.entries(fieldMap).reduce<Record<string, unknown>>(
     (values, [formKey, rawKey]) => {
       const field = fieldsByFormKey.get(formKey);
-      if (field && !workTaskFormFieldVisible(field, formValues, fieldMap)) {
+      if (
+        field &&
+        !workTaskFormFieldVisible(field, formValues, fieldMap, fields)
+      ) {
         return values;
       }
       values[rawKey] = formValues[formKey];

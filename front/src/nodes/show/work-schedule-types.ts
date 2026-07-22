@@ -1,5 +1,10 @@
 import type { UploadFileItem } from "@/lib/upload";
 
+import type {
+  WorkDepartmentOption,
+  WorkStaffOption,
+} from "./work-people-types";
+
 export type WorkScheduleType = "customer_follow" | "meeting" | "personal";
 export type WorkScheduleStatus = "pending" | "completed" | "canceled";
 export type WorkScheduleView = "timeGridDay" | "timeGridWeek" | "dayGridMonth";
@@ -59,17 +64,9 @@ export type WorkScheduleCustomerOption = {
   schedule_event_id?: string | number;
 };
 
-export type WorkScheduleStaffOption = {
-  id?: string | number;
-  name?: string;
-  phone?: string;
-  department_id?: string | number;
-};
+export type WorkScheduleStaffOption = WorkStaffOption;
 
-export type WorkScheduleDepartmentOption = {
-  id?: string | number;
-  name?: string;
-};
+export type WorkScheduleDepartmentOption = WorkDepartmentOption;
 
 export type WorkScheduleResourceOption = {
   id?: string | number;

@@ -636,6 +636,18 @@ var scheduleEventRelation = orm.Relation{
 	OptionKeys: []string{"title", "schedule_type", "start_at", "status"},
 }
 
+var communicationGroupTypeRelation = orm.Relation{
+	Field:      "group_type_id",
+	Option:     "crm.NewCommunicationGroupTypeModel",
+	OptionKeys: []string{"name", "code", "status"},
+}
+
+var communicationGroupRelation = orm.Relation{
+	Field:      "communication_group_id",
+	Option:     "crm.NewCommunicationGroupModel",
+	OptionKeys: []string{"name", "customer_id", "asset_id", "workflow_instance_id", "group_type_id", "status"},
+}
+
 var departmentRelation = orm.Relation{
 	Field:      "department_id",
 	Option:     "crm.NewDepartmentModel",
