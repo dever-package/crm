@@ -30,6 +30,10 @@ import {
   useWorkTaskStoreValue,
 } from "./work-task-form-fields";
 import { WorkTaskCommunicationGroupSection } from "./work-task-communication-group";
+import {
+  alaRentAssessmentGroupKey,
+  WorkTaskRentAssessment,
+} from "./work-task-rent-assessment";
 
 export function WorkTaskFormStyles() {
   return (
@@ -282,6 +286,11 @@ function focusWorkTaskFormField(
 }
 
 export function ShowCrmWorkTaskGroupTabs({ item, store }: WorkNodeProps) {
+  const task = useWorkTaskStoreValue<WorkTask | null>(
+    store,
+    "data.actionTarget.workTask",
+    null,
+  );
   const rawTabs = item?.meta?.["tabs"];
   const tabs = useMemo(() => normalizeWorkTaskFormGroups(rawTabs), [rawTabs]);
   const tabListRef = useRef<HTMLDivElement>(null);
@@ -320,6 +329,9 @@ export function ShowCrmWorkTaskGroupTabs({ item, store }: WorkNodeProps) {
 
   if (tabs.length === 0) return null;
   const activeTab = tabs.find((tab) => tab.id === activeTabID) || tabs[0];
+  const isRentAssessment =
+    activeTab.id === alaRentAssessmentGroupKey &&
+    Boolean(textValue(task?.form?.calculation_script_id));
   const customFields = activeTab.fields.filter(
     (field) => field.type !== "form-date",
   );
@@ -365,7 +377,9 @@ export function ShowCrmWorkTaskGroupTabs({ item, store }: WorkNodeProps) {
         </div>
       ) : null}
       <div className="min-w-0">
-        {customFields.length > 0 ? (
+        {isRentAssessment ? (
+          <WorkTaskRentAssessment fields={customFields} store={store} />
+        ) : customFields.length > 0 ? (
           <WorkTaskFieldGrid
             fields={customFields}
             store={store}

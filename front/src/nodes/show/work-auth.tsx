@@ -25,6 +25,7 @@ import { downloadUploadFile, type UploadFileItem } from "@/lib/upload";
 import { normalizeUploadItems } from "@/lib/resource";
 
 import {
+  collectWorkTaskSubmitValues,
   currentWorkStoreState,
   displayText,
   errorMessage,
@@ -47,6 +48,7 @@ import {
   workTaskCommunicationGroupContextPath,
   workTaskCommunicationGroupDraftPath,
   workTaskCommunicationGroupErrorPath,
+  workTaskCalculationPath,
   workTaskFieldMapPath,
   workTaskFormFieldRequired,
   workTaskFormFieldVisible,
@@ -135,6 +137,7 @@ import {
   emptyWorkTaskRecord,
   useWorkTaskStoreValue,
 } from "./work-task-form-fields";
+import { useWorkTaskFormCalculation } from "./work-task-calculation";
 import {
   buildFeishuOAuthURL,
   getFeishuAuthCode,
@@ -664,6 +667,7 @@ async function prepareWorkTaskForm(
     ),
   );
   setWorkStoreValue(store, workTaskCommunicationGroupErrorPath, "");
+  setWorkStoreValue(store, workTaskCalculationPath, { status: "idle" });
   setCurrentWorkTaskFormErrors(store, {});
   replaceWorkTaskFormNodes(store, formState.nodes);
 }
@@ -1225,7 +1229,9 @@ function workTaskGroupTab(
     textValue(group.label) ||
     textValue(group.name) ||
     textValue(group.field_key);
-  const id = workTaskFormKey(workFieldKey(group) || label || "group");
+  const id = workTaskFormKey(
+    textValue(group.field_key) || workFieldKey(group) || label || "group",
+  );
   const children = Array.isArray(group.children) ? group.children : [];
   const fields = children
     .filter((field) => !workFormFieldIsGroup(field))
@@ -4149,6 +4155,12 @@ export function ShowCrmWorkTaskForm({ store }: WorkNodeProps) {
     workTaskFieldMapPath,
     emptyWorkTaskRecord,
   );
+  useWorkTaskFormCalculation({
+    store,
+    task,
+    customerID: workCustomerID(customer),
+    assetID: workAssetID(asset),
+  });
   const hasUploadingFiles = Object.values(uploadPending).some(Boolean);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const canSaveProgress = task ? workTaskAllowsProgress(task) : false;
@@ -4635,43 +4647,6 @@ function workTaskRawFieldText(
     ([, currentRawKey]) => currentRawKey === rawKey,
   )?.[0];
   return formKey ? textValue(values[formKey]) : "";
-}
-
-function collectWorkTaskSubmitValues(
-  store: StoreLike | undefined,
-): Record<string, unknown> {
-  const formValues = workStoreValue<Record<string, unknown>>(
-    store,
-    workTaskFormDataPath,
-    {},
-  );
-  const fieldMap = workStoreValue<Record<string, string>>(
-    store,
-    workTaskFieldMapPath,
-    {},
-  );
-  const fields = workStoreValue<WorkTaskFormField[]>(
-    store,
-    workTaskFormFieldsPath,
-    [],
-  );
-  const fieldsByFormKey = new Map(
-    fields.map((field) => [field.formKey, field]),
-  );
-  return Object.entries(fieldMap).reduce<Record<string, unknown>>(
-    (values, [formKey, rawKey]) => {
-      const field = fieldsByFormKey.get(formKey);
-      if (
-        field &&
-        !workTaskFormFieldVisible(field, formValues, fieldMap, fields)
-      ) {
-        return values;
-      }
-      values[rawKey] = formValues[formKey];
-      return values;
-    },
-    {},
-  );
 }
 
 function applyWorkTaskAIFillValues(

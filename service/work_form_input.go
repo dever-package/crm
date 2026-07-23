@@ -132,23 +132,40 @@ func collectWorkFormInputByFormID(ctx context.Context, formID uint64, values map
 	return result, nil
 }
 
+type workInputFormFieldBinding struct {
+	FormField *crmmodel.FormField
+	DataField *crmmodel.DataField
+}
+
 func expandWorkInputFormFields(ctx context.Context, field *crmmodel.FormField) []*crmmodel.FormField {
+	bindings := expandWorkInputFormFieldBindings(ctx, field)
+	result := make([]*crmmodel.FormField, 0, len(bindings))
+	for _, binding := range bindings {
+		result = append(result, binding.FormField)
+	}
+	return result
+}
+
+func expandWorkInputFormFieldBindings(ctx context.Context, field *crmmodel.FormField) []workInputFormFieldBinding {
 	if field == nil || field.DataFieldID == 0 {
-		return []*crmmodel.FormField{field}
+		return []workInputFormFieldBinding{{FormField: field}}
 	}
 	dataField := crmmodel.NewDataFieldModel().Find(ctx, map[string]any{
 		"id":     field.DataFieldID,
 		"status": crmmodel.StatusEnabled,
 	})
 	if dataField == nil || dataField.FieldType != "group" {
-		return []*crmmodel.FormField{field}
+		return []workInputFormFieldBinding{{
+			FormField: field,
+			DataField: dataField,
+		}}
 	}
 	children := crmmodel.NewDataFieldModel().Select(ctx, map[string]any{
 		"data_template_id": dataField.DataTemplateID,
 		"parent_field_id":  dataField.ID,
 		"status":           crmmodel.StatusEnabled,
 	})
-	result := make([]*crmmodel.FormField, 0, len(children))
+	result := make([]workInputFormFieldBinding, 0, len(children))
 	for _, child := range children {
 		if child == nil || child.FieldType == "group" {
 			continue
@@ -158,7 +175,10 @@ func expandWorkInputFormFields(ctx context.Context, field *crmmodel.FormField) [
 		childField.DataFieldID = child.ID
 		childField.MainField = ""
 		childField.Name = child.Name
-		result = append(result, &childField)
+		result = append(result, workInputFormFieldBinding{
+			FormField: &childField,
+			DataField: child,
+		})
 	}
 	return result
 }

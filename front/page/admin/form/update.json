@@ -53,6 +53,27 @@
         }
       },
       {
+        "type": "form-select",
+        "name": "计算规则",
+        "value": "form.calculation_script_id",
+        "placeholder": "不选则不自动计算",
+        "mode": "form",
+        "info": "填写任务表单时运行所选脚本，并将脚本输出回填到当前表单字段。",
+        "option": {
+          "model": "crm.NewRuleScriptModel",
+          "labelField": "name",
+          "order": "sort asc,id asc",
+          "pageSize": 200,
+          "searchFields": ["name"],
+          "filters": {
+            "status": 1
+          }
+        },
+        "meta": {
+          "formLayout": "horizontal"
+        }
+      },
+      {
         "type": "form-array",
         "name": "表单字段",
         "value": "form.fields",
@@ -69,10 +90,11 @@
   },
   "data": {
     "form": {
-      "_fields": ["name", "fields"],
+      "_fields": ["name", "calculation_script_id", "fields"],
       "service": "crm.setting.CrmHook.BuildFormForm",
       "id": "",
       "name": "",
+      "calculation_script_id": "",
       "fields": []
     }
   },

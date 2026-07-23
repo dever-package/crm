@@ -8,6 +8,7 @@ import (
 
 type OperationLog struct {
 	ID                   uint64    `dorm:"primaryKey;autoIncrement;comment:操作记录ID"`
+	SourceKey            *string   `dorm:"type:varchar(224);null;comment:导入来源唯一键"`
 	CustomerID           uint64    `dorm:"type:bigint;not null;comment:客户"`
 	AssetID              uint64    `dorm:"type:bigint;not null;default:0;comment:客户资产"`
 	WorkflowInstanceID   uint64    `dorm:"type:bigint;not null;default:0;comment:流程实例"`
@@ -26,6 +27,7 @@ type OperationLog struct {
 }
 
 type OperationLogIndex struct {
+	SourceKey    struct{} `unique:"source_key"`
 	CustomerTime struct{} `index:"customer_id,created_at,id"`
 	AssetTime    struct{} `index:"asset_id,created_at,id"`
 	InstanceTime struct{} `index:"workflow_instance_id,created_at,id"`

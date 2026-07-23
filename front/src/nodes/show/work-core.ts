@@ -95,7 +95,23 @@ export type WorkFormField = {
 export type WorkForm = {
   id?: string | number;
   name?: string;
+  calculation_script_id?: string | number;
   fields?: WorkFormField[];
+};
+
+export type WorkFormCalculationResponse = {
+  passed?: boolean;
+  value?: string | number;
+  reason?: string;
+  fields?: Record<string, unknown>;
+  field_values?: Record<string, unknown>;
+  result?: unknown;
+  duration_ms?: string | number;
+};
+
+export type WorkFormCalculationState = WorkFormCalculationResponse & {
+  status: "idle" | "calculating" | "success" | "incomplete" | "error";
+  error?: string;
 };
 
 export type WorkTaskFieldRenderConfig = {
@@ -824,6 +840,8 @@ export const workTaskFieldMapPath = "data.actionTarget.workTaskFieldMap";
 export const workTaskFormFieldsPath = "data.actionTarget.workTaskFormFields";
 export const workTaskValidationErrorsPath =
   "data.actionTarget.workTaskValidationErrors";
+export const workTaskCalculationPath =
+  "data.actionTarget.workTaskCalculation";
 export const workTaskLayoutPath = "data.actionTarget.workTaskLayout";
 export const workTaskActiveGroupPath = "data.actionTarget.workTaskActiveGroup";
 export const workTaskUploadPendingPath =
@@ -837,6 +855,72 @@ export const workTaskCommunicationGroupDraftPath =
 export const workTaskCommunicationGroupErrorPath =
   "data.actionTarget.workTaskCommunicationGroupError";
 let workApiFreshSeq = 0;
+
+export function collectWorkTaskSubmitValues(
+  store: WorkStoreLike | undefined,
+): Record<string, unknown> {
+  const formValues = workStoreValue<Record<string, unknown>>(
+    store,
+    workTaskFormDataPath,
+    {},
+  );
+  const fieldMap = workStoreValue<Record<string, string>>(
+    store,
+    workTaskFieldMapPath,
+    {},
+  );
+  const fields = workStoreValue<WorkTaskFormField[]>(
+    store,
+    workTaskFormFieldsPath,
+    [],
+  );
+  const fieldsByFormKey = new Map(
+    fields.map((field) => [field.formKey, field]),
+  );
+  return Object.entries(fieldMap).reduce<Record<string, unknown>>(
+    (values, [formKey, rawKey]) => {
+      const field = fieldsByFormKey.get(formKey);
+      if (
+        field &&
+        !workTaskFormFieldVisible(field, formValues, fieldMap, fields)
+      ) {
+        return values;
+      }
+      values[rawKey] = formValues[formKey];
+      return values;
+    },
+    {},
+  );
+}
+
+export function applyWorkTaskRawValues(
+  store: WorkStoreLike | undefined,
+  rawValues: Record<string, unknown>,
+): number {
+  if (!store || Object.keys(rawValues).length === 0) return 0;
+  const fieldMap = workStoreValue<Record<string, string>>(
+    store,
+    workTaskFieldMapPath,
+    {},
+  );
+  const formValues = {
+    ...workStoreValue<Record<string, unknown>>(
+      store,
+      workTaskFormDataPath,
+      {},
+    ),
+  };
+  let count = 0;
+  for (const [formKey, rawKey] of Object.entries(fieldMap)) {
+    if (!Object.prototype.hasOwnProperty.call(rawValues, rawKey)) continue;
+    formValues[formKey] = rawValues[rawKey];
+    count += 1;
+  }
+  if (count > 0) {
+    setWorkStoreValue(store, workTaskFormDataPath, formValues);
+  }
+  return count;
+}
 
 const buttonBase =
   "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60";

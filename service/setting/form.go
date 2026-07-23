@@ -70,6 +70,7 @@ func (CrmHook) ProviderBeforeSaveForm(c *server.Context, params []any) any {
 	partial := isPartialCrmRecord(record)
 	trimCrmStringField(record, "name", partial)
 	trimCrmStringField(record, "description", partial)
+	normalizeFormCalculationScript(c, record, partial)
 	normalizeEmbeddedFormFields(c, record, partial)
 	if !partial && util.ToStringTrimmed(record["name"]) == "" {
 		panicCrmField("form.name", "资料模板名称不能为空。")
@@ -77,6 +78,28 @@ func (CrmHook) ProviderBeforeSaveForm(c *server.Context, params []any) any {
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	defaultCrmInt(record, "sort", 100, partial)
 	return record
+}
+
+func normalizeFormCalculationScript(c *server.Context, record map[string]any, partial bool) {
+	if partial && !hasAnyCrmField(record, "calculation_script_id") {
+		return
+	}
+	scriptID := util.ToUint64(record["calculation_script_id"])
+	if scriptID == 0 {
+		record["calculation_script_id"] = uint64(0)
+		return
+	}
+	ctx := context.Background()
+	if c != nil {
+		ctx = c.Context()
+	}
+	if crmmodel.NewRuleScriptModel().Find(ctx, map[string]any{
+		"id":     scriptID,
+		"status": crmmodel.StatusEnabled,
+	}) == nil {
+		panicCrmField("form.calculation_script_id", "计算规则不存在或已停用。")
+	}
+	record["calculation_script_id"] = scriptID
 }
 
 func (CrmHook) ProviderBeforeSaveFormField(c *server.Context, params []any) any {

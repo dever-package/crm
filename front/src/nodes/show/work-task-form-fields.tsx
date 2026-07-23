@@ -86,6 +86,64 @@ function WorkTaskField({
   field: WorkTaskFormField;
   store?: WorkStoreLike;
 }) {
+  const control = useWorkTaskFieldControl(field, store);
+
+  if (!control.visible) return null;
+
+  return (
+    <div
+      className={`crm-work-task-field min-w-0 ${
+        field.readonly ? "opacity-70" : ""
+      }`}
+      data-work-form-key={field.formKey}
+      data-work-full-width={field.fullWidth ? "true" : "false"}
+      tabIndex={-1}
+    >
+      <div className="mb-1.5 flex min-h-5 items-center gap-1 text-sm font-medium text-foreground">
+        <span>{field.label}</span>
+        {control.required ? <span className="text-destructive">*</span> : null}
+        {field.readonly ? (
+          <span className="ml-auto text-xs font-normal text-muted-foreground">
+            只读
+          </span>
+        ) : null}
+      </div>
+      {control.renderer({
+        field,
+        value: control.value,
+        setValue: control.setValue,
+        store,
+        error: control.error,
+      })}
+      {control.error ? (
+        <p className="mt-1.5 text-xs text-destructive">{control.error}</p>
+      ) : null}
+    </div>
+  );
+}
+
+export function WorkTaskFieldControl({
+  field,
+  store,
+}: {
+  field: WorkTaskFormField;
+  store?: WorkStoreLike;
+}) {
+  const control = useWorkTaskFieldControl(field, store);
+  if (!control.visible) return null;
+  return control.renderer({
+    field,
+    value: control.value,
+    setValue: control.setValue,
+    store,
+    error: control.error,
+  });
+}
+
+function useWorkTaskFieldControl(
+  field: WorkTaskFormField,
+  store: WorkStoreLike | undefined,
+) {
   const formValues = useWorkTaskStoreValue<Record<string, unknown>>(
     store,
     workTaskFormDataPath,
@@ -132,35 +190,14 @@ function WorkTaskField({
   );
   const renderer =
     taskFieldRenderers[field.type] || taskFieldRenderers["form-input"];
-
-  if (!workTaskFormFieldVisible(field, formValues, fieldMap, fields)) {
-    return null;
-  }
-
-  return (
-    <div
-      className={`crm-work-task-field min-w-0 ${
-        field.readonly ? "opacity-70" : ""
-      }`}
-      data-work-form-key={field.formKey}
-      data-work-full-width={field.fullWidth ? "true" : "false"}
-      tabIndex={-1}
-    >
-      <div className="mb-1.5 flex min-h-5 items-center gap-1 text-sm font-medium text-foreground">
-        <span>{field.label}</span>
-        {required ? <span className="text-destructive">*</span> : null}
-        {field.readonly ? (
-          <span className="ml-auto text-xs font-normal text-muted-foreground">
-            只读
-          </span>
-        ) : null}
-      </div>
-      {renderer({ field, value, setValue, store, error })}
-      {error ? (
-        <p className="mt-1.5 text-xs text-destructive">{error}</p>
-      ) : null}
-    </div>
-  );
+  return {
+    error,
+    renderer,
+    required,
+    setValue,
+    value,
+    visible: workTaskFormFieldVisible(field, formValues, fieldMap, fields),
+  };
 }
 
 export function useWorkTaskStoreValue<T>(

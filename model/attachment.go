@@ -8,6 +8,7 @@ import (
 
 type Attachment struct {
 	ID              uint64    `dorm:"primaryKey;autoIncrement;comment:附件ID"`
+	SourceKey       *string   `dorm:"type:varchar(224);null;comment:导入来源唯一键"`
 	CustomerID      uint64    `dorm:"type:bigint;not null;comment:客户"`
 	AssetID         uint64    `dorm:"type:bigint;not null;default:0;comment:客户资产"`
 	TaskID          uint64    `dorm:"type:bigint;not null;default:0;comment:任务"`
@@ -25,6 +26,7 @@ type Attachment struct {
 }
 
 type AttachmentIndex struct {
+	SourceKey     struct{} `unique:"source_key"`
 	CustomerTime  struct{} `index:"customer_id,created_at,id"`
 	AssetTime     struct{} `index:"asset_id,created_at,id"`
 	TaskTime      struct{} `index:"task_id,created_at,id"`

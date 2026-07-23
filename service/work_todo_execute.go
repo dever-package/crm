@@ -116,6 +116,9 @@ func saveOrCompleteFormTodo(ctx context.Context, staff *WorkStaffSession, todo *
 		return nil, fmt.Errorf("到访结果请使用确认按钮提交")
 	}
 	keepPending := progressOnly || task.MeetingEnabled && arrivalDecision == crmmodel.MeetingArrivalNoShow
+	if _, err := applyWorkFormCalculation(ctx, todo, task, values, !keepPending); err != nil {
+		return nil, err
+	}
 	var formInput *workFormInput
 	var err error
 	if keepPending {
@@ -271,6 +274,9 @@ func prepareApprovalFormSubmission(
 	operationSnapshot["opinion"] = opinion
 	if task.FormID == 0 || decision == "rejected" && !task.RejectSubmitForm {
 		return nil, operationSnapshot, nil
+	}
+	if _, err := applyWorkFormCalculation(ctx, todo, task, values, true); err != nil {
+		return nil, nil, err
 	}
 	formInput, err := collectWorkFormInput(ctx, task, values)
 	if err != nil {

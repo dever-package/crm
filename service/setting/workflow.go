@@ -155,6 +155,9 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 		panicCrmField("form.task_type", "任务类型无效。")
 	}
 	taskEnabled := int16(util.ToIntDefault(effective["status"], int(crmmodel.StatusEnabled))) == crmmodel.StatusEnabled
+	if !taskEnabled {
+		validateTaskCanDisable(ctx, util.ToUint64(effective["id"]))
+	}
 	validateTaskWorkflowSubject(ctx, stage.WorkflowID, taskType, util.ToUint64(effective["form_id"]))
 	normalizeSimpleTaskTarget(ctx, record, effective, partial, taskType, taskEnabled)
 	normalizeSimpleTaskAssignee(ctx, record, effective, partial, taskEnabled, stage)
@@ -175,6 +178,22 @@ func (CrmHook) ProviderBeforeSaveTask(c *server.Context, params []any) any {
 	defaultCrmInt(record, "sort", 100, partial)
 	defaultCrmInt16(record, "status", crmmodel.StatusEnabled, partial)
 	return record
+}
+
+func validateTaskCanDisable(ctx context.Context, taskID uint64) {
+	if taskID == 0 {
+		return
+	}
+	referenced := crmmodel.NewTaskModel().Count(ctx, map[string]any{
+		"status":                  crmmodel.StatusEnabled,
+		"complete_target_task_id": taskID,
+	}) > 0 || crmmodel.NewTaskModel().Count(ctx, map[string]any{
+		"status":                crmmodel.StatusEnabled,
+		"reject_target_task_id": taskID,
+	}) > 0
+	if referenced {
+		panicCrmField("form.status", "该任务仍被其他任务的流转配置引用，请先取消关联后再停用。")
+	}
 }
 
 func validateTaskWorkflowSubject(ctx context.Context, workflowID uint64, taskType string, formID uint64) {
